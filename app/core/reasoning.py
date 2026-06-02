@@ -3,6 +3,7 @@
 Checks a proposed answer against invariants. Extend `extra_checks` per
 project. If any check fails, the gate blocks the output.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -31,7 +32,7 @@ def muhasabah_gate(
         if not f.sources:
             failures.append(f"unsourced fact: {f.claim!r}")
 
-    for check in (extra_checks or []):
+    for check in extra_checks or []:
         msg = check(answer, facts)
         if msg:
             failures.append(msg)

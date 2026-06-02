@@ -1,15 +1,24 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.config import settings  # noqa: F401  (imported so .env loads at startup)
 from app.core.provenance import Fact, Source
 from app.core.reasoning import muhasabah_gate
+from app.db import dispose_engine
+from app.health import router as health_router
 
-app = FastAPI(title="app")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Engine is created lazily on first use; dispose cleanly on shutdown.
+    yield
+    await dispose_engine()
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+app = FastAPI(title="uaid-os", lifespan=lifespan)
+
+app.include_router(health_router)
 
 
 @app.get("/demo")

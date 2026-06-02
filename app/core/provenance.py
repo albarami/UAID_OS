@@ -3,6 +3,7 @@
 Enforces the No-Free-Facts rule. Every asserted fact must carry at least
 one Source; a Fact built without sources raises NoFreeFactsError.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,8 +15,8 @@ class NoFreeFactsError(ValueError):
 
 @dataclass(frozen=True)
 class Source:
-    origin: str            # url, document id, tool, or model that produced it
-    locator: str = ""      # page, line, query, timestamp
+    origin: str  # url, document id, tool, or model that produced it
+    locator: str = ""  # page, line, query, timestamp
     confidence: float = 1.0
 
 
