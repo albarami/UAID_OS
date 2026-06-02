@@ -1,0 +1,9 @@
+environments:
+  local: {}
+  development: {}
+  staging: {}
+  production:
+    cloud_provider: ""
+    region: ""
+    domain: ""
+    deployment_approval_required: true

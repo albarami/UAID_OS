@@ -1,0 +1,14 @@
+test_oracles:
+  - id: ORACLE-001
+    type: specified | reference | judgment
+    target_requirement: REQ-001
+    expected_behavior: ""
+    reference_source: ""
+    tolerance: exact | percentage | rubric | custom
+    sample_size: 100
+    sample_size_policy: illustrative_default_tune_per_project_risk
+    minimum_pass_rate: 0.85
+    minimum_pass_rate_policy: illustrative_default_tune_per_project_risk
+    inter_rater_reliability_minimum: 0.70
+    irr_policy: illustrative_default_tune_per_project_risk
+    reviewers: []

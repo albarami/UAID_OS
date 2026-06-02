@@ -1,0 +1,17 @@
+agent:
+  id: string
+  role: string
+  mission: string
+  prompt_family: string
+  system_prompt_template: string
+  task_contract_interface: string
+  tool_allowlist: []
+  context_retrieval_policy: {}
+  memory_policy: {}
+  model_routing_policy: {}
+  action_authority_limits: {}
+  reviewer_linkage: []
+  eval_suite_reference: string
+  budget_limits: {}
+  observability_hooks: []
+  version_identifier: string

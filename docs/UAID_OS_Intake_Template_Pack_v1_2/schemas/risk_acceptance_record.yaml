@@ -1,0 +1,14 @@
+risk_acceptance_record:
+  id: string
+  release_id: string
+  issue_id: string
+  severity: low | medium | high | critical
+  affected_requirements: []
+  reason_for_acceptance: string
+  compensating_controls: []
+  expiry_date: date
+  owner: string
+  approver: string
+  approval_authority_source: approval_matrix
+  rollback_or_mitigation_plan: string
+  evidence_links: []

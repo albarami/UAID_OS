@@ -1,0 +1,11 @@
+go_live_checklist:
+  product: {}
+  engineering: {}
+  ai_and_data: {}
+  security: {}
+  operations: {}
+  governance:
+    evidence_pack_complete: required
+    approval_events_recorded: required
+    separation_of_duties_confirmed: required
+    open_issues_have_risk_acceptance: required_if_any_open_issues

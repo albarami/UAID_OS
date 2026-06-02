@@ -1,0 +1,13 @@
+project:
+  id: ""
+  name: ""
+  owner: ""
+  business_owner: ""
+  technical_owner: ""
+  target_outcome: ""
+  desired_go_live_date: ""
+  repository_preference: github | gitlab | azure_devops | other
+  project_management_preference: jira | linear | github_projects | other
+  communication_channel: slack | teams | email | dashboard | other
+  readiness_target: R5
+  autonomy_target: A3

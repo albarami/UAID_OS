@@ -1,0 +1,7 @@
+acceptance_criteria:
+  - id: AC-001
+    requirement_id: REQ-001
+    text: ""
+    authorship: user_authored | user_authored_system_normalized | system_authored_human_approved | system_authored_independent_approved | system_authored_unapproved | disputed
+    risk_level: low | medium | high | critical
+    verification_method: test | review | inspection | judgment_oracle | reference_oracle

@@ -1,0 +1,40 @@
+domain_pack:
+  domain_name: ""
+  domain_summary: ""
+  regulatory_authorities: []
+  legal_entities: []
+  jurisdictional_scope:
+    countries: []
+    regions: []
+    data_residency_requirements: []
+    cross_border_data_rules: []
+  domain_entities: []
+  terminology_lexicon: []
+  business_rules: []
+  formulas_and_calculations: []
+  standards_and_frameworks: []
+  sensitivity_rules:
+    data_classes: []
+    prohibited_outputs: []
+    restricted_actions: []
+    escalation_triggers: []
+  localization_policy:
+    languages: []
+    locale_formats: []
+    cultural_sensitivity_rules: []
+    accessibility_expectations: []
+  domain_review_authorities:
+    by_decision_type:
+      regulatory: {}
+      clinical: {}
+      financial: {}
+      safety: {}
+      legal: {}
+      data_privacy: {}
+      ethics_or_cultural_sensitivity: {}
+      technical: {}
+      operational: {}
+      other: {}
+  domain_test_scenarios: []
+  prohibited_assumptions: []
+  open_domain_questions: []

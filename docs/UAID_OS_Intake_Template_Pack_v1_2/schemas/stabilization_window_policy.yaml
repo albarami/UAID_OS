@@ -1,0 +1,13 @@
+stabilization_window:
+  duration_days: 14
+  owner: string
+  support_owner: string
+  monitored_journeys: []
+  error_budget_threshold: string
+  exit_criteria:
+    zero_open_critical_incidents_for_days: 3
+    error_budget_under_threshold: true
+    monitoring_confirmed_active: true
+    rollback_blockers_open: 0
+    support_handover_complete: true
+  closure_approver: string

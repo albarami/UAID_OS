@@ -1,0 +1,11 @@
+model_change_policy:
+  pin_models_during_run: true
+  forced_deprecation_behavior:
+    pause_affected_runs: true
+    identify_successor_candidates: true
+    requalify_agents: true
+    regression_compare_representative_tasks: true
+    require_agent_qa_approval_to_resume: true
+  provider_outage_behavior:
+    short_outage: pause_or_reroute_low_risk_work
+    extended_outage: trigger_stop_condition_model_provider_outage_extended

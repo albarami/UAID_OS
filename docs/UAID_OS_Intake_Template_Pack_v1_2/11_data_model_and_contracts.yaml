@@ -1,0 +1,7 @@
+data_contracts:
+  entities: []
+  schemas: []
+  relationships: []
+  validation_rules: []
+  retention_rules: []
+  lineage_requirements: []

@@ -1,0 +1,9 @@
+archetype_eval:
+  archetype: builder | reviewer | security_reviewer | data_engineer | domain_reasoner | prompt_engineer | knowledge_graph_rag | ai_evaluator | integration_connector | deployment_sre | evidence_auditor
+  representative_task_set: []
+  gold_answer_source: []
+  scoring_rubric: []
+  minimum_activation_threshold: ""
+  refresh_policy: ""
+  adversarial_cases_required: true
+  edge_cases_required: true

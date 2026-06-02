@@ -1,0 +1,8 @@
+integrations:
+  - name: ""
+    type: api | database | file | webhook | messaging | rpa | other
+    environment: sandbox | production | both
+    auth_method: ""
+    documentation_url: ""
+    owner: ""
+    risk_level: low | medium | high | critical

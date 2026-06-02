@@ -1,0 +1,16 @@
+human_approval_policy:
+  approval_channel: dashboard | slack | teams | email | ticketing_system
+  daily_digest_time: "09:00"
+  batch_low_risk_questions: true
+  realtime_for:
+    - production_deployment
+    - security_exception
+    - cost_overrun
+    - data_access
+    - legal_or_regulatory_decision
+  non_response_policy:
+    low_risk: proceed_with_safe_assumption_after_24h
+    medium_risk: pause_affected_work_after_24h
+    high_risk: block_until_approval
+    production: block_until_approval
+  approvers: []

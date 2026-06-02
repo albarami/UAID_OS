@@ -1,0 +1,40 @@
+[project]
+name = "app"
+version = "0.1.0"
+description = "Salim-standard AI service: FastAPI + Postgres/Redis/Chroma + Sanad provenance"
+requires-python = ">=3.11,<3.12"
+# Trim any line below if uv hits a resolution conflict; re-run `uv sync`.
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "pydantic-settings>=2",
+    "sqlalchemy>=2",
+    "asyncpg",
+    "redis",
+    "chromadb",
+    "httpx",
+    "numpy",
+    "scipy",
+    "anthropic",
+    "openai",
+    "langgraph",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100

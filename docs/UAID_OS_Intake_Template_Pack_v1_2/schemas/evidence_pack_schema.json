@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "uaid.evidence_pack.v1.2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "project_id",
+    "release_id",
+    "generated_at",
+    "scope",
+    "traceability",
+    "verdict",
+    "signatures"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "uaid.evidence_pack.v1.2"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "release_id": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scope": {
+      "type": "object"
+    },
+    "traceability": {
+      "type": "array"
+    },
+    "test_results": {
+      "type": "array"
+    },
+    "review_reports": {
+      "type": "array"
+    },
+    "reviewer_quality_records": {
+      "type": "array"
+    },
+    "risk_acceptances": {
+      "type": "array"
+    },
+    "provenance_chains": {
+      "type": "array"
+    },
+    "audit_log_hash": {
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "passed",
+        "passed_with_accepted_risk",
+        "failed",
+        "blocked"
+      ]
+    },
+    "signatures": {
+      "type": "array"
+    }
+  }
+}

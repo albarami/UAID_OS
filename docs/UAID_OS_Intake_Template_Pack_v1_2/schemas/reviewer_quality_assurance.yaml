@@ -1,0 +1,10 @@
+reviewer_quality_assurance:
+  require_different_model_route_from_builder: true
+  high_risk_prefer_different_provider: true
+  single_provider_fallback:
+    allowed: true
+    degraded_control: true
+    requires_human_compensation_for_high_risk: true
+  planted_defect_sampling_rate: 0.05
+  max_critical_defect_miss_rate: 0.00
+  max_false_approval_rate: 0.03

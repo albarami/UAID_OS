@@ -1,0 +1,15 @@
+autonomy_policy:
+  requested_level: A3
+  allow:
+    create_repositories: false
+    create_branches: true
+    open_pull_requests: true
+    deploy_staging: true
+  require_approval:
+    merge_to_main: true
+    deploy_production: true
+    delete_resources: true
+    change_secrets: true
+    modify_billing: true
+  no_fake_done: true
+  no_silent_fallbacks: true

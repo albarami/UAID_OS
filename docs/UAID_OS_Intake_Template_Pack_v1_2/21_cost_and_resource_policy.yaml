@@ -1,0 +1,15 @@
+cost_and_resource_policy:
+  max_total_model_cost_usd: 0
+  max_daily_model_cost_usd: 0
+  max_cloud_spend_usd: 0
+  max_ci_minutes_per_day: 0
+  require_approval_above_forecast_percentage: 20
+  model_routing:
+    cheap_first_for_low_risk: true
+    frontier_for_high_risk: true
+    use_cached_context_when_possible: true
+  stop_conditions:
+    - budget_exceeded
+    - repeated_failure_without_new_strategy
+    - tool_loop_detected
+    - model_provider_outage_extended
