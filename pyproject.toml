@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings>=2",
     "sqlalchemy>=2",
+    "alembic",
     "asyncpg",
     "redis",
     "chromadb",
@@ -35,6 +36,9 @@ package = false
 asyncio_mode = "auto"
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+    "db: DB-backed test requiring Postgres; run via `make test-db` (deselected by `make test`)",
+]
 
 [tool.ruff]
 line-length = 100
