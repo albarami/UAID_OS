@@ -47,9 +47,13 @@ implemented. Do not assume any spec capability exists unless it is listed under
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
-  `name: uaid_os`. **Verified working:** `make up` starts all three and they report
-  healthy (postgres `:5432`, redis `:6379`, chroma `:8001`). `make down` stops them;
-  data persists in named volumes `uaid_os_{pgdata,redisdata,chromadata}`.
+  `name: uaid_os`. **Verified working** via `make up` (confirmed with `docker inspect`):
+  - postgres `:5432` — **healthy** via Compose healthcheck (`pg_isready`).
+  - redis `:6379` — **healthy** via Compose healthcheck (`redis-cli ping`).
+  - chroma `:8001` — **running** (no Compose healthcheck; the image has no
+    curl/wget/python to script one). Connectivity verified externally: `HTTP 200`
+    on `/api/v2/heartbeat`.
+  `make down` stops them; data persists in volumes `uaid_os_{pgdata,redisdata,chromadata}`.
 - `Makefile`, `.gitignore`, `.env.example`, `.python-version`.
 
 ### Source-of-truth docs (preserved in `docs/`)
