@@ -129,13 +129,12 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 
 ## Slices 2–10 — *(summary; each detailed before its build)*
 
-### Slice 1b — Tenancy hardening: Postgres RLS  *(D1: must complete before Slices 3+)*
-- **Scope:** enable RLS on tenant-owned tables; dedicated **non-superuser** app role; set `app.current_tenant` GUC per transaction; deny-by-default policies.
-- **Files:** `migrations/` (role + RLS), `app/db.py` (SET LOCAL per txn), `app/tenancy.py` (bind context → GUC).
-- **Schema:** no new tables; `ALTER TABLE … ENABLE ROW LEVEL SECURITY` + `CREATE POLICY`; new DB role.
-- **Tests:** raw `SELECT` under T_a GUC cannot see T_b; missing GUC → 0 rows.
-- **Evidence:** `rowsecurity` on; raw cross-tenant blocked.
-- **Non-goals:** column-level security; request auth.
+### Slice 1b — Tenancy hardening: Postgres RLS  *(D1: must complete before Slices 3+)* — **IMPLEMENTED (pending review/merge)**
+- **Scope:** ENABLE+FORCE RLS on `projects`/`project_runs`; dedicated non-superuser runtime role `uaid_app`; `app.current_tenant` GUC via `set_config(..., true)` per transaction; deny-by-default policy.
+- **Files (actual):** `migrations/versions/0002_rls_tenant_isolation.py`, `scripts/bootstrap_rls_role.sql`, `app/tenancy.py` (`tenant_scope`), `app/config.py` (admin/runtime URLs), `migrations/env.py` (admin-only resolution), `tests/conftest.py` (admin + `uaid_app` fixtures), `tests/test_rls.py`, `Makefile`, `.env.example`, docs.
+- **Schema:** no new tables; RLS + policies + grants to `uaid_app`. Role created by `make db-bootstrap-rls-role` (not Alembic).
+- **Tests/evidence:** INV-5 (isolation, deny-by-default, cross-tenant write blocked, repo works when bound) + catalog (RLS enabled+forced, policies, role attrs, owner) — **`make test-db` → 16 passing**. At rev 0001 (no RLS/grants) `uaid_app` is denied — confirms RLS does the work.
+- **Non-goals (held):** column-level security; request→tenant auth; RLS on `organizations`/`tenants`.
 
 ### Slice 2 — Append-only audit log (§16.6)
 - **Scope:** `audit_logs`, hash-chained (`prev_hash`→`entry_hash`), append-only; a writer API other slices call.
@@ -242,5 +241,7 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slice 1 approved and committed. **Next: Slice 1b (Postgres RLS)** — per D1 it must
-land before Slices 3+. Do not start until greenlit.
+Slice 1 merged (PR #1). **Slice 1b (Postgres RLS) implemented on branch
+`feat/control-plane-rls-1b`, pending review/commit.** Per D1, 1b must land before
+Slices 3+. Next slice after 1b merges: Slice 2 (append-only audit log) — do not
+start until greenlit.
