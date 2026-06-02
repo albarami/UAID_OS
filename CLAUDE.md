@@ -96,6 +96,11 @@ the admin `app` role only.
 - `Makefile` (`test`, `test-db`, `test-db-create/migrate/drop`, `db-bootstrap-rls-role`,
   `migrate`, `require-rls-pw`, `up/down/dev/fmt`), `alembic.ini`, `.gitignore`,
   `.env.example`, `.python-version`. `make test-db` fails closed if `RLS_DB_PASSWORD` is unset.
+  The DB admin `psql` is parameterized via `PSQL` (default: `docker exec … uaid_os-postgres-1`;
+  CI overrides with `PSQL=psql` to use a service container over TCP).
+- `.github/workflows/ci.yml` — GitHub Actions CI on PRs + pushes to `main`: `uv sync`,
+  `ruff check`, `make test` (Docker-free), and `make test-db` against a `postgres:16`
+  **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real `.env`/secrets.
 
 ### Source-of-truth docs (preserved in `docs/`)
 - The standalone spec (above).

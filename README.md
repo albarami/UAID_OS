@@ -36,6 +36,13 @@ connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
 - Readiness: http://localhost:8000/health/ready  (real `SELECT 1`; 200 when DB up, 503 when down)
 - Demo:      http://localhost:8000/demo
 
+## CI
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main`: `uv sync`,
+`uv run ruff check .`, `make test` (Docker-free), and `make test-db` against a
+`postgres:16` **service container**. CI uses non-secret, ephemeral credentials
+(`RLS_DB_PASSWORD=uaid_app`) and overrides the Makefile's admin `psql` via
+`PSQL=psql` (TCP to the service) — no real `.env` or production secrets required.
+
 ## Security model — tenant isolation (two layers)
 Tenant-owned tables (`projects`, `project_runs`) are protected at two layers:
 - **App layer:** `TenantContext` + `TenantScopedRepository` require an explicit

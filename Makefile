@@ -10,6 +10,12 @@ RLS_USER ?= uaid_app
 RLS_DB_PASSWORD ?=
 export RLS_DB_PASSWORD
 
+# How admin `psql` is invoked for DB create/role-bootstrap/drop. Default targets
+# the local docker-compose container. CI (GitHub Actions service, no such
+# container) overrides this to a plain `psql` over TCP, e.g. `PSQL=psql` with
+# PGHOST/PGPORT/PGPASSWORD in the environment.
+PSQL ?= docker exec -e RLS_DB_PASSWORD -i uaid_os-postgres-1 psql
+
 ADMIN_DATABASE_URL      ?= postgresql+asyncpg://app:app@$(PGHOST):$(PGPORT)/app
 TEST_ADMIN_DATABASE_URL ?= postgresql+asyncpg://app:app@$(PGHOST):$(PGPORT)/app_test
 DATABASE_URL            ?= postgresql+asyncpg://$(RLS_USER):$(RLS_DB_PASSWORD)@$(PGHOST):$(PGPORT)/app
@@ -45,15 +51,14 @@ test-db: require-rls-pw test-db-create db-bootstrap-rls-role test-db-migrate
 	 uv run pytest -m db
 
 test-db-create:
-	docker exec uaid_os-postgres-1 psql -U app -d postgres -tc \
+	$(PSQL) -U app -d postgres -tc \
 	  "SELECT 1 FROM pg_database WHERE datname='app_test'" | grep -q 1 || \
-	  docker exec uaid_os-postgres-1 psql -U app -d postgres -c "CREATE DATABASE app_test"
+	  $(PSQL) -U app -d postgres -c "CREATE DATABASE app_test"
 
 # Create/rotate the non-superuser runtime role. ADMIN-run; password via env
 # pass-through to psql \getenv (never appears in argv or make output).
 db-bootstrap-rls-role: require-rls-pw
-	@docker exec -e RLS_DB_PASSWORD -i uaid_os-postgres-1 \
-	  psql -U app -d postgres -v ON_ERROR_STOP=1 < scripts/bootstrap_rls_role.sql
+	@$(PSQL) -U app -d postgres -v ON_ERROR_STOP=1 < scripts/bootstrap_rls_role.sql
 
 # Migrations ALWAYS use ADMIN creds (never `uaid_app`).
 test-db-migrate:
@@ -63,7 +68,7 @@ migrate:
 	ALEMBIC_DATABASE_URL="$(ADMIN_DATABASE_URL)" uv run alembic upgrade head
 
 test-db-drop:
-	docker exec uaid_os-postgres-1 psql -U app -d postgres -c "DROP DATABASE IF EXISTS app_test"
+	$(PSQL) -U app -d postgres -c "DROP DATABASE IF EXISTS app_test"
 
 fmt:
 	uv run ruff format . && uv run ruff check --fix .
