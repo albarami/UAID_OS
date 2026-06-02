@@ -10,11 +10,14 @@ Slice 1b — both layers are intended to hold simultaneously.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db import get_sessionmaker
 
 
 class CrossTenantError(Exception):
@@ -26,6 +29,29 @@ class TenantContext:
     """An explicit tenant scope. Required to touch tenant-owned data."""
 
     tenant_id: uuid.UUID
+
+
+@asynccontextmanager
+async def tenant_scope(context: TenantContext) -> AsyncIterator[AsyncSession]:
+    """Yield a session whose transaction is bound to ``context``'s tenant for RLS.
+
+    The runtime transaction invariant (INV-5 enforcement): the Postgres GUC
+    ``app.current_tenant`` is set with ``set_config(..., true)`` (transaction-local)
+    on the **same** connection/transaction that then executes the tenant-owned
+    queries. RLS policies read this GUC; an unset GUC denies by default. Because
+    ``set_config(..., true)`` is transaction-scoped, all work MUST happen inside
+    this single ``session.begin()`` block — `TenantScopedRepository` is intended
+    to be used within ``tenant_scope``.
+    """
+    if context is None:
+        raise CrossTenantError("a TenantContext is required for tenant-owned data")
+    async with get_sessionmaker()() as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                {"tenant": str(context.tenant_id)},
+            )
+            yield session
 
 
 class TenantScopedRepository:

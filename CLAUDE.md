@@ -13,19 +13,21 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-06-02)
-**Phase 1 (§26.1) in progress — Slice 1 (persistence spine + tenancy) landed.**
-Beyond the original scaffold, the control-plane persistence spine now exists:
-async SQLAlchemy + Alembic, the four core tenant-scoped tables, app-layer tenant
-scoping, and honest liveness/readiness. The rest of the engine described in the
+## Current status (2026-06-03)
+**Phase 1 (§26.1) in progress — Slice 1 (spine + tenancy) and Slice 1b (Postgres RLS) landed.**
+Beyond the original scaffold, the control-plane persistence spine exists (async
+SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
+liveness/readiness), **and DB-level tenant isolation via Postgres Row-Level
+Security is now enforced** (Slice 1b). The rest of the engine described in the
 spec (intake compiler, agent factory, maker-checker-verifier, evidence packs,
 tool broker, policy/approval engines, etc.) is **not** implemented. Do not assume
 any spec capability exists unless it is listed under "What exists" below.
 
-Slice plan and status live in `.planning/PHASE-1-PLAN.md`. RLS is **not** yet
-applied — it is the next slice (1b) and the only DB-level tenancy enforcement;
-until then, tenant isolation is enforced at the app layer (repository) + schema
-FKs, proven by tests.
+Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
+at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
+and DB-level RLS (INV-5). RLS is enforced because the runtime connects as a dedicated
+**non-superuser role `uaid_app`** (superusers/owners bypass RLS); migrations run as
+the admin `app` role only.
 
 ## What exists
 
@@ -42,22 +44,32 @@ FKs, proven by tests.
   fake `/health` was removed. DB engine disposed on shutdown via lifespan.
 - `app/health.py` — liveness/readiness handlers; readiness's DB ping is injected
   via a FastAPI dependency (`get_db_ping`) so it is overridable in route tests.
-- `app/db.py` — lazy async engine + session factory from `settings.database_url`;
-  `ping()` (real round-trip for readiness), `get_session()` dependency, `dispose_engine()`.
+- `app/db.py` — lazy async engine + session factory from `settings.database_url`
+  (the **runtime `uaid_app`** role); `ping()` (real round-trip for readiness),
+  `get_session()` dependency, `dispose_engine()`.
 - `app/models/` — `Base` (deterministic constraint naming) + the four spine tables:
   `organizations` (root), `tenants` (isolation boundary), `projects`, `project_runs`
   (both tenant-owned: `tenant_id NOT NULL` FK→`tenants`; runs pinned to their project's
   tenant by composite FK `(project_id, tenant_id)→projects(id, tenant_id)`).
-- `app/tenancy.py` — `TenantContext` + `TenantScopedRepository`: tenant-owned data
-  cannot be read/written without an explicit context; cross-tenant writes raise
-  `CrossTenantError` (app-layer INV-4; DB-level RLS is Slice 1b).
-- `app/repositories/projects.py` — tenant-scoped CRUD for `projects`.
-- `migrations/` — Alembic (async `env.py`; URL from `ALEMBIC_DATABASE_URL` or settings);
-  `versions/0001_control_plane_spine.py` is the spine migration. No `CREATE EXTENSION`.
-- `app/config.py` — `Settings` (pydantic-settings) loaded from `.env`. Currently reads
-  `DATABASE_URL`, `TEST_DATABASE_URL`, `REDIS_URL`, `CHROMA_URL`, `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`. Other keys present in `.env` (OpenRouter, Manus, Semantic Scholar,
-  Perplexity) are **ignored** until added as fields here.
+- `app/tenancy.py` — `TenantContext` + `TenantScopedRepository` (app-layer INV-4) **and
+  `tenant_scope(context)`**: an async context manager that opens a transaction and sets
+  the `app.current_tenant` GUC (`set_config(..., true)`) on the **same** connection that
+  runs the queries — the runtime binding RLS reads (INV-5). Cross-tenant writes raise
+  `CrossTenantError` (app layer) and are blocked by RLS `WITH CHECK` (DB layer).
+- `app/repositories/projects.py` — tenant-scoped CRUD for `projects` (use inside `tenant_scope`).
+- `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
+  **admin only — never `uaid_app`**). `0001_control_plane_spine.py` (spine, no `CREATE EXTENSION`);
+  `0002_rls_tenant_isolation.py` (ENABLE+FORCE RLS on `projects`/`project_runs`, deny-by-default
+  `tenant_isolation` policy, grants to `uaid_app`).
+- `scripts/bootstrap_rls_role.sql` — idempotent creation of the non-superuser `uaid_app`
+  role (`LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`); password
+  from `RLS_DB_PASSWORD` via psql `\getenv` (never committed/printed). Run by `make db-bootstrap-rls-role`.
+- `app/config.py` — `Settings` (pydantic-settings) loaded from `.env`. Reads
+  `DATABASE_URL` + `TEST_DATABASE_URL` (**runtime `uaid_app`**), `ADMIN_DATABASE_URL` +
+  `TEST_ADMIN_DATABASE_URL` (**admin `app`**, migrations/bootstrap/seed only),
+  `REDIS_URL`, `CHROMA_URL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`. `RLS_DB_PASSWORD` is
+  consumed by the Makefile (not a Settings field). Other `.env` keys (OpenRouter, Manus,
+  Semantic Scholar, Perplexity) are **ignored** until added here.
 - `app/core/provenance.py` — **Sanad / No-Free-Facts** primitive: a `Fact` must carry
   ≥1 `Source` or it raises `NoFreeFactsError`; `.isnad` renders the source chain.
   Minimal starting primitive — maps to spec §3.4, *not* the full provenance store.
@@ -67,9 +79,10 @@ FKs, proven by tests.
 - `app/agents/` — empty package, reserved for agent implementations.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`
-  (DB-backed, marked `db`) and `conftest.py` (auto-creates/migrates `app_test`,
-  per-test transaction rollback). **`make test` → 6 passing (Docker-free);
-  `make test-db` → 8 passing (DB-backed, incl. a real `/health/ready` round-trip).**
+  and `test_rls.py` (DB-backed, marked `db`) and `conftest.py` (admin fixtures build/seed
+  `app_test`; `rls_engine` connects as `uaid_app` for INV-5; per-test transaction rollback).
+  **`make test` → 6 passing (Docker-free); `make test-db` → 16 passing (DB-backed: tenancy,
+  readiness, and RLS INV-5 + catalog enforcement). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -80,8 +93,9 @@ FKs, proven by tests.
     curl/wget/python to script one). Connectivity verified externally: `HTTP 200`
     on `/api/v2/heartbeat`.
   `make down` stops them; data persists in volumes `uaid_os_{pgdata,redisdata,chromadata}`.
-- `Makefile` (`test`, `test-db`, `test-db-create/migrate/drop`, `up/down/dev/fmt`),
-  `alembic.ini`, `.gitignore`, `.env.example`, `.python-version`.
+- `Makefile` (`test`, `test-db`, `test-db-create/migrate/drop`, `db-bootstrap-rls-role`,
+  `migrate`, `require-rls-pw`, `up/down/dev/fmt`), `alembic.ini`, `.gitignore`,
+  `.env.example`, `.python-version`. `make test-db` fails closed if `RLS_DB_PASSWORD` is unset.
 
 ### Source-of-truth docs (preserved in `docs/`)
 - The standalone spec (above).
@@ -96,14 +110,16 @@ FKs, proven by tests.
 
 ## How to run
 ```
-make test    # Docker-free tests (no services needed) — 6 passing
-make test-db # DB-backed tests (needs `make up`) — 8 passing; creates+migrates app_test
-make fmt     # ruff format + lint
-make up      # start Postgres/Redis/Chroma (needs Docker)
-make dev     # run API at http://localhost:8000  (/health/live, /health/ready, /demo)
+make test                                  # Docker-free tests (no services) — 6 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 16 passing
+make fmt                                   # ruff format + lint
+make up                                    # start Postgres/Redis/Chroma (needs Docker)
+make dev                                   # run API at http://localhost:8000
 ```
-`make test` runs `pytest -m "not db"` (Docker-free); `make test-db` runs `-m db`
-against `app_test`. Either can also be run directly with `uv run pytest`.
+`make test` runs `pytest -m "not db"` (Docker-free). `make test-db` bootstraps the
+`uaid_app` role (needs `RLS_DB_PASSWORD`), creates+migrates `app_test` **as admin**,
+then runs `-m db` with the runtime `uaid_app` connection. Migrations never run as
+`uaid_app`. Endpoints: `/health/live`, `/health/ready`, `/demo`.
 
 ## Conventions to uphold (from the spec — non-negotiable, including in our own code)
 - **No fake done.** No placeholders/stubs/hardcoded outputs presented as real. Prefer
@@ -119,9 +135,10 @@ against `app_test`. Either can also be run directly with `uv run pytest`.
 - Durable workflow runtime with resume + deterministic replay (§23.2) — can start on
   langgraph + Postgres checkpointing; consider Temporal later.
 - Knowledge-graph store (added when KG features are built).
-- Multi-tenant isolation (§17): **partially present** — app-layer scoping + schema FKs
-  landed in Slice 1; **DB-level RLS is not yet applied** (Slice 1b, next).
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slice 1.
+- Multi-tenant isolation (§17): **present for the spine** — app-layer scoping + schema FKs
+  (Slice 1) **and DB-level RLS** on `projects`/`project_runs` (Slice 1b). Future tenant-owned
+  tables must add the same RLS policy + grants when introduced.
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1/1b.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was

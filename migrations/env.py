@@ -1,9 +1,15 @@
 """Alembic async environment.
 
-URL resolution order:
-1. ``ALEMBIC_DATABASE_URL`` env var (the Make targets set this to point at
-   ``app_test`` for the test schema).
-2. ``app.config.settings.database_url`` (the dev ``app`` database).
+URL resolution order (ADMIN credentials only — migrations must NEVER run as the
+non-superuser runtime role ``uaid_app``, which cannot perform DDL / ALTER TABLE /
+CREATE POLICY):
+1. ``ALEMBIC_DATABASE_URL`` env var (the Make targets set this to an admin URL,
+   e.g. ``TEST_ADMIN_DATABASE_URL`` for the test schema).
+2. ``app.config.settings.admin_database_url`` (the owner/superuser ``app`` role).
+
+There is intentionally **no** fallback to ``settings.database_url`` (the runtime
+``uaid_app`` URL), so a misconfiguration fails closed rather than silently trying
+to migrate as a role that lacks DDL rights.
 
 ``target_metadata`` is the full ``Base.metadata`` — importing ``app.models``
 registers every table so autogenerate sees the complete schema.
@@ -25,7 +31,7 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
-    return os.environ.get("ALEMBIC_DATABASE_URL") or settings.database_url
+    return os.environ.get("ALEMBIC_DATABASE_URL") or settings.admin_database_url
 
 
 def run_migrations_offline() -> None:

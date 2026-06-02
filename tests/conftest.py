@@ -17,17 +17,20 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
 
-TEST_URL = settings.test_database_url
+# Admin (owner/superuser `app`) — schema build, migrations, and test seeding.
+TEST_ADMIN_URL = settings.test_admin_database_url
+# Runtime (non-superuser `uaid_app`) — the RLS-enforced connection under test.
+TEST_RUNTIME_URL = settings.test_database_url
 
 
 async def _create_test_db_if_missing() -> None:
-    url = make_url(TEST_URL)
+    url = make_url(TEST_ADMIN_URL)
     admin = await asyncpg.connect(
         user=url.username,
         password=url.password,
@@ -45,7 +48,7 @@ async def _create_test_db_if_missing() -> None:
 
 def _postgres_reachable() -> bool:
     async def _check() -> bool:
-        url = make_url(TEST_URL)
+        url = make_url(TEST_ADMIN_URL)
         try:
             conn = await asyncpg.connect(
                 user=url.username,
@@ -74,11 +77,19 @@ def _schema() -> None:
         pytest.skip("Postgres not reachable; run `make up` for DB-backed tests")
     asyncio.run(_create_test_db_if_missing())
     cfg = Config("alembic.ini")
-    # env.py reads ALEMBIC_DATABASE_URL; set it explicitly to the test DB.
+    # env.py reads ALEMBIC_DATABASE_URL; migrations MUST run with ADMIN creds.
     import os
 
-    os.environ["ALEMBIC_DATABASE_URL"] = TEST_URL
-    command.upgrade(cfg, "head")
+    prior = os.environ.get("ALEMBIC_DATABASE_URL")
+    os.environ["ALEMBIC_DATABASE_URL"] = TEST_ADMIN_URL
+    try:
+        command.upgrade(cfg, "head")
+    finally:
+        # Restore to avoid leaking the override to the rest of the process.
+        if prior is None:
+            os.environ.pop("ALEMBIC_DATABASE_URL", None)
+        else:
+            os.environ["ALEMBIC_DATABASE_URL"] = prior
 
 
 @pytest.fixture
@@ -94,8 +105,13 @@ def postgres_ready(_schema) -> None:
 
 @pytest_asyncio.fixture
 async def db_session(_schema) -> AsyncSession:
-    """A session joined to an external transaction; rolled back after each test."""
-    engine = create_async_engine(TEST_URL)
+    """A session joined to an external transaction; rolled back after each test.
+
+    Connects with ADMIN creds (`app`). This bypasses RLS by design — it backs the
+    Slice 1 app-layer tenancy tests (INV-1..4). RLS (INV-5) is proven separately
+    via the `uaid_app` runtime fixtures below.
+    """
+    engine = create_async_engine(TEST_ADMIN_URL)
     conn = await engine.connect()
     trans = await conn.begin()
     await conn.begin_nested()
@@ -114,4 +130,41 @@ async def db_session(_schema) -> AsyncSession:
         await session.close()
         await trans.rollback()
         await conn.close()
+        await engine.dispose()
+
+
+# --- RLS (INV-5) fixtures: non-superuser `uaid_app` runtime connection ---------
+
+
+@pytest_asyncio.fixture
+async def admin_engine(_schema):
+    """Engine with ADMIN creds for seeding tenant data (bypasses RLS)."""
+    engine = create_async_engine(TEST_ADMIN_URL)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def rls_engine(_schema):
+    """Engine connecting as the non-superuser `uaid_app` role — subject to RLS.
+
+    FAILS (not skips) if the runtime connection is unusable: `make test-db`
+    bootstraps the `uaid_app` role, so an unavailable role is a real defect in
+    the setup, not a reason to silently skip the RLS proofs.
+    """
+    engine = create_async_engine(TEST_RUNTIME_URL)
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        await engine.dispose()
+        pytest.fail(
+            f"uaid_app runtime connection unavailable ({exc}); "
+            "run `make db-bootstrap-rls-role` (needs RLS_DB_PASSWORD)."
+        )
+    try:
+        yield engine
+    finally:
         await engine.dispose()

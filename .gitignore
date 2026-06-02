@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 .env
+# remember-access auto-capture inbox: ephemeral triage data; may contain
+# command fragments with credentials — never commit it.
+.planning/.pending-auth-captures.jsonl
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
