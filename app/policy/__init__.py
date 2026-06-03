@@ -8,7 +8,7 @@ structurally non-bypassable.
 
 from app.policy.engine import Decision, PolicyOverrideError, check_authority
 from app.policy.levels import AutonomyLevel
-from app.policy.matrix import MATRIX, validate_overrides
+from app.policy.matrix import MATRIX, is_mandatory_action, validate_overrides
 
 __all__ = [
     "AutonomyLevel",
@@ -17,4 +17,5 @@ __all__ = [
     "check_authority",
     "MATRIX",
     "validate_overrides",
+    "is_mandatory_action",
 ]

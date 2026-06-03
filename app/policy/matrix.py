@@ -99,6 +99,16 @@ def apply_overrides(base: AuthorityRule, ov: dict | None) -> EffectiveRule:
     return EffectiveRule(min_level, requires_approval, disabled)
 
 
+def is_mandatory_action(action: str) -> bool:
+    """True if `action` is a §2.6 mandatory-approval action (canonical source).
+
+    Additive helper so other slices (e.g. the approval engine) derive the §2.6
+    set from this one matrix instead of duplicating a drift-prone list.
+    """
+    rule = MATRIX.get(action)
+    return bool(rule and rule.mandatory_approval)
+
+
 def validate_overrides(overrides: dict | None) -> None:
     """Validate a whole overrides map (write-time). Raise on unknown action key
     or any invalid/relaxing per-action override."""
