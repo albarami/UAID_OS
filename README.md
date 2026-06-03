@@ -70,6 +70,19 @@ caller cannot forge another tenant's rows — use `app.audit.record(session, ...
 still rewrite history); external sink + signing are deferred. Slice 2 records committed
 tenant events only.
 
+## Autonomy policy engine (§5 / §2.6)
+A deterministic, **deny-by-default** authority engine: `check_authority(action, level,
+overrides) → ALLOW | DENY | NEEDS_APPROVAL` over a code-defined authority matrix
+(`app/policy/`). Autonomy levels A0–A5 are stored per project in the tenant-owned,
+RLS-protected `autonomy_policies` table. Per-project overrides are **tighten-only**
+(may raise `min_level`, add approval, or disable — never relax), and §2.6
+mandatory-approval actions (production deploy, protected-branch merge, delete, secrets,
+billing, external comms, sensitive data, risk acceptance, gate bypass, weakening
+test/review standards) are **structurally non-bypassable**. `AutonomyPolicyRepository.decision_for`
+is **fail-closed**: a missing policy or an invalid persisted override yields DENY. Policy
+changes are audited via the Slice 2 audit log. Slice 3 is **decision-only** — enforcement
+(tool broker) and the approval workflow are later slices.
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 
