@@ -13,6 +13,8 @@ from app.models.approval_event import ApprovalEvent
 from app.models.audit_log import AuditLog
 from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
+from app.models.budget import Budget
+from app.models.cost_event import CostEvent
 from app.models.organization import Organization
 from app.models.project import Project
 from app.models.project_run import ProjectRun
@@ -34,4 +36,6 @@ __all__ = [
     "AgentBlueprint",
     "AgentVersion",
     "AgentInstance",
+    "CostEvent",
+    "Budget",
 ]
