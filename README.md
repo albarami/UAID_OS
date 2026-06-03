@@ -129,6 +129,25 @@ global catalog holds **role metadata + hashes only — never tenant prompts/code
 audited; **skeleton — no Agent Factory, eval execution, model routing, agent execution,
 or broker wiring.**
 
+## Cost ledger (§19)
+`app/cost.py` + `app/repositories/cost.py` track spend and enforce ceilings. **Tenant-owned,
+DB-immutable** `cost_events` (the §19.2 components) is the source of truth — running totals are
+**on-demand SUMs**, never a denormalized counter. Immutability is enforced by `BEFORE
+UPDATE/DELETE` (row) + `BEFORE TRUNCATE` (statement) triggers + `REVOKE` (DML-immutable for all
+roles incl. the table owner; **not tamper-proof vs. a DB superuser**). Money is `NUMERIC(18,6)`
+with Python `Decimal`; inputs that are `float`/`bool`/negative/non-finite/over 6 dp are rejected.
+Recording is **idempotent on a source-namespaced key** `(tenant_id, source_system, external_ref)`
+via `INSERT … ON CONFLICT DO NOTHING` + re-select: a true retry returns the existing event, but
+**reuse of the key with different material data raises `IdempotencyConflict`** (so provider/caller
+corruption surfaces instead of being silently deduped). **Incurred costs are always recorded, even
+over budget.** Per-project `budgets` (one per project, audited with before/after caps) drive a
+**deterministic stop decision** (`evaluate`): missing budget ⇒ STOP `no_budget` (fail-closed),
+threshold is `>=`, daily aggregation uses **UTC half-open bounds**. The decision is **returned, not
+halting** — no workflow runtime consumes it yet. `cost_events` is `SELECT, INSERT` only; `budgets`
+is `SELECT, INSERT, UPDATE` (no DELETE); both are RLS ENABLE+FORCE. **Budget changes are audited but
+are NOT verified human approvals** — an approval workflow for budget increases is deferred. **Skeleton —
+no price-card integration, provider calls, model routing, billing UI, forecasting, or per-phase budgets.**
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 

@@ -14,17 +14,19 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5 merged; Slice 6 (agent
-registry) on branch `feat/control-plane-agent-registry`, pending review/merge.**
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5, 6 merged; Slice 7 (cost
+ledger) on branch `feat/control-plane-cost-ledger`, pending review/merge.**
 Beyond the original scaffold: the persistence spine (async SQLAlchemy + Alembic, four
 tenant-scoped tables, app-layer scoping, honest liveness/readiness), DB-level tenant
 isolation via Postgres RLS (Slice 1b), a tamper-evident hash-chained audit log
 (Slice 2), a deterministic autonomy policy engine (Slice 3), an approval engine
 (Slice 4), a tool broker skeleton (deny-by-default decision chokepoint composing
-policy + approval, Slice 5), **and an agent registry (global blueprints + immutable
-content-hashed versions + tenant-scoped instances, Slice 6)**. The rest of the engine
-described in the spec (intake compiler, agent factory, maker-checker-verifier,
-evidence packs, etc.) is **not** implemented. Do not assume any spec capability exists
+policy + approval, Slice 5), an agent registry (global blueprints + immutable
+content-hashed versions + tenant-scoped instances, Slice 6), **and a cost ledger
+(immutable `cost_events` + per-project `budgets` + a deterministic stop-condition
+decision, Slice 7)**. The rest of the engine described in the spec (intake compiler,
+agent factory, maker-checker-verifier, evidence packs, etc.) is **not** implemented.
+Do not assume any spec capability exists
 unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
@@ -115,6 +117,22 @@ the admin `app` role only.
   immutable + `active_run_id` set-once via trigger; partial unique on live `(tenant,project,instance_key)`).
   `actor` is an **untrusted** label. **Skeleton: no Agent Factory / eval execution / model routing /
   agent execution / broker wiring.**
+- `app/cost.py` + `app/repositories/cost.py` — cost ledger (Slice 7, §19). `app/cost.py` (pure):
+  `COST_COMPONENTS` (§19.2), `to_decimal` money guard (rejects float/bool/negative/non-finite/>6dp),
+  `evaluate_stop` (deny-by-default: missing budget ⇒ STOP `no_budget`; threshold `>=`), exceptions
+  (`InvalidAmount`/`InvalidComponent`/`IdempotencyConflict`). `app/repositories/cost.py`:
+  `CostEventRepository.record` (validates + **always records incurred cost, even over budget**;
+  **source-namespaced idempotency** via `INSERT … ON CONFLICT DO NOTHING` + re-select — identical
+  retry returns the row, material mismatch raises `IdempotencyConflict`; audited on insert only),
+  `total_spent`/`daily_spent` (on-demand SUM; daily uses **UTC half-open bounds**), `BudgetRepository`
+  (`get`/`upsert` audited with **before/after caps**), module-level `evaluate` (§19.7 stop decision,
+  **returned not halting**). `app/models/cost_event.py` (**tenant-owned, IMMUTABLE**:
+  UPDATE/DELETE/TRUNCATE triggers; `NUMERIC(18,6)`; CHECK amount/quantity ≥ 0 + DB-enforced
+  `component` in the §19.2 set; triple FK pins run→project→tenant; partial unique idempotency
+  index) + `app/models/budget.py` (tenant-owned;
+  one per project). `actor` is an **untrusted** label. **Budget changes are audited but NOT verified
+  human approvals.** **Skeleton: no price cards / provider calls / model routing / billing UI /
+  workflow runtime (stop signal is decision-only) / broker-agent wiring.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -130,7 +148,10 @@ the admin `app` role only.
   `0007_agent_registry.py` (**global** `agent_blueprints` + **immutable** `agent_versions`
   [`uaid_app` SELECT-only; UPDATE/DELETE/TRUNCATE triggers] + **tenant-owned** `agent_instances`
   [ENABLE+FORCE RLS + `tenant_isolation`; SELECT/INSERT/UPDATE, no DELETE; binding-immutability
-  trigger]; adds `UNIQUE(id, project_id, tenant_id)` to `project_runs` for the triple FK).
+  trigger]; adds `UNIQUE(id, project_id, tenant_id)` to `project_runs` for the triple FK);
+  `0008_cost_ledger.py` (**tenant-owned, IMMUTABLE** `cost_events` [UPDATE/DELETE/TRUNCATE triggers +
+  REVOKE; `uaid_app` SELECT/INSERT only; partial unique idempotency index] + tenant-owned `budgets`
+  [SELECT/INSERT/UPDATE, no DELETE]; both ENABLE+FORCE RLS + `tenant_isolation`).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -149,12 +170,13 @@ the admin `app` role only.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
-  `test_agents.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures
-  build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose
+  `test_agents.py`, `test_cost.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin
+  fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose
   of the `app.db` engine).
-  **`make test` → 68 passing (Docker-free, incl. pure policy/approval/broker logic + agent-registry
-  content-hash/validation); `make test-db` → 88 passing (DB-backed: tenancy, readiness, RLS, audit,
-  policy, approval, tool-broker, and agent-registry immutability/idempotency/RLS/FK-pinning/lifecycle/
+  **`make test` → 72 passing (Docker-free, incl. pure policy/approval/broker logic + agent-registry
+  content-hash/validation + cost money/stop-decision); `make test-db` → 103 passing (DB-backed: tenancy,
+  readiness, RLS, audit, policy, approval, tool-broker, agent-registry, and cost-ledger
+  accumulation/idempotency-conflict/UTC-bounds/immutability/RLS/FK-pinning/budget-audit/
   catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -188,8 +210,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 68 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 88 passing
+make test                                  # Docker-free tests (no services) — 72 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 103 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -241,7 +263,16 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   agent execution; the broker `agent_id` is NOT wired to instances yet; global registration is not
   audited (tenant-GUC-derived audit; platform-event audit deferred); component hashes are opaque
   caller-supplied inputs (the Factory that generates the artifacts is Phase 4).**
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6.
+- Cost ledger (§19): **present (Slice 7)** — tenant-owned **immutable** `cost_events`
+  (UPDATE/DELETE/TRUNCATE triggers — *DML-immutable, not tamper-proof vs. a DB superuser*;
+  `NUMERIC(18,6)`; source-namespaced idempotency with `IdempotencyConflict` on key reuse) +
+  per-project `budgets` (audited before/after caps). `evaluate` is **deny-by-default** (missing
+  budget ⇒ STOP `no_budget`; threshold `>=`); daily aggregation uses **UTC half-open bounds**.
+  Incurred costs are **always recorded, even over budget**. **Budget changes are audited but NOT
+  verified human approvals** (approval workflow for increases deferred). **Skeleton: no price cards /
+  provider calls / model routing / billing UI / workflow runtime (the stop signal is decision-only,
+  not halting) / broker-agent wiring / forecasting / per-phase budgets.**
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was

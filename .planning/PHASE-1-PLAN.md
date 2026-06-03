@@ -189,13 +189,30 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Non-goals (held):** Agent Factory / eval execution (Phase 4); model routing; broker↔instance wiring
   (future enforcement slice); §9.6 replacement automation; §22.3 upgrade/requalification workflow; request-auth; API/UI.
 
-### Slice 7 — Cost ledger (§19)
-- **Scope:** `cost_events`; running totals; budget ceilings; stop-condition check.
-- **Files:** `app/models/cost_event.py`, `app/cost.py`, tests.
-- **Schema:** `cost_events`, `budgets` (tenant-owned).
-- **Tests:** accumulation; ceiling breach → stop signal; daily cap.
-- **Evidence:** breach triggers stop condition.
-- **Non-goals:** provider price-card integration; model routing.
+### Slice 7 — Cost ledger (§19) — **IMPLEMENTED (plan v3; pending review/merge)** · branch `feat/control-plane-cost-ledger`
+- **Scope (delivered):** tenant-owned **immutable** `cost_events` (§19.2 components; source of truth) +
+  per-project `budgets` (total + optional daily ceilings) + on-demand SUM aggregation + a **pure
+  stop-condition decision** (`evaluate_stop`/`evaluate`, §19.7 `budget_exceeded`). Decided: D-A missing
+  budget ⇒ STOP `no_budget` (fail-closed); D-B threshold `>=`; D-C `cost_events` DB-immutable.
+- **Files (actual):** `app/cost.py` (pure: components, `to_decimal` money guard, `evaluate_stop`,
+  exceptions), `app/repositories/cost.py` (`CostEventRepository` [idempotent `record`, `total_spent`,
+  `daily_spent`], `BudgetRepository` [`get`/`upsert`], `evaluate`), `app/models/cost_event.py`,
+  `app/models/budget.py`, `migrations/versions/0008_cost_ledger.py`, `tests/test_cost.py`,
+  `app/models/__init__.py`, docs. `app/db.py`/`app/policy/*`/`app/approvals/*`/`app/tools/*`/`app/agents/*` untouched.
+- **Integrity:** `NUMERIC(18,6)` + Decimal; CHECK amount/quantity ≥ 0; composite FK `(project_id, tenant_id)`;
+  triple FK `(run_id, project_id, tenant_id)`; **immutability** UPDATE/DELETE/TRUNCATE triggers + REVOKE;
+  **source-namespaced idempotency** (`INSERT … ON CONFLICT DO NOTHING` + re-select; `IdempotencyConflict`
+  on material key reuse); daily aggregation by **UTC half-open bounds**; over-budget costs still recorded.
+- **Grants:** `cost_events` SELECT/INSERT only (append-only); `budgets` SELECT/INSERT/UPDATE (no DELETE);
+  both ENABLE+FORCE RLS + `tenant_isolation`.
+- **Tests/evidence:** `make test` → 72; `make test-db` → 103 (money/stop truth-table, accumulation,
+  idempotency-retry/conflict/namespacing, UTC boundaries, quantity DB check, over-budget recording,
+  budget upsert + before/after audit, evaluate outcomes, immutability [uaid_app + admin], RLS deny-by-default
+  + cross-tenant WITH CHECK + cross-tenant budget UPDATE blocked, FK pinning, catalog/grants/triggers).
+  Drift empty; reversible `0008 → 0007 → head`.
+- **Non-goals (held):** price-card integration; provider calls; model routing; billing UI; workflow runtime
+  (stop signal decision-only); forecast-based approvals; per-phase budgets; refunds/credits; multi-currency;
+  request-auth (`actor` untrusted); broker/agent wiring; non-cost `stop_if` conditions (Slice 8+).
 
 ### Slice 8 — Durable workflow runtime (§23.2)  ← major engine decision
 - **Scope:** resumable run state machine on `project_runs`; step persistence; retries/backoff; human-approval waits; deterministic replay.
@@ -254,6 +271,7 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4, 5 merged (PRs #1–#6). **Slice 6 (agent registry, §9.7/§17.4/§22.2)
-implemented on branch `feat/control-plane-agent-registry`, pending implementation review/commit.**
-Next slice after Slice 6 merges: Slice 7 (cost ledger, §19) — do not start until greenlit.
+Slices 1, 1b, 2, 3, 4, 5, 6 merged (PRs #1–#7). **Slice 7 (cost ledger, §19) implemented on
+branch `feat/control-plane-cost-ledger`, pending implementation review/commit.**
+Next slice after Slice 7 merges: Slice 8 (durable workflow runtime, §23.2 — major engine
+decision D2: langgraph + Postgres checkpointing vs. Temporal) — do not start until greenlit.
