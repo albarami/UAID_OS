@@ -4,7 +4,10 @@ Importing this package imports every model so that ``Base.metadata`` is fully
 populated (Alembic autogenerate and the test schema build both depend on this).
 """
 
+from app.models.agent_blueprint import AgentBlueprint
+from app.models.agent_instance import AgentInstance
 from app.models.agent_tool_allowlist import AgentToolAllowlist
+from app.models.agent_version import AgentVersion
 from app.models.approval import Approval
 from app.models.approval_event import ApprovalEvent
 from app.models.audit_log import AuditLog
@@ -28,4 +31,7 @@ __all__ = [
     "ApprovalEvent",
     "ToolCall",
     "AgentToolAllowlist",
+    "AgentBlueprint",
+    "AgentVersion",
+    "AgentInstance",
 ]

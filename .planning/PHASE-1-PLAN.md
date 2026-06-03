@@ -164,13 +164,30 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Tests/evidence:** `make test` → 61; `make test-db` → 69 (unknown/invalid-params/not-allowlisted/policy-deny denials, allow⇒unverified-identity, contract-requires-approval over policy ALLOW, tool-scoped approval [action-level/other-tool don't satisfy], unverified-approved⇒needs-authenticated, allowlist grant/revoke/regrant, RLS deny-by-default both tables, catalog append-only). Autogenerate drift empty; reversible.
 - **Non-goals (held):** real connectors/MCP/credentials/rate-limits/cost/auto-suspension/API-UI; no real execution; agent identity unverified (Slice 6 / request-auth).
 
-### Slice 6 — Agent registry (§9.7, §17.4)
-- **Scope:** global `agent_blueprints`; immutable `agent_versions` (hashes); tenant-scoped `agent_instances`.
-- **Files:** `app/models/agent.py`, `app/agents/registry.py`, tests.
-- **Schema:** `agent_blueprints` (global), `agent_versions` (immutable), `agent_instances` (tenant-owned).
-- **Tests:** used version cannot be mutated; instances tenant-scoped.
-- **Evidence:** immutability + scoping proven.
-- **Non-goals:** Agent Factory / eval library (Phase 4); model routing.
+### Slice 6 — Agent registry (§9.7, §17.4, §22.2) — **IMPLEMENTED (plan v2; pending review/merge)** · branch `feat/control-plane-agent-registry`
+- **Scope (delivered):** GLOBAL admin-curated `agent_blueprints` + GLOBAL **immutable** `agent_versions`
+  (full §22.2 snapshot: `model_route` + six `sha256:` component hashes incl. `critical_dependencies_hash`/
+  `output_schema_hash` + derived `content_hash`; idempotent on content); TENANT-OWNED RLS `agent_instances`
+  (binds a version into a project/run via `version_id` only). `register_blueprint`/`register_version`
+  (admin path; archetype + hash-shape validation, deny-by-default); `AgentInstanceRepository`
+  (instantiate/bind_to_run/suspend/retire, each audited).
+- **Files (actual):** `app/models/{agent_blueprint,agent_version,agent_instance}.py`, `app/agents/{__init__,registry}.py`,
+  `migrations/versions/0007_agent_registry.py`, `tests/test_agents.py`, `app/models/__init__.py`,
+  `app/models/project_run.py` (+`UNIQUE(id, project_id, tenant_id)` for the triple FK), docs. `app/db.py`/`app/policy/*`/`app/approvals/*`/`app/tools/*` untouched.
+- **Immutability:** `agent_versions` UPDATE/DELETE/TRUNCATE triggers + REVOKE (DML-immutable, not tamper-proof
+  vs. a DB superuser); `agent_instances` binding columns immutable + `active_run_id` set-once via trigger.
+- **Integrity:** triple FK `(active_run_id, project_id, tenant_id) → project_runs(id, project_id, tenant_id)`
+  (pins run→project→tenant); composite FK `(project_id, tenant_id)→projects`; partial unique on live
+  `(tenant, project, instance_key)`.
+- **Grants:** `agent_blueprints`/`agent_versions` → `uaid_app` **SELECT only** (admin-curated);
+  `agent_instances` SELECT/INSERT/UPDATE (no DELETE) + ENABLE+FORCE RLS + `tenant_isolation`.
+- **Tests/evidence:** `make test` → 68; `make test-db` → 88 (content-hash determinism/sensitivity,
+  archetype+sha256 validation, version UPDATE/DELETE/TRUNCATE-immutable [admin], idempotency + new-version,
+  global readability, instance RLS deny-by-default + cross-tenant WITH CHECK, run/project/tenant FK pinning,
+  binding-column immutability [raw uaid_app] + set-once run, live-key uniqueness + retired-frees-key,
+  lifecycle audit trail, tenant-content column-set boundary, catalog/grants/triggers). Drift empty; reversible.
+- **Non-goals (held):** Agent Factory / eval execution (Phase 4); model routing; broker↔instance wiring
+  (future enforcement slice); §9.6 replacement automation; §22.3 upgrade/requalification workflow; request-auth; API/UI.
 
 ### Slice 7 — Cost ledger (§19)
 - **Scope:** `cost_events`; running totals; budget ceilings; stop-condition check.
@@ -237,6 +254,6 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4 merged (PRs #1–#5). **Slice 5 (tool broker skeleton) implemented on
-branch `feat/control-plane-tool-broker`, pending review/commit.** Next slice after Slice 5
-merges: Slice 6 (agent registry, §9.7/§17.4) — do not start until greenlit.
+Slices 1, 1b, 2, 3, 4, 5 merged (PRs #1–#6). **Slice 6 (agent registry, §9.7/§17.4/§22.2)
+implemented on branch `feat/control-plane-agent-registry`, pending implementation review/commit.**
+Next slice after Slice 6 merges: Slice 7 (cost ledger, §19) — do not start until greenlit.
