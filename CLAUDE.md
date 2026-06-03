@@ -14,16 +14,17 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2 merged; Slice 3 (policy engine) on
-branch `feat/control-plane-policy-engine`, pending review/merge.** Beyond the
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3 merged; Slice 4 (approval engine)
+on branch `feat/control-plane-approval-engine`, pending review/merge.** Beyond the
 original scaffold: the control-plane persistence spine (async SQLAlchemy + Alembic,
 four tenant-scoped tables, app-layer scoping, honest liveness/readiness), DB-level
 tenant isolation via Postgres RLS (Slice 1b), a tamper-evident hash-chained audit
-log (Slice 2), **and a deterministic autonomy policy engine (A0–A5 + authority
-matrix, Slice 3)**. The rest of the engine described in the spec (intake compiler,
-agent factory, maker-checker-verifier, evidence packs, tool broker, approval engine,
-etc.) is **not** implemented. Do not assume any spec capability exists unless it is
-listed under "What exists" below.
+log (Slice 2), a deterministic autonomy policy engine (A0–A5 + authority matrix,
+Slice 3), **and an approval engine (request→await→resolve + non-response policy,
+Slice 4)**. The rest of the engine described in the spec (intake compiler, agent
+factory, maker-checker-verifier, evidence packs, tool broker, etc.) is **not**
+implemented. Do not assume any spec capability exists unless it is listed under
+"What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
 at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
@@ -76,6 +77,20 @@ the admin `app` role only.
   — `decision_for` (**fail-closed**: missing policy ⇒ DENY, invalid persisted override ⇒ DENY)
   and `upsert` (validates overrides, audits the change via `audit_append` with safe metadata;
   `actor` is an **untrusted** caller label until request-auth exists).
+- `app/approvals/states.py` — pure approval state machine (Slice 4, §18): `Status`
+  (pending/approved/rejected/cancelled/expired/proceeded_by_policy), `RiskTier`, transition
+  validation, non-response policy (`compute_deadline`/`auto_transition`, §18.5 24h), and the
+  fail-closed `is_blocked` gate. The **non-bypassable** rule: `requires_explicit_approval`
+  (forced True for §2.6 actions via `app.policy.matrix.is_mandatory_action`) ⇒ only `APPROVED`
+  unblocks; low-risk non-response can never bypass it. `PROCEEDED_BY_POLICY` unblocks only
+  non-explicit low-risk after deadline; `EXPIRED` (medium) stays blocking; high/production never lapse.
+- `app/models/approval.py` + `app/models/approval_event.py` — tenant-owned `approvals`
+  (RLS; SELECT/INSERT/UPDATE, **no DELETE**) and append-only `approval_events`
+  (RLS; SELECT/INSERT only). `app/repositories/approvals.py` — `ApprovalRepository`:
+  request/approve/reject/cancel/expire_if_overdue + `is_blocked` gate; each transition writes
+  an `approval_events` row + an `audit_log` entry (safe metadata). `requested_by`/`resolved_by`
+  are **untrusted** labels; `approver_provenance='caller_supplied_unverified'` — NOT verified
+  human approvals. No scheduler (expiry is on-demand). Decision-only (no enforcement — Slice 5).
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -83,7 +98,9 @@ the admin `app` role only.
   [GUC-derived tenant, minimal return] + `audit_verify` owned by `audit_writer`, shared
   `audit_entry_hash` helper, REVOKE UPDATE/DELETE + append-only trigger; core `sha256`, no extension);
   `0004_autonomy_policies.py` (tenant-owned `autonomy_policies`: ENABLE+FORCE RLS +
-  `tenant_isolation` policy; grants `SELECT, INSERT, UPDATE` to `uaid_app` — **no DELETE**).
+  `tenant_isolation` policy; grants `SELECT, INSERT, UPDATE` to `uaid_app` — **no DELETE**);
+  `0005_approvals.py` (tenant-owned `approvals` [SELECT/INSERT/UPDATE, no DELETE] + append-only
+  `approval_events` [SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -102,12 +119,12 @@ the admin `app` role only.
 - `app/agents/` — empty package, reserved for agent implementations.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
-  `test_rls.py`, `test_audit.py`, `test_policy.py` (DB-backed `db` + Docker-free engine units)
-  and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test
-  transaction rollback; auto-dispose of the `app.db` engine between tests). **`make test` → 32
-  passing (Docker-free, incl. the pure policy engine); `make test-db` → 44 passing (DB-backed:
-  tenancy INV-1..4, readiness, RLS INV-5, audit, and policy storage/decision/RLS/audit/catalog).
-  `make test-db` requires `RLS_DB_PASSWORD`.**
+  `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py` (DB-backed `db` +
+  Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as
+  `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine between tests).
+  **`make test` → 54 passing (Docker-free, incl. pure policy + approval engines); `make test-db`
+  → 58 passing (DB-backed: tenancy, readiness, RLS, audit, policy, and approval lifecycle/gate/
+  RLS/audit/catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -140,8 +157,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 32 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 44 passing
+make test                                  # Docker-free tests (no services) — 54 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 58 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -176,7 +193,12 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   enforced** anywhere (decision-only; tool-broker enforcement is Slice 5) and **no approval
   workflow** (NEEDS_APPROVAL is just a returned decision; Slice 4). A5 auto-release gates +
   stop_conditions deferred.
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3.
+- Approval engine (§18): **present (Slice 4)** — request→await→resolve, risk tiers + non-response
+  policy, fail-closed gate, non-bypassable `requires_explicit_approval` for §2.6 actions.
+  **Decision/logic only** — not wired to tool enforcement (Slice 5); no scheduler (on-demand expiry);
+  no real channels (Slack/email) or dashboard (§18.6 / Slice 10); approver identity is unverified
+  until request-auth. Note: the policy `is_mandatory_action` helper was added to `app/policy/matrix.py`.
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was

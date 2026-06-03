@@ -83,6 +83,19 @@ is **fail-closed**: a missing policy or an invalid persisted override yields DEN
 changes are audited via the Slice 2 audit log. Slice 3 is **decision-only** — enforcement
 (tool broker) and the approval workflow are later slices.
 
+## Approval engine (§18)
+Request → await → resolve approval lifecycle (`app/approvals/`, `ApprovalRepository`).
+`risk_tier` (low/medium/high/production) drives only the **non-response policy** (§18.5:
+low auto-proceeds after 24h, medium pauses, high/production block until approval — computed
+on demand, **no scheduler**). A separate **non-bypassable** flag `requires_explicit_approval`
+(forced `True` for §2.6 actions via the policy matrix) means **only `APPROVED` unblocks** — a
+low-risk non-response can never bypass it. The gate `is_blocked(project, action)` is
+**fail-closed** (no approval ⇒ blocked). Every transition writes an `approval_events` row and
+an audit-log entry. Tables are tenant-owned + RLS; `approvals` is never `DELETE`-able and
+`approval_events` is append-only. **Decision-only** — enforcement is a later slice; and
+**approver identity is unverified** (`approver_provenance='caller_supplied_unverified'`) until
+request-auth exists, so these are not yet verified human approvals.
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 

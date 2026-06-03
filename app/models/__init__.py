@@ -4,6 +4,8 @@ Importing this package imports every model so that ``Base.metadata`` is fully
 populated (Alembic autogenerate and the test schema build both depend on this).
 """
 
+from app.models.approval import Approval
+from app.models.approval_event import ApprovalEvent
 from app.models.audit_log import AuditLog
 from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
@@ -20,4 +22,6 @@ __all__ = [
     "ProjectRun",
     "AuditLog",
     "AutonomyPolicy",
+    "Approval",
+    "ApprovalEvent",
 ]

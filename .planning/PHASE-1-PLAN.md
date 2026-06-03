@@ -150,13 +150,12 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Tests/evidence:** `make test` → 32; `make test-db` → 44 (matrix semantics, unknown⇒DENY, A4 thresholds, tighten-only/relaxing-rejected + malformed-min_level-rejected, §2.6 non-ALLOW, missing-row⇒DENY, invalid-override⇒DENY incl. unrelated-action + malformed persisted, whole-map fail-closed, RLS isolation + deny-by-default + cross-tenant write blocked, audit-on-upsert, catalog incl. no-DELETE). Autogenerate drift empty; reversible.
 - **Non-goals (held):** enforcement wiring (Slice 5); approval workflow (Slice 4); A5 auto-release gates; stop_conditions; per-run override; API/UI.
 
-### Slice 4 — Approval engine (§18)
-- **Scope:** `approvals` + `approval_events`; request→await→resolve; non-response policy (logic only).
-- **Files:** `app/models/approval.py`, `app/approvals.py`, tests.
-- **Schema:** `approvals`, `approval_events` (tenant-owned).
-- **Tests:** pending blocks dependent action; approve/reject transitions; high-risk blocks until approval.
-- **Evidence:** state transitions; gate blocks until approved.
-- **Non-goals:** real channels (Slack/email); timeout scheduler.
+### Slice 4 — Approval engine (§18) — **IMPLEMENTED (plan v3; pending review/merge)** · branch `feat/control-plane-approval-engine`
+- **Scope (delivered):** request→await→resolve lifecycle; five-state machine (pending→approved/rejected/cancelled/expired/proceeded_by_policy); risk-tiered **non-response policy** (§18.5, on-demand, no scheduler); **non-bypassable `requires_explicit_approval`** (forced True for §2.6 actions via `app.policy.matrix.is_mandatory_action` — canonical, no drift); **fail-closed gate** `is_blocked` (no approval ⇒ blocked; explicit ⇒ only APPROVED unblocks); each transition writes `approval_events` + `audit_log`; `approver_provenance='caller_supplied_unverified'` (untrusted labels).
+- **Files (actual):** `app/approvals/{__init__,states}.py`, `app/models/approval.py`, `app/models/approval_event.py`, `app/repositories/approvals.py`, `migrations/versions/0005_approvals.py`, `tests/test_approvals.py`, `app/policy/matrix.py` (+`is_mandatory_action`, additive), `app/policy/__init__.py` (export), `app/models/__init__.py`, docs. `app/db.py` unchanged.
+- **Grants:** `approvals` SELECT/INSERT/UPDATE (no DELETE); `approval_events` SELECT/INSERT (append-only). Both RLS ENABLE+FORCE + `tenant_isolation`.
+- **Tests/evidence:** `make test` → 54; `make test-db` → 58 (transition matrix, non-response per tier, gate truth table, §2.6-low-still-blocked, tri-state explicit, mandatory-false-rejected, expiry low→proceed/medium→expired/high→no-lapse, double-resolve raises, RLS deny-by-default, catalog incl. no-DELETE + append-only). Autogenerate drift empty; reversible.
+- **Non-goals (held):** Slice 5 enforcement; real channels; scheduler; API/UI (§18.6); request-auth identity; A5 gates; §18.3/§18.4 machinery.
 
 ### Slice 5 — Tool broker skeleton (§11)
 - **Scope:** controlled call interface; per-agent allowlist; deny-by-default; every call recorded; authority via Slice 3.
@@ -239,6 +238,6 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2 merged (PRs #1/#2/#3). **Slice 3 (policy engine) implemented on branch
-`feat/control-plane-policy-engine`, pending review/commit.** Next slice after Slice 3
-merges: Slice 4 (approval engine, §18) — do not start until greenlit.
+Slices 1, 1b, 2, 3 merged (PRs #1–#4). **Slice 4 (approval engine) implemented on branch
+`feat/control-plane-approval-engine`, pending review/commit.** Next slice after Slice 4
+merges: Slice 5 (tool broker skeleton, §11) — do not start until greenlit.
