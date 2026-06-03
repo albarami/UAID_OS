@@ -31,3 +31,18 @@ ALTER ROLE uaid_app
 -- Connect privilege on both databases (table-level grants live in migration 0002).
 GRANT CONNECT ON DATABASE app TO uaid_app;
 GRANT CONNECT ON DATABASE app_test TO uaid_app;
+
+-- Slice 2: limited owner role for the SECURITY DEFINER audit functions.
+-- NOLOGIN (never authenticates), no password, no privileges of its own beyond
+-- what migration 0003 grants (INSERT/SELECT on audit_logs + EXECUTE on the hash
+-- helper). It is the least-privilege "log writer" boundary for §16.6.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'audit_writer') THEN
+        CREATE ROLE audit_writer
+            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+    END IF;
+END
+$$;
+ALTER ROLE audit_writer
+    WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
