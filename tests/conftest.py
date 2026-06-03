@@ -92,6 +92,22 @@ def _schema() -> None:
             os.environ["ALEMBIC_DATABASE_URL"] = prior
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _reset_app_db_engine():
+    """Dispose the module-global ``app.db`` engine after each test.
+
+    pytest-asyncio uses a fresh event loop per test; the lazily-created singleton
+    engine in ``app.db`` would otherwise be reused across loops, leaving stale
+    asyncpg connections bound to a closed loop (manifesting as a 503 in the real
+    readiness test). Disposing here runs on the test's own loop, so the next test
+    gets a fresh engine. No-op when no engine was created (e.g. Docker-free tests).
+    """
+    yield
+    from app.db import dispose_engine
+
+    await dispose_engine()
+
+
 @pytest.fixture
 def postgres_ready(_schema) -> None:
     """Guarantee the target DB exists and is migrated (via `_schema`) before the

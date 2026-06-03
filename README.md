@@ -59,6 +59,17 @@ Two DB roles:
 - **`app`** — owner/superuser; used **only** for migrations, role bootstrap, and
   test seeding (superusers bypass RLS, so the runtime must not use it).
 
+## Audit log (§16.6) — append-only, hash-chained
+`audit_logs` is a tamper-evident, SHA-256 hash-chained trail. The runtime appends
+**only** through the `SECURITY DEFINER` function `audit_append`, owned by a limited
+NOLOGIN role **`audit_writer`**; `uaid_app` has `EXECUTE` on it and **no** direct table
+privileges. The tenant is derived from the `app.current_tenant` GUC (fail-closed), so a
+caller cannot forge another tenant's rows — use `app.audit.record(session, ...)` inside
+`tenant_scope`. `UPDATE`/`DELETE`/`TRUNCATE` are blocked by a trigger; `audit_verify()`
+(admin-only) walks the chain. **Tamper-evident, not tamper-proof** (a DB superuser can
+still rewrite history); external sink + signing are deferred. Slice 2 records committed
+tenant events only.
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 

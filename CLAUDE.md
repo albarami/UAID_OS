@@ -14,14 +14,16 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slice 1 (spine + tenancy) and Slice 1b (Postgres RLS) landed.**
-Beyond the original scaffold, the control-plane persistence spine exists (async
-SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
-liveness/readiness), **and DB-level tenant isolation via Postgres Row-Level
-Security is now enforced** (Slice 1b). The rest of the engine described in the
-spec (intake compiler, agent factory, maker-checker-verifier, evidence packs,
-tool broker, policy/approval engines, etc.) is **not** implemented. Do not assume
-any spec capability exists unless it is listed under "What exists" below.
+**Phase 1 (§26.1) in progress — Slice 1 (spine + tenancy), Slice 1b (Postgres RLS),
+and Slice 2 (append-only audit log) landed** (Slice 2 on branch `feat/control-plane-audit-log`,
+pending review/merge at time of writing). Beyond the original scaffold: the
+control-plane persistence spine (async SQLAlchemy + Alembic, four tenant-scoped
+tables, app-layer scoping, honest liveness/readiness), DB-level tenant isolation
+via Postgres RLS (Slice 1b), **and a tamper-evident, hash-chained audit log
+(Slice 2)**. The rest of the engine described in the spec (intake compiler, agent
+factory, maker-checker-verifier, evidence packs, tool broker, policy/approval
+engines, etc.) is **not** implemented. Do not assume any spec capability exists
+unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
 at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
@@ -57,13 +59,22 @@ the admin `app` role only.
   runs the queries — the runtime binding RLS reads (INV-5). Cross-tenant writes raise
   `CrossTenantError` (app layer) and are blocked by RLS `WITH CHECK` (DB layer).
 - `app/repositories/projects.py` — tenant-scoped CRUD for `projects` (use inside `tenant_scope`).
+- `app/audit.py` — audit-log service (Slice 2, §16.6). `record(session, *, action, actor,
+  target, payload)` appends via the DB `audit_append` function (tenant derived from the
+  `app.current_tenant` GUC — **no tenant param**; call inside `tenant_scope`); returns only
+  `{id, entry_hash, created_at}`. `verify_chain(admin_session)` runs the full-chain check
+  (admin only). No engine/admin creds in the module.
+- `app/models/audit_log.py` — **read-only** ORM model for `audit_logs` (writes go via the
+  DB function, never the ORM).
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
-  **admin only — never `uaid_app`**). `0001_control_plane_spine.py` (spine, no `CREATE EXTENSION`);
-  `0002_rls_tenant_isolation.py` (ENABLE+FORCE RLS on `projects`/`project_runs`, deny-by-default
-  `tenant_isolation` policy, grants to `uaid_app`).
-- `scripts/bootstrap_rls_role.sql` — idempotent creation of the non-superuser `uaid_app`
-  role (`LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`); password
-  from `RLS_DB_PASSWORD` via psql `\getenv` (never committed/printed). Run by `make db-bootstrap-rls-role`.
+  **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
+  `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
+  `0003_audit_log.py` (append-only hash-chained `audit_logs`: SECURITY DEFINER `audit_append`
+  [GUC-derived tenant, minimal return] + `audit_verify` owned by `audit_writer`, shared
+  `audit_entry_hash` helper, REVOKE UPDATE/DELETE + append-only trigger; core `sha256`, no extension).
+- `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
+  `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
+  password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
 - `app/config.py` — `Settings` (pydantic-settings) loaded from `.env`. Reads
   `DATABASE_URL` + `TEST_DATABASE_URL` (**runtime `uaid_app`**), `ADMIN_DATABASE_URL` +
   `TEST_ADMIN_DATABASE_URL` (**admin `app`**, migrations/bootstrap/seed only),
@@ -78,11 +89,12 @@ the admin `app` role only.
   §3.2 (Al-Muhasibi wrapper), *not* the full reasoning kernel.
 - `app/agents/` — empty package, reserved for agent implementations.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
-- `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`
-  and `test_rls.py` (DB-backed, marked `db`) and `conftest.py` (admin fixtures build/seed
-  `app_test`; `rls_engine` connects as `uaid_app` for INV-5; per-test transaction rollback).
-  **`make test` → 6 passing (Docker-free); `make test-db` → 16 passing (DB-backed: tenancy,
-  readiness, and RLS INV-5 + catalog enforcement). `make test-db` requires `RLS_DB_PASSWORD`.**
+- `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
+  `test_rls.py`, `test_audit.py` (DB-backed, marked `db`) and `conftest.py` (admin fixtures
+  build/seed `app_test`; `rls_engine` connects as `uaid_app`; per-test transaction rollback;
+  auto-dispose of the `app.db` engine between tests). **`make test` → 8 passing (Docker-free);
+  `make test-db` → 33 passing (DB-backed: tenancy INV-1..4, readiness, RLS INV-5, and audit
+  append/verify/tamper/forgery/append-only + catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -115,8 +127,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 6 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 16 passing
+make test                                  # Docker-free tests (no services) — 8 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 33 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -143,7 +155,10 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
 - Multi-tenant isolation (§17): **present for the spine** — app-layer scoping + schema FKs
   (Slice 1) **and DB-level RLS** on `projects`/`project_runs` (Slice 1b). Future tenant-owned
   tables must add the same RLS policy + grants when introduced.
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1/1b.
+- Audit log (§16.6): **present (Slice 2)** — append-only, hash-chained, tenant-event-only.
+  Deferred: external log sink, cryptographic signing, platform/system events, reviewer/tenant
+  read APIs + audit-table RLS (Slice 10). Tamper-evident, not tamper-proof.
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was

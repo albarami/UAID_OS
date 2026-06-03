@@ -136,13 +136,12 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Tests/evidence:** INV-5 (isolation, deny-by-default, cross-tenant write blocked, repo works when bound) + catalog (RLS enabled+forced, policies, role attrs, owner) — **`make test-db` → 16 passing**. At rev 0001 (no RLS/grants) `uaid_app` is denied — confirms RLS does the work.
 - **Non-goals (held):** column-level security; request→tenant auth; RLS on `organizations`/`tenants`.
 
-### Slice 2 — Append-only audit log (§16.6)
-- **Scope:** `audit_logs`, hash-chained (`prev_hash`→`entry_hash`), append-only; a writer API other slices call.
-- **Files:** `app/models/audit_log.py`, `app/audit.py`, `migrations/`, `tests/test_audit.py`.
-- **Schema:** `audit_logs(id, tenant_id NULL-allowed, actor, action, target, payload jsonb, prev_hash, entry_hash, created_at)`; UPDATE/DELETE revoked for the app role (or trigger).
-- **Tests:** chain verifies; tamper detected; UPDATE/DELETE rejected.
-- **Evidence:** chain-verify output; mutation rejected.
-- **Non-goals:** external log sink, cryptographic signing (later).
+### Slice 2 — Append-only audit log (§16.6) — **IMPLEMENTED (plan v4; pending review/merge)** · branch `feat/control-plane-audit-log`
+- **Scope (delivered):** `audit_logs` hash-chained (SHA-256, `prev_hash`→`entry_hash`), append-only; written ONLY via SECURITY DEFINER `audit_append` (GUC-derived tenant, fail-closed, minimal return) owned by limited NOLOGIN `audit_writer`; `uaid_app` EXECUTE-only. Shared `audit_entry_hash` helper (injective `jsonb_build_object`); admin-only full-chain `audit_verify`.
+- **Files (actual):** `app/audit.py`, `app/models/audit_log.py`, `migrations/versions/0003_audit_log.py`, `tests/test_audit.py`, `scripts/bootstrap_rls_role.sql` (+`audit_writer`), `tests/conftest.py` (engine auto-dispose), docs. `app/db.py` unchanged.
+- **Immutability:** REVOKE UPDATE/DELETE + BEFORE UPDATE/DELETE/TRUNCATE trigger. **Tamper-evident, not tamper-proof.**
+- **Tests/evidence:** `make test` → 8; `make test-db` → 33 (append/verify, forgery-denied, fail-closed, append-only vs trigger, privilege-denied, tamper-detected, seq-gap tolerated, rollback semantics, minimal return, catalog/privilege). Autogenerate drift empty; downgrade/upgrade reversible.
+- **Non-goals (held):** external sink, signing, platform/system events, tenant read API + audit-table RLS (Slice 10).
 
 ### Slice 3 — Policy engine: autonomy A0–A5 + authority matrix (§5, §2.6)
 - **Scope:** autonomy level per project/run; `check_authority(action, ctx) → allow | deny | needs_approval`; deny-by-default.
@@ -241,7 +240,7 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slice 1 merged (PR #1). **Slice 1b (Postgres RLS) implemented on branch
-`feat/control-plane-rls-1b`, pending review/commit.** Per D1, 1b must land before
-Slices 3+. Next slice after 1b merges: Slice 2 (append-only audit log) — do not
+Slice 1 merged (PR #1); Slice 1b (Postgres RLS) merged (PR #2). **Slice 2 (audit log)
+implemented on branch `feat/control-plane-audit-log`, pending review/commit.** Next
+slice after Slice 2 merges: Slice 3 (policy engine A0–A5 + authority matrix) — do not
 start until greenlit.
