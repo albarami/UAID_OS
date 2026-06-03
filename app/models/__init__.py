@@ -5,10 +5,19 @@ populated (Alembic autogenerate and the test schema build both depend on this).
 """
 
 from app.models.audit_log import AuditLog
+from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
 from app.models.organization import Organization
 from app.models.project import Project
 from app.models.project_run import ProjectRun
 from app.models.tenant import Tenant
 
-__all__ = ["Base", "Organization", "Tenant", "Project", "ProjectRun", "AuditLog"]
+__all__ = [
+    "Base",
+    "Organization",
+    "Tenant",
+    "Project",
+    "ProjectRun",
+    "AuditLog",
+    "AutonomyPolicy",
+]

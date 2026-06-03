@@ -143,13 +143,12 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Tests/evidence:** `make test` → 8; `make test-db` → 33 (append/verify, forgery-denied, fail-closed, append-only vs trigger, privilege-denied, tamper-detected, seq-gap tolerated, rollback semantics, minimal return, catalog/privilege). Autogenerate drift empty; downgrade/upgrade reversible.
 - **Non-goals (held):** external sink, signing, platform/system events, tenant read API + audit-table RLS (Slice 10).
 
-### Slice 3 — Policy engine: autonomy A0–A5 + authority matrix (§5, §2.6)
-- **Scope:** autonomy level per project/run; `check_authority(action, ctx) → allow | deny | needs_approval`; deny-by-default.
-- **Files:** `app/policy/` (engine + matrix), `app/models/autonomy_policy.py`, `tests/test_policy.py`.
-- **Schema:** `autonomy_policies` (tenant-owned).
-- **Tests:** A2 allows branch/PR, denies prod deploy; unknown action denied.
-- **Evidence:** decision matrix in test output.
-- **Non-goals:** wiring into real tools (Slice 5); UI.
+### Slice 3 — Policy engine: autonomy A0–A5 + authority matrix (§5, §2.6) — **IMPLEMENTED (plan v3; pending review/merge)** · branch `feat/control-plane-policy-engine`
+- **Scope (delivered):** code authority matrix; pure deny-by-default `check_authority → ALLOW|DENY|NEEDS_APPROVAL`; **tighten-only** overrides; §2.6 actions (incl. `weaken_test_or_review_standards`) **non-bypassable**; tenant-owned RLS `autonomy_policies` (level + overrides); `decision_for` **fail-closed** (missing row ⇒ DENY; invalid persisted override ⇒ DENY); `upsert` validates + audits (safe metadata; untrusted `actor` label).
+- **Files (actual):** `app/policy/{levels,matrix,engine}.py`, `app/models/autonomy_policy.py`, `app/repositories/autonomy_policies.py`, `migrations/versions/0004_autonomy_policies.py`, `tests/test_policy.py`, `app/models/__init__.py`, docs. `app/db.py` unchanged.
+- **Grants:** `SELECT, INSERT, UPDATE` to `uaid_app` — **no DELETE**.
+- **Tests/evidence:** `make test` → 32; `make test-db` → 44 (matrix semantics, unknown⇒DENY, A4 thresholds, tighten-only/relaxing-rejected + malformed-min_level-rejected, §2.6 non-ALLOW, missing-row⇒DENY, invalid-override⇒DENY incl. unrelated-action + malformed persisted, whole-map fail-closed, RLS isolation + deny-by-default + cross-tenant write blocked, audit-on-upsert, catalog incl. no-DELETE). Autogenerate drift empty; reversible.
+- **Non-goals (held):** enforcement wiring (Slice 5); approval workflow (Slice 4); A5 auto-release gates; stop_conditions; per-run override; API/UI.
 
 ### Slice 4 — Approval engine (§18)
 - **Scope:** `approvals` + `approval_events`; request→await→resolve; non-response policy (logic only).
@@ -240,7 +239,6 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slice 1 merged (PR #1); Slice 1b (Postgres RLS) merged (PR #2). **Slice 2 (audit log)
-implemented on branch `feat/control-plane-audit-log`, pending review/commit.** Next
-slice after Slice 2 merges: Slice 3 (policy engine A0–A5 + authority matrix) — do not
-start until greenlit.
+Slices 1, 1b, 2 merged (PRs #1/#2/#3). **Slice 3 (policy engine) implemented on branch
+`feat/control-plane-policy-engine`, pending review/commit.** Next slice after Slice 3
+merges: Slice 4 (approval engine, §18) — do not start until greenlit.

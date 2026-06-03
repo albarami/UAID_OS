@@ -14,16 +14,16 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slice 1 (spine + tenancy), Slice 1b (Postgres RLS),
-and Slice 2 (append-only audit log) landed** (Slice 2 on branch `feat/control-plane-audit-log`,
-pending review/merge at time of writing). Beyond the original scaffold: the
-control-plane persistence spine (async SQLAlchemy + Alembic, four tenant-scoped
-tables, app-layer scoping, honest liveness/readiness), DB-level tenant isolation
-via Postgres RLS (Slice 1b), **and a tamper-evident, hash-chained audit log
-(Slice 2)**. The rest of the engine described in the spec (intake compiler, agent
-factory, maker-checker-verifier, evidence packs, tool broker, policy/approval
-engines, etc.) is **not** implemented. Do not assume any spec capability exists
-unless it is listed under "What exists" below.
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2 merged; Slice 3 (policy engine) on
+branch `feat/control-plane-policy-engine`, pending review/merge.** Beyond the
+original scaffold: the control-plane persistence spine (async SQLAlchemy + Alembic,
+four tenant-scoped tables, app-layer scoping, honest liveness/readiness), DB-level
+tenant isolation via Postgres RLS (Slice 1b), a tamper-evident hash-chained audit
+log (Slice 2), **and a deterministic autonomy policy engine (A0–A5 + authority
+matrix, Slice 3)**. The rest of the engine described in the spec (intake compiler,
+agent factory, maker-checker-verifier, evidence packs, tool broker, approval engine,
+etc.) is **not** implemented. Do not assume any spec capability exists unless it is
+listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
 at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
@@ -66,12 +66,24 @@ the admin `app` role only.
   (admin only). No engine/admin creds in the module.
 - `app/models/audit_log.py` — **read-only** ORM model for `audit_logs` (writes go via the
   DB function, never the ORM).
+- `app/policy/` — autonomy policy engine (Slice 3, §5/§2.6). `levels.py`
+  (`AutonomyLevel` A0–A5), `matrix.py` (code authority matrix + **tighten-only**
+  `apply_overrides`/`validate_overrides`; §2.6 actions flagged `mandatory_approval`
+  and structurally non-bypassable), `engine.py` (pure deny-by-default
+  `check_authority(action, level, overrides) -> Decision{ALLOW,DENY,NEEDS_APPROVAL}`).
+- `app/models/autonomy_policy.py` — tenant-owned `autonomy_policies` (per-project
+  level + overrides jsonb; composite FK to projects). `app/repositories/autonomy_policies.py`
+  — `decision_for` (**fail-closed**: missing policy ⇒ DENY, invalid persisted override ⇒ DENY)
+  and `upsert` (validates overrides, audits the change via `audit_append` with safe metadata;
+  `actor` is an **untrusted** caller label until request-auth exists).
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
   `0003_audit_log.py` (append-only hash-chained `audit_logs`: SECURITY DEFINER `audit_append`
   [GUC-derived tenant, minimal return] + `audit_verify` owned by `audit_writer`, shared
-  `audit_entry_hash` helper, REVOKE UPDATE/DELETE + append-only trigger; core `sha256`, no extension).
+  `audit_entry_hash` helper, REVOKE UPDATE/DELETE + append-only trigger; core `sha256`, no extension);
+  `0004_autonomy_policies.py` (tenant-owned `autonomy_policies`: ENABLE+FORCE RLS +
+  `tenant_isolation` policy; grants `SELECT, INSERT, UPDATE` to `uaid_app` — **no DELETE**).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -90,11 +102,12 @@ the admin `app` role only.
 - `app/agents/` — empty package, reserved for agent implementations.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
-  `test_rls.py`, `test_audit.py` (DB-backed, marked `db`) and `conftest.py` (admin fixtures
-  build/seed `app_test`; `rls_engine` connects as `uaid_app`; per-test transaction rollback;
-  auto-dispose of the `app.db` engine between tests). **`make test` → 8 passing (Docker-free);
-  `make test-db` → 33 passing (DB-backed: tenancy INV-1..4, readiness, RLS INV-5, and audit
-  append/verify/tamper/forgery/append-only + catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
+  `test_rls.py`, `test_audit.py`, `test_policy.py` (DB-backed `db` + Docker-free engine units)
+  and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test
+  transaction rollback; auto-dispose of the `app.db` engine between tests). **`make test` → 32
+  passing (Docker-free, incl. the pure policy engine); `make test-db` → 44 passing (DB-backed:
+  tenancy INV-1..4, readiness, RLS INV-5, audit, and policy storage/decision/RLS/audit/catalog).
+  `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -127,8 +140,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 8 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 33 passing
+make test                                  # Docker-free tests (no services) — 32 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 44 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -158,7 +171,12 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
 - Audit log (§16.6): **present (Slice 2)** — append-only, hash-chained, tenant-event-only.
   Deferred: external log sink, cryptographic signing, platform/system events, reviewer/tenant
   read APIs + audit-table RLS (Slice 10). Tamper-evident, not tamper-proof.
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2.
+- Policy engine (§5/§2.6): **present (Slice 3)** — A0–A5 + authority matrix, deny-by-default,
+  tighten-only overrides, §2.6 mandatory-approval non-bypassable, fail-closed. **Not yet
+  enforced** anywhere (decision-only; tool-broker enforcement is Slice 5) and **no approval
+  workflow** (NEEDS_APPROVAL is just a returned decision; Slice 4). A5 auto-release gates +
+  stop_conditions deferred.
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was
