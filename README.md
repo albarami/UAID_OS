@@ -96,6 +96,19 @@ an audit-log entry. Tables are tenant-owned + RLS; `approvals` is never `DELETE`
 **approver identity is unverified** (`approver_provenance='caller_supplied_unverified'`) until
 request-auth exists, so these are not yet verified human approvals.
 
+## Tool broker (§11)
+`app/tools/` is the controlled chokepoint for tool calls (`broker_call`). It is
+**deny-by-default** and composes the policy + approval engines: unknown tool ⇒ denied;
+not on the per-agent allowlist ⇒ denied; policy `DENY` ⇒ denied; policy/contract
+needs-approval ⇒ checks a **tool-scoped** approval (`subject_ref="tool:<name>"`). Tool
+catalog is code-defined; params are validated (mapping-only, ≤16 KiB) and **secret-ish
+keys redacted** before storage (`DENIED_INVALID_PARAMS` otherwise; audit never includes
+params). The allowlist is an append-only **grant/revoke ledger** (no UPDATE/DELETE; latest
+event decides). Every attempt is recorded to tenant-owned, append-only `tool_calls` + the
+audit log. **Skeleton — no real execution.** Because request-auth is out of scope, an
+unverified approval yields `NEEDS_AUTHENTICATED_APPROVAL` and the success terminal is
+`ALLOWED_UNVERIFIED_IDENTITY` — never executable authorization yet.
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 

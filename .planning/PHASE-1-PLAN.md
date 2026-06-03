@@ -157,13 +157,12 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Tests/evidence:** `make test` → 54; `make test-db` → 58 (transition matrix, non-response per tier, gate truth table, §2.6-low-still-blocked, tri-state explicit, mandatory-false-rejected, expiry low→proceed/medium→expired/high→no-lapse, double-resolve raises, RLS deny-by-default, catalog incl. no-DELETE + append-only). Autogenerate drift empty; reversible.
 - **Non-goals (held):** Slice 5 enforcement; real channels; scheduler; API/UI (§18.6); request-auth identity; A5 gates; §18.3/§18.4 machinery.
 
-### Slice 5 — Tool broker skeleton (§11)
-- **Scope:** controlled call interface; per-agent allowlist; deny-by-default; every call recorded; authority via Slice 3.
-- **Files:** `app/tools/broker.py`, `app/models/tool_call.py`, tests.
-- **Schema:** `tool_calls` (tenant-owned); minimal `connectors` registry.
-- **Tests:** disallowed tool denied + audited; allowed tool recorded; unknown tool denied.
-- **Evidence:** audit entries per call; denial logged.
-- **Non-goals:** real connectors (GitHub/CI), MCP servers.
+### Slice 5 — Tool broker skeleton (§11) — **IMPLEMENTED (plan v3; pending review/merge)** · branch `feat/control-plane-tool-broker`
+- **Scope (delivered):** deny-by-default decision chokepoint `broker_call → BrokerDecision`; code `TOOL_REGISTRY`; per-agent allowlist (append-only grant/revoke ledger, monotonic `seq`); composes Slice 3 authority + Slice 4 approval (**tool-scoped** `subject_ref="tool:<name>"`); deterministic `sanitize_params` (mapping-only, secret redaction, ≤16 KiB, `DENIED_INVALID_PARAMS`); records every attempt to tenant-owned append-only `tool_calls` + audit (never params). **Provenance gates:** unverified approval ⇒ `NEEDS_AUTHENTICATED_APPROVAL`; success terminal `ALLOWED_UNVERIFIED_IDENTITY` (no bare ALLOWED; not executable).
+- **Files (actual):** `app/tools/{__init__,registry,broker}.py`, `app/models/tool_call.py`, `app/models/agent_tool_allowlist.py`, `app/repositories/tools.py`, `migrations/versions/0006_tool_broker.py`, `tests/test_tools.py`, `app/repositories/approvals.py` (+additive `latest_for`), `app/models/__init__.py`, docs. `app/db.py`/`app/policy/*`/`app/approvals/states.py` untouched.
+- **Grants:** `tool_calls` + `agent_tool_allowlist` both `SELECT, INSERT` only (append-only); both ENABLE+FORCE RLS + `tenant_isolation`.
+- **Tests/evidence:** `make test` → 61; `make test-db` → 69 (unknown/invalid-params/not-allowlisted/policy-deny denials, allow⇒unverified-identity, contract-requires-approval over policy ALLOW, tool-scoped approval [action-level/other-tool don't satisfy], unverified-approved⇒needs-authenticated, allowlist grant/revoke/regrant, RLS deny-by-default both tables, catalog append-only). Autogenerate drift empty; reversible.
+- **Non-goals (held):** real connectors/MCP/credentials/rate-limits/cost/auto-suspension/API-UI; no real execution; agent identity unverified (Slice 6 / request-auth).
 
 ### Slice 6 — Agent registry (§9.7, §17.4)
 - **Scope:** global `agent_blueprints`; immutable `agent_versions` (hashes); tenant-scoped `agent_instances`.
@@ -238,6 +237,6 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3 merged (PRs #1–#4). **Slice 4 (approval engine) implemented on branch
-`feat/control-plane-approval-engine`, pending review/commit.** Next slice after Slice 4
-merges: Slice 5 (tool broker skeleton, §11) — do not start until greenlit.
+Slices 1, 1b, 2, 3, 4 merged (PRs #1–#5). **Slice 5 (tool broker skeleton) implemented on
+branch `feat/control-plane-tool-broker`, pending review/commit.** Next slice after Slice 5
+merges: Slice 6 (agent registry, §9.7/§17.4) — do not start until greenlit.

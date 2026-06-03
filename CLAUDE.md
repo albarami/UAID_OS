@@ -14,17 +14,17 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3 merged; Slice 4 (approval engine)
-on branch `feat/control-plane-approval-engine`, pending review/merge.** Beyond the
-original scaffold: the control-plane persistence spine (async SQLAlchemy + Alembic,
-four tenant-scoped tables, app-layer scoping, honest liveness/readiness), DB-level
-tenant isolation via Postgres RLS (Slice 1b), a tamper-evident hash-chained audit
-log (Slice 2), a deterministic autonomy policy engine (A0–A5 + authority matrix,
-Slice 3), **and an approval engine (request→await→resolve + non-response policy,
-Slice 4)**. The rest of the engine described in the spec (intake compiler, agent
-factory, maker-checker-verifier, evidence packs, tool broker, etc.) is **not**
-implemented. Do not assume any spec capability exists unless it is listed under
-"What exists" below.
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4 merged; Slice 5 (tool broker
+skeleton) on branch `feat/control-plane-tool-broker`, pending review/merge.** Beyond
+the original scaffold: the persistence spine (async SQLAlchemy + Alembic, four
+tenant-scoped tables, app-layer scoping, honest liveness/readiness), DB-level tenant
+isolation via Postgres RLS (Slice 1b), a tamper-evident hash-chained audit log
+(Slice 2), a deterministic autonomy policy engine (Slice 3), an approval engine
+(Slice 4), **and a tool broker skeleton (deny-by-default decision chokepoint
+composing policy + approval, Slice 5)**. The rest of the engine described in the
+spec (intake compiler, agent factory, maker-checker-verifier, evidence packs, etc.)
+is **not** implemented. Do not assume any spec capability exists unless it is listed
+under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
 at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
@@ -87,10 +87,21 @@ the admin `app` role only.
 - `app/models/approval.py` + `app/models/approval_event.py` — tenant-owned `approvals`
   (RLS; SELECT/INSERT/UPDATE, **no DELETE**) and append-only `approval_events`
   (RLS; SELECT/INSERT only). `app/repositories/approvals.py` — `ApprovalRepository`:
-  request/approve/reject/cancel/expire_if_overdue + `is_blocked` gate; each transition writes
-  an `approval_events` row + an `audit_log` entry (safe metadata). `requested_by`/`resolved_by`
-  are **untrusted** labels; `approver_provenance='caller_supplied_unverified'` — NOT verified
-  human approvals. No scheduler (expiry is on-demand). Decision-only (no enforcement — Slice 5).
+  request/approve/reject/cancel/expire_if_overdue + `is_blocked` gate + `latest_for(project,
+  action, subject_ref=None)`; each transition writes an `approval_events` row + an `audit_log`
+  entry. `requested_by`/`resolved_by` **untrusted**; `approver_provenance='caller_supplied_unverified'`
+  — NOT verified human approvals. No scheduler (on-demand expiry).
+- `app/tools/` — tool broker skeleton (Slice 5, §11). `registry.py` (code `TOOL_REGISTRY`
+  catalog; deny-by-default unknown tools; `sanitize_params` — mapping-only, secret-key redaction,
+  ≤16 KiB), `broker.py` (`broker_call` decision pipeline → `BrokerDecision`). Composes Slice 3
+  authority + Slice 4 approval, **tool-scoped** (`subject_ref="tool:<name>"`). Two provenance
+  gates keep it a safe **skeleton (no real execution)**: an unverified approval ⇒
+  `NEEDS_AUTHENTICATED_APPROVAL`; the success terminal is `ALLOWED_UNVERIFIED_IDENTITY` (never
+  bare ALLOWED). `app/models/tool_call.py` (tenant-owned, append-only, redacted params) +
+  `app/models/agent_tool_allowlist.py` (append-only **grant/revoke ledger** with a monotonic
+  `seq`; latest event decides). `app/repositories/tools.py` — `ToolAllowlistRepository`
+  (grant/revoke/is_allowed, audited) + `ToolCallRepository.record` (records every attempt +
+  audit; audit never includes params). `agent_id` is an **untrusted** label.
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -100,7 +111,9 @@ the admin `app` role only.
   `0004_autonomy_policies.py` (tenant-owned `autonomy_policies`: ENABLE+FORCE RLS +
   `tenant_isolation` policy; grants `SELECT, INSERT, UPDATE` to `uaid_app` — **no DELETE**);
   `0005_approvals.py` (tenant-owned `approvals` [SELECT/INSERT/UPDATE, no DELETE] + append-only
-  `approval_events` [SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`).
+  `approval_events` [SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`);
+  `0006_tool_broker.py` (tenant-owned append-only `tool_calls` + `agent_tool_allowlist` ledger
+  [both SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -119,12 +132,12 @@ the admin `app` role only.
 - `app/agents/` — empty package, reserved for agent implementations.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
-  `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py` (DB-backed `db` +
-  Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as
-  `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine between tests).
-  **`make test` → 54 passing (Docker-free, incl. pure policy + approval engines); `make test-db`
-  → 58 passing (DB-backed: tenancy, readiness, RLS, audit, policy, and approval lifecycle/gate/
-  RLS/audit/catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
+  `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`
+  (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`;
+  `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
+  **`make test` → 61 passing (Docker-free, incl. pure policy/approval/broker logic); `make test-db`
+  → 69 passing (DB-backed: tenancy, readiness, RLS, audit, policy, approval, and tool-broker
+  pipeline/allowlist/RLS/audit/catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -157,8 +170,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 54 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 58 passing
+make test                                  # Docker-free tests (no services) — 61 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 69 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -198,7 +211,12 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   **Decision/logic only** — not wired to tool enforcement (Slice 5); no scheduler (on-demand expiry);
   no real channels (Slack/email) or dashboard (§18.6 / Slice 10); approver identity is unverified
   until request-auth. Note: the policy `is_mandatory_action` helper was added to `app/policy/matrix.py`.
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4.
+- Tool broker (§11): **present (Slice 5)** — deny-by-default decision chokepoint composing
+  policy + approval, per-agent allowlist ledger, every attempt recorded. **Skeleton: no real
+  execution / connectors / MCP / credentials / rate limits / cost / auto-suspension.** Success
+  caps at `ALLOWED_UNVERIFIED_IDENTITY`; unverified approvals ⇒ `NEEDS_AUTHENTICATED_APPROVAL`
+  (nothing here is executable authorization until request-auth lands).
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was

@@ -125,19 +125,29 @@ class ApprovalRepository(TenantScopedRepository):
         )
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def latest_for(
+        self, project_id: uuid.UUID, action: str, subject_ref: str | None = None
+    ) -> Approval | None:
+        """Latest approval for (project, action), optionally scoped to a subject_ref.
+
+        ``subject_ref=None`` does not filter on subject_ref (preserves the
+        action-level semantics used by ``is_blocked``); a concrete value (e.g.
+        ``"tool:<name>"``) restricts the match — an action-level (NULL subject_ref)
+        or different-subject approval will not be returned.
+        """
+        stmt = select(Approval).where(
+            Approval.tenant_id == self.context.tenant_id,
+            Approval.project_id == project_id,
+            Approval.action == action,
+        )
+        if subject_ref is not None:
+            stmt = stmt.where(Approval.subject_ref == subject_ref)
+        stmt = stmt.order_by(Approval.requested_at.desc()).limit(1)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def is_blocked(self, project_id: uuid.UUID, action: str) -> bool:
         """Gate: is the dependent action blocked by the latest relevant approval?"""
-        stmt = (
-            select(Approval)
-            .where(
-                Approval.tenant_id == self.context.tenant_id,
-                Approval.project_id == project_id,
-                Approval.action == action,
-            )
-            .order_by(Approval.requested_at.desc())
-            .limit(1)
-        )
-        approval = (await self.session.execute(stmt)).scalar_one_or_none()
+        approval = await self.latest_for(project_id, action)  # subject_ref=None: unchanged behavior
         if approval is None:
             return True  # no approval on record ⇒ blocked
         return _gate_is_blocked(
