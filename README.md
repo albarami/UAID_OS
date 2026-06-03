@@ -80,8 +80,8 @@ mandatory-approval actions (production deploy, protected-branch merge, delete, s
 billing, external comms, sensitive data, risk acceptance, gate bypass, weakening
 test/review standards) are **structurally non-bypassable**. `AutonomyPolicyRepository.decision_for`
 is **fail-closed**: a missing policy or an invalid persisted override yields DENY. Policy
-changes are audited via the Slice 2 audit log. Slice 3 is **decision-only** — enforcement
-(tool broker) and the approval workflow are later slices.
+changes are audited via the Slice 2 audit log. The policy is **enforced by the Slice 5 broker
+for brokered tool decisions only**; no broader runtime/workflow enforcement exists yet.
 
 ## Approval engine (§18)
 Request → await → resolve approval lifecycle (`app/approvals/`, `ApprovalRepository`).
@@ -92,9 +92,10 @@ on demand, **no scheduler**). A separate **non-bypassable** flag `requires_expli
 low-risk non-response can never bypass it. The gate `is_blocked(project, action)` is
 **fail-closed** (no approval ⇒ blocked). Every transition writes an `approval_events` row and
 an audit-log entry. Tables are tenant-owned + RLS; `approvals` is never `DELETE`-able and
-`approval_events` is append-only. **Decision-only** — enforcement is a later slice; and
-**approver identity is unverified** (`approver_provenance='caller_supplied_unverified'`) until
-request-auth exists, so these are not yet verified human approvals.
+`approval_events` is append-only. The engine is **wired into the Slice 5 broker for tool-scoped
+approval decisions only** (no scheduler/channels/dashboard); and **approver identity is unverified**
+(`approver_provenance='caller_supplied_unverified'`) until request-auth exists, so these are not yet
+verified human approvals.
 
 ## Tool broker (§11)
 `app/tools/` is the controlled chokepoint for tool calls (`broker_call`). It is
@@ -108,6 +109,25 @@ event decides). Every attempt is recorded to tenant-owned, append-only `tool_cal
 audit log. **Skeleton — no real execution.** Because request-auth is out of scope, an
 unverified approval yields `NEEDS_AUTHENTICATED_APPROVAL` and the success terminal is
 `ALLOWED_UNVERIFIED_IDENTITY` — never executable authorization yet.
+
+## Agent registry (§9.7 / §17.4 / §22.2)
+`app/agents/` is the durable agent identity + change-control substrate. **Global,
+admin-curated** `agent_blueprints` (reusable role identity) and **global, immutable**
+`agent_versions` (the §22.2 pinning snapshot — `model_route` + six `sha256:` component
+hashes + a derived `content_hash`) make up the catalog; the runtime role `uaid_app`
+has `SELECT` only. Versions are immutable via `BEFORE UPDATE/DELETE` (row) and
+`BEFORE TRUNCATE` (statement) triggers — **DML-immutable for all roles incl. the table
+owner, but not tamper-proof against a DB superuser** who can disable triggers (same bar
+as the audit log). `register_version` is idempotent on `content_hash`; changed content
+always yields a **new** version. **Tenant-scoped** `agent_instances` (RLS ENABLE+FORCE)
+bind a global version into a project/run: a triple composite FK pins an active run to
+the **same project and tenant**, binding identity columns are immutable and
+`active_run_id` is set-once (UPDATE trigger), and a partial unique index allows only one
+**live** instance per `(tenant, project, instance_key)` (retired rows may repeat). The
+global catalog holds **role metadata + hashes only — never tenant prompts/code/documents**
+(§17.5; structurally enforced — there are no body/content columns). Instance lifecycle is
+audited; **skeleton — no Agent Factory, eval execution, model routing, agent execution,
+or broker wiring.**
 
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate

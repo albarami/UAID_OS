@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     String,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -34,6 +35,10 @@ class ProjectRun(Base, TimestampMixin):
             f"status IN ({', '.join(repr(s) for s in _RUN_STATUSES)})",
             name="status_valid",
         ),
+        # Enables the triple composite FK from
+        # agent_instances(active_run_id, project_id, tenant_id) — pins an active
+        # run to the same project AND tenant as the instance.
+        UniqueConstraint("id", "project_id", "tenant_id"),
         Index(None, "tenant_id"),
         Index(None, "project_id"),
     )

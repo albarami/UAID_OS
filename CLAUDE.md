@@ -14,17 +14,18 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4 merged; Slice 5 (tool broker
-skeleton) on branch `feat/control-plane-tool-broker`, pending review/merge.** Beyond
-the original scaffold: the persistence spine (async SQLAlchemy + Alembic, four
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5 merged; Slice 6 (agent
+registry) on branch `feat/control-plane-agent-registry`, pending review/merge.**
+Beyond the original scaffold: the persistence spine (async SQLAlchemy + Alembic, four
 tenant-scoped tables, app-layer scoping, honest liveness/readiness), DB-level tenant
 isolation via Postgres RLS (Slice 1b), a tamper-evident hash-chained audit log
 (Slice 2), a deterministic autonomy policy engine (Slice 3), an approval engine
-(Slice 4), **and a tool broker skeleton (deny-by-default decision chokepoint
-composing policy + approval, Slice 5)**. The rest of the engine described in the
-spec (intake compiler, agent factory, maker-checker-verifier, evidence packs, etc.)
-is **not** implemented. Do not assume any spec capability exists unless it is listed
-under "What exists" below.
+(Slice 4), a tool broker skeleton (deny-by-default decision chokepoint composing
+policy + approval, Slice 5), **and an agent registry (global blueprints + immutable
+content-hashed versions + tenant-scoped instances, Slice 6)**. The rest of the engine
+described in the spec (intake compiler, agent factory, maker-checker-verifier,
+evidence packs, etc.) is **not** implemented. Do not assume any spec capability exists
+unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
 at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
@@ -101,7 +102,19 @@ the admin `app` role only.
   `app/models/agent_tool_allowlist.py` (append-only **grant/revoke ledger** with a monotonic
   `seq`; latest event decides). `app/repositories/tools.py` — `ToolAllowlistRepository`
   (grant/revoke/is_allowed, audited) + `ToolCallRepository.record` (records every attempt +
-  audit; audit never includes params). `agent_id` is an **untrusted** label.
+  audit; audit never includes params). `agent_id` is an **untrusted** label (the Slice-6
+  agent registry is **not** wired to the broker yet).
+- `app/agents/` — agent registry (Slice 6, §9.7/§17.4/§22.2). `registry.py`: `ARCHETYPES`
+  (§9.5.1 set), `compute_content_hash` (deterministic `sha256:` over the §22.2 snapshot),
+  admin-path `register_blueprint`/`register_version` (validate the six component hashes;
+  idempotent on `content_hash`; changed content ⇒ new version), and `AgentInstanceRepository`
+  (tenant-scoped instantiate/bind_to_run/suspend/retire, each audited). `app/models/agent_blueprint.py`
+  (**global**, admin-curated role identity) + `app/models/agent_version.py` (**global**, **immutable**:
+  UPDATE/DELETE/TRUNCATE triggers; stores hashes only — no tenant content) + `app/models/agent_instance.py`
+  (**tenant-owned**, RLS; `version_id` only; triple FK pins run→project→tenant; binding columns
+  immutable + `active_run_id` set-once via trigger; partial unique on live `(tenant,project,instance_key)`).
+  `actor` is an **untrusted** label. **Skeleton: no Agent Factory / eval execution / model routing /
+  agent execution / broker wiring.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -113,7 +126,11 @@ the admin `app` role only.
   `0005_approvals.py` (tenant-owned `approvals` [SELECT/INSERT/UPDATE, no DELETE] + append-only
   `approval_events` [SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`);
   `0006_tool_broker.py` (tenant-owned append-only `tool_calls` + `agent_tool_allowlist` ledger
-  [both SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`).
+  [both SELECT/INSERT only]; both ENABLE+FORCE RLS + `tenant_isolation`);
+  `0007_agent_registry.py` (**global** `agent_blueprints` + **immutable** `agent_versions`
+  [`uaid_app` SELECT-only; UPDATE/DELETE/TRUNCATE triggers] + **tenant-owned** `agent_instances`
+  [ENABLE+FORCE RLS + `tenant_isolation`; SELECT/INSERT/UPDATE, no DELETE; binding-immutability
+  trigger]; adds `UNIQUE(id, project_id, tenant_id)` to `project_runs` for the triple FK).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -129,15 +146,16 @@ the admin `app` role only.
 - `app/core/reasoning.py` — **Muhasabah gate** primitive: `muhasabah_gate(answer, facts,
   extra_checks)` self-audits an output before it is returned. Minimal — maps to spec
   §3.2 (Al-Muhasibi wrapper), *not* the full reasoning kernel.
-- `app/agents/` — empty package, reserved for agent implementations.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
-  `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`
-  (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`;
-  `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
-  **`make test` → 61 passing (Docker-free, incl. pure policy/approval/broker logic); `make test-db`
-  → 69 passing (DB-backed: tenancy, readiness, RLS, audit, policy, approval, and tool-broker
-  pipeline/allowlist/RLS/audit/catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
+  `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
+  `test_agents.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures
+  build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose
+  of the `app.db` engine).
+  **`make test` → 68 passing (Docker-free, incl. pure policy/approval/broker logic + agent-registry
+  content-hash/validation); `make test-db` → 88 passing (DB-backed: tenancy, readiness, RLS, audit,
+  policy, approval, tool-broker, and agent-registry immutability/idempotency/RLS/FK-pinning/lifecycle/
+  catalog). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -170,8 +188,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 61 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 69 passing
+make test                                  # Docker-free tests (no services) — 68 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 88 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -202,21 +220,28 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   Deferred: external log sink, cryptographic signing, platform/system events, reviewer/tenant
   read APIs + audit-table RLS (Slice 10). Tamper-evident, not tamper-proof.
 - Policy engine (§5/§2.6): **present (Slice 3)** — A0–A5 + authority matrix, deny-by-default,
-  tighten-only overrides, §2.6 mandatory-approval non-bypassable, fail-closed. **Not yet
-  enforced** anywhere (decision-only; tool-broker enforcement is Slice 5) and **no approval
-  workflow** (NEEDS_APPROVAL is just a returned decision; Slice 4). A5 auto-release gates +
-  stop_conditions deferred.
+  tighten-only overrides, §2.6 mandatory-approval non-bypassable, fail-closed. **Enforced by the
+  Slice 5 broker for brokered tool decisions only; no broader runtime/workflow enforcement exists
+  yet.** A5 auto-release gates + stop_conditions deferred.
 - Approval engine (§18): **present (Slice 4)** — request→await→resolve, risk tiers + non-response
   policy, fail-closed gate, non-bypassable `requires_explicit_approval` for §2.6 actions.
-  **Decision/logic only** — not wired to tool enforcement (Slice 5); no scheduler (on-demand expiry);
-  no real channels (Slack/email) or dashboard (§18.6 / Slice 10); approver identity is unverified
-  until request-auth. Note: the policy `is_mandatory_action` helper was added to `app/policy/matrix.py`.
+  **Wired into the Slice 5 broker for tool-scoped approval decisions only; no scheduler (on-demand
+  expiry), no real channels (Slack/email), no dashboard (§18.6 / Slice 10), no request-auth — approver
+  identity is unverified.** Note: the policy `is_mandatory_action` helper was added to `app/policy/matrix.py`.
 - Tool broker (§11): **present (Slice 5)** — deny-by-default decision chokepoint composing
   policy + approval, per-agent allowlist ledger, every attempt recorded. **Skeleton: no real
   execution / connectors / MCP / credentials / rate limits / cost / auto-suspension.** Success
   caps at `ALLOWED_UNVERIFIED_IDENTITY`; unverified approvals ⇒ `NEEDS_AUTHENTICATED_APPROVAL`
   (nothing here is executable authorization until request-auth lands).
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5.
+- Agent registry (§9.7/§17.4/§22.2): **present (Slice 6)** — global admin-curated `agent_blueprints`,
+  global **immutable** `agent_versions` (full §22.2 hash snapshot; UPDATE/DELETE/TRUNCATE blocked by
+  trigger — *DML-immutable, not tamper-proof vs. a DB superuser*), tenant-scoped RLS `agent_instances`
+  (triple FK pins run→project→tenant; binding columns immutable; `active_run_id` set-once; one live
+  binding per role handle). **Skeleton: no Agent Factory / qualification-eval execution / model routing /
+  agent execution; the broker `agent_id` is NOT wired to instances yet; global registration is not
+  audited (tenant-GUC-derived audit; platform-event audit deferred); component hashes are opaque
+  caller-supplied inputs (the Factory that generates the artifacts is Phase 4).**
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was
