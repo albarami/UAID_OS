@@ -48,6 +48,11 @@ class Document(Base, TimestampMixin):
         CheckConstraint("size_bytes >= 0", name="size_non_negative"),
         CheckConstraint("content_hash ~ '^sha256:[0-9a-f]{64}$'", name="content_hash_format"),
         UniqueConstraint("tenant_id", "project_id", "content_hash", name="uq_documents_content"),
+        # FK target for intake_provenance's document composite FK (Slice 11): pins a
+        # document-backed source to the SAME document + project + tenant.
+        UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_documents_id_project_tenant"
+        ),
         Index("ix_documents_tenant_project", "tenant_id", "project_id"),
     )
 
