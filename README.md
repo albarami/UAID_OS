@@ -148,6 +148,24 @@ is `SELECT, INSERT, UPDATE` (no DELETE); both are RLS ENABLE+FORCE. **Budget cha
 are NOT verified human approvals** — an approval workflow for budget increases is deferred. **Skeleton —
 no price-card integration, provider calls, model routing, billing UI, forecasting, or per-phase budgets.**
 
+## Durable workflow runtime (§23.2)
+`app/runtime/` is the durable execution substrate (D2 = **LangGraph + a custom UAID-owned
+checkpointer**, not Temporal). `UAIDCheckpointer` implements LangGraph's `BaseCheckpointSaver`
+(`aput`/`aput_writes`/`aget_tuple`/`alist`/`adelete_thread`) over **UAID-owned, RLS-protected,
+Alembic-managed** tables — **never** LangGraph's `.setup()` tables — so all durable workflow state
+(which can hold tenant content) stays under our tenant isolation. Checkpoints are serialized with
+LangGraph's serde to `BYTEA`; `thread_id == str(run_id)`. `run_checkpoints` /
+`run_checkpoint_writes` are **mutable working state** (`adelete_thread` cleans them; `task_path` is
+persisted at rest); `run_steps` is the **immutable** append-only history (UPDATE/DELETE/TRUNCATE
+blocked by triggers). A `RunRepository` drives validated `project_runs` state transitions, audited.
+A crash→resume test proves a run continues from its last checkpoint **without re-executing completed
+steps**. **"Deterministic replay" here means state reconstruction** from checkpoints + `run_steps` +
+the audit/tool/cost ledgers — **not** Temporal-style automatic event-history re-execution; it is valid
+only while nodes stay deterministic over persisted state, external actions are idempotent and
+broker/ledger-mediated, and nodes do no hidden I/O. **Slice 8a is the substrate only — approval
+waits, retry/backoff, the cost stop-hook, tool-result persistence, the §23.3 control loop, and
+distributed workers are Slice 8b+.**
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 
