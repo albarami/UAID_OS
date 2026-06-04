@@ -16,10 +16,11 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 ## Current status (2026-06-04)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
-intake spine) and 12 (deterministic build-readiness auditor, R2-capped) merged; Slice 13
-(deterministic gap & structural contradiction detector) on branch
-`feat/control-plane-gap-detector`, pending review/merge. No `v0.2.0` tag yet
-(awaits a user-visible Phase‑2 milestone).**
+intake spine), 12 (deterministic build-readiness auditor, R2-capped), and 13
+(deterministic gap & structural contradiction detector) merged; Slice 14a
+(LLM-assisted extractor → inert, provenance-verified, human-review proposals — the first
+real LLM integration) on branch `feat/control-plane-llm-extraction`, pending review/merge.
+No `v0.2.0` tag yet (awaits a user-visible Phase‑2 milestone).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -42,11 +43,14 @@ fail-closed build-readiness auditor over that spine — R2-capped, emitting the 
 validation report as an immutable `readiness_reports` snapshot (Phase 2, Slice 12)**,
 **and a deterministic gap & structural contradiction detector over the spine —
 descriptive findings (gaps + structural contradictions) as an immutable
-`intake_findings_reports` snapshot, no readiness claims (Phase 2, Slice 13)**.
+`intake_findings_reports` snapshot, no readiness claims (Phase 2, Slice 13)**, **and an
+LLM-assisted extractor that turns an accepted document into inert, provenance-verified
+proposals requiring human review (budget-gated, injection-hard-refused, no
+auto-promotion) (Phase 2, Slice 14a)**.
 The rest of the engine described in the spec
-(the LLM-backed documentation compiler / classifier / extractor, **semantic**
-contradiction analysis, R3–R5 readiness from un-modeled intake categories, agent
-factory, maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
+(promotion of approved proposals into the spine [Slice 14b], **semantic** contradiction
+analysis, R3–R5 readiness from un-modeled intake categories, agent factory,
+maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
 spec capability exists unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
@@ -265,6 +269,28 @@ the admin `app` role only.
   `CHECK >= 0`; `created_at` `clock_timestamp()`. Slice 12 `readiness.py` is **untouched** (no
   consolidation). **Skeleton: descriptive only — no readiness claims, no semantic contradiction
   analysis, no LLM, no evidence pack, no new artifact kinds, no HTTP/API endpoint.**
+- `app/llm/` + `app/intake/extraction.py` + `app/repositories/extraction.py` — LLM-assisted
+  extractor (Phase 2, Slice 14a, §2.1/§2.2/§2.4/§16.3/§16.5/§19). **The first real LLM integration;
+  the model produces only inert proposals that a human must approve — it never writes authoritative
+  facts or takes actions.** `app/llm/`: `LLMClient` protocol + `FakeLLMClient` (**all tests/CI — no
+  network, no key**) + `AnthropicClient` adapter (**shipped, never exercised in tests**; key env-only,
+  fail-closed, redacted) + `pricing.py` (operator-supplied `PRICE_CARD`, **empty by default**;
+  unpriced ⇒ `UnpricedModelError`). `extraction.py` (pure): strict-JSON parse, conservative
+  cost projection (`CHARS_PER_TOKEN_CONSERVATIVE=3`, `PROMPT_OVERHEAD_TOKENS=4096`),
+  `as_untrusted_block` prompt, verbatim-evidence verification. `ExtractionRepository.extract`:
+  accepted-doc only → fail-closed config (model + **price values via the ledger money guard**) →
+  **injection hard-refuse before the call** → **projected-cost budget preflight** (deny-by-default:
+  no budget / over / projected-over ⇒ **no provider call**) → call (fake in tests) → **cost only on a
+  successful response with positive tokens** (`model_inference`, `external_ref=extraction_run:<run_id>:
+  provider_request`; missing/zero usage ⇒ failed run, no cost) → drop hallucinated quotes → persist an
+  immutable run + inert `pending` proposals → audit **safe metadata only**. `review_proposal` enforces
+  one-way `pending→approved|rejected` + `reviewed_by != extracted_by` + `reviewed_at`.
+  `app/models/extraction_run.py` (**tenant-owned, append-only** immutable final-outcome rows, app-minted
+  `run_id`, accepted-doc composite FK) + `app/models/extraction_proposal.py` (**tenant-owned**;
+  content-immutable; one-way lifecycle + distinct-reviewer + frozen-once-decided review metadata — all
+  enforced by the `extraction_proposals_guard` trigger). Both ENABLE+FORCE RLS + `tenant_isolation`.
+  **Skeleton: no auto-promotion to the spine (Slice 14b), no HTTP endpoint, no live provider calls in
+  tests; real-model quality/eval is future work; price card ships empty (fail-closed until configured).**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -313,7 +339,13 @@ the admin `app` role only.
   (Slice 13: **tenant-owned, append-only** `intake_findings_reports` — ENABLE+FORCE RLS +
   `tenant_isolation`, SELECT/INSERT only + UPDATE/DELETE/TRUNCATE block triggers; `gap_count`/
   `contradiction_count` `CHECK >= 0`; `created_at` default `clock_timestamp()`; composite FK
-  `(project_id, tenant_id) → projects`; no change to existing tables).
+  `(project_id, tenant_id) → projects`; no change to existing tables); `0017_extraction.py`
+  (Slice 14a: **tenant-owned** `extraction_runs` [append-only: SELECT/INSERT only + UPDATE/DELETE/
+  TRUNCATE block triggers; accepted-source-doc BEFORE INSERT trigger; `UNIQUE(id, project_id, tenant_id)`]
+  + `extraction_proposals` [SELECT/INSERT/UPDATE, no DELETE; `extraction_proposals_guard` trigger =
+  accepted-doc on insert + content immutability + one-way `pending→approved|rejected` + distinct-reviewer
+  & `reviewed_at` required & review metadata frozen once decided]; both ENABLE+FORCE RLS +
+  `tenant_isolation`; no change to existing tables).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -323,9 +355,10 @@ the admin `app` role only.
 - `app/config.py` — `Settings` (pydantic-settings) loaded from `.env`. Reads
   `DATABASE_URL` + `TEST_DATABASE_URL` (**runtime `uaid_app`**), `ADMIN_DATABASE_URL` +
   `TEST_ADMIN_DATABASE_URL` (**admin `app`**, migrations/bootstrap/seed only),
-  `REDIS_URL`, `CHROMA_URL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`. `RLS_DB_PASSWORD` is
-  consumed by the Makefile (not a Settings field). Other `.env` keys (OpenRouter, Manus,
-  Semantic Scholar, Perplexity) are **ignored** until added here.
+  `REDIS_URL`, `CHROMA_URL`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and (Slice 14a)
+  `LLM_EXTRACTION_MODEL` (**no default — empty fails closed**) + `LLM_MAX_OUTPUT_TOKENS`
+  (default 2048). `RLS_DB_PASSWORD` is consumed by the Makefile (not a Settings field). Other
+  `.env` keys (OpenRouter, Manus, Semantic Scholar, Perplexity) are **ignored** until added here.
 - `app/core/provenance.py` — **Sanad / No-Free-Facts** primitive: a `Fact` must carry
   ≥1 `Source` or it raises `NoFreeFactsError`; `.isnad` renders the source chain.
   Minimal starting primitive — maps to spec §3.4, *not* the full provenance store.
@@ -336,10 +369,11 @@ the admin `app` role only.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
-  `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_api.py` (DB-backed `db` +
-  Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as
-  `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
-  **`make test` → 118 passing (Docker-free); `make test-db` → 174 passing (DB-backed: tenancy,
+  `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
+  `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed
+  `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db`
+  engine).
+  **`make test` → 133 passing (Docker-free); `make test-db` → 196 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -348,7 +382,11 @@ the admin `app` role only.
   accepted-document-only trigger, append-only, the §4.4 classification CHECK, RLS + cross-tenant],
   the readiness auditor [R2 cap, hard-false staging/go-live, deploy_production wiring, deterministic
   latest/history, RLS, append-only], and the gap/contradiction detector [taxonomy incl. generic
-  C_SELF_PARENT, content-safe refs-only report + counts-only audit, RLS, append-only, count CHECKs]).
+  C_SELF_PARENT, content-safe refs-only report + counts-only audit, RLS, append-only, count CHECKs],
+  and the LLM extractor [FakeLLMClient only — no network; projected-cost preflight gating
+  (no-budget/over/projected-over ⇒ no call), run-keyed cost idempotency, injection hard-refuse,
+  hallucinated-evidence rejection, token/price fail-closed, DB review guard (distinct reviewer +
+  frozen-once-decided), RLS, append-only runs, accepted-doc pinning, audit safety]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -382,8 +420,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 118 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 174 passing
+make test                                  # Docker-free tests (no services) — 133 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 196 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

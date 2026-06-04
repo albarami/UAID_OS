@@ -277,6 +277,36 @@ It is purely descriptive — it computes **no** readiness level and makes no R0�
   only — no LLM, no semantic contradiction analysis, no evidence pack, no new artifact kinds, and no
   HTTP/API endpoint; Slice 12 `readiness.py` is untouched.**
 
+## LLM-assisted extractor (Phase 2, Slice 14a — §2.1/§2.2/§2.4/§16.3/§16.5/§19)
+`app/llm/` + `app/intake/extraction.py` + `app/repositories/extraction.py` add the **first
+real LLM integration**: an accepted document is classified and mined for candidate intake
+items (`requirement`/`acceptance_criterion`/`assumption`) as **inert, provenance-verified
+proposals requiring human review**. The governing principle: **the model never writes
+authoritative facts and never takes actions** — its output is data a human must approve.
+- **LLM boundary** (`app/llm/`): `LLMClient` protocol + `FakeLLMClient` (used by **all** tests
+  — no network, no key) + `AnthropicClient` adapter (shipped, **never** exercised in tests). No
+  tools/functions exposed to the model.
+- **Cost** (§19): a **projected-cost preflight runs before any provider call** — deny-by-default
+  (no budget / already over / projected-max over a ceiling ⇒ **no call**). A successful call is
+  recorded as `model_inference` keyed by `extraction_run:<run_id>:provider_request` (distinct runs
+  charge separately; a same-run retry is idempotent). Cost is recorded **only** on a successful
+  response with positive token counts; missing/zero usage ⇒ failed run, no cost. The price card is
+  **operator-supplied and fail-closed** (no configured model / unpriced / invalid price value ⇒ no
+  call); prices pass the ledger money guard before projection.
+- **Untrusted documents** (§16.3): only **accepted** docs; content wrapped via `as_untrusted_block`;
+  **suspicious content hard-refuses before the provider call** (`refused_injection`).
+- **No-Free-Facts** (§2.4): every proposal carries a verbatim `evidence_quote` **verified to be a
+  literal substring of the source**; unsupported/hallucinated quotes are dropped.
+- **Persistence:** `extraction_runs` (tenant-owned, **append-only** immutable final-outcome rows,
+  app-minted `run_id`, accepted-doc-pinned) + `extraction_proposals` (inert; content-immutable;
+  one-way `pending → approved|rejected`; a review requires `reviewed_by != extracted_by` **and**
+  `reviewed_at`, and review metadata is frozen once decided — enforced in the repository **and** the
+  DB guard trigger, §2.2). Both ENABLE+FORCE RLS + `tenant_isolation`; audit carries **safe metadata
+  only** (no document body / proposed text / evidence quote / keys). API keys are env-only,
+  fail-closed, and never logged/persisted/echoed. **Slice 14a is extraction only — no auto-promotion
+  to the canonical spine (deferred to Slice 14b), no HTTP endpoint, and no live provider calls in
+  tests/CI.**
+
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
 decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an
