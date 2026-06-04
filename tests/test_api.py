@@ -281,8 +281,53 @@ async def test_tenant_api_keys_catalog(admin_engine):
                 text("SELECT relrowsecurity FROM pg_class WHERE relname='tenant_api_keys'")
             )
         ).scalar_one()
+        # D4 hardening: resolver function is SECURITY DEFINER owned by api_key_resolver,
+        # and uaid_app has EXECUTE on it.
+        secdef, owner = (
+            await c.execute(
+                text(
+                    "SELECT prosecdef, pg_get_userbyid(proowner) FROM pg_proc "
+                    "WHERE proname='resolve_tenant_api_key'"
+                )
+            )
+        ).one()
+        can_exec = (
+            await c.execute(
+                text(
+                    "SELECT has_function_privilege('uaid_app', "
+                    "'public.resolve_tenant_api_key(text)', 'EXECUTE')"
+                )
+            )
+        ).scalar_one()
     # hash-only: no raw-key column
     assert cols == {"id", "tenant_id", "key_hash", "label", "status", "created_at", "updated_at"}
     assert not any("raw" in col or "secret" in col or col == "key" for col in cols)
-    assert grants == {"SELECT"}  # runtime resolve only
+    assert grants == set()  # uaid_app has NO direct key-table read (D4 hardening)
     assert rls is False  # global auth-lookup, intentionally not RLS
+    assert secdef is True and owner == "api_key_resolver"  # SECURITY DEFINER, least-priv owner
+    assert can_exec is True  # uaid_app may EXECUTE the resolver
+
+
+@pytest.mark.db
+async def test_uaid_app_resolver_execute_not_table_read(api_ctx, rls_engine):
+    # uaid_app cannot read the key table directly...
+    with pytest.raises(Exception) as ei:
+        async with rls_engine.connect() as conn:
+            await conn.execute(text("SELECT count(*) FROM tenant_api_keys"))
+    assert "permission denied" in str(ei.value).lower()
+    # ...but it can EXECUTE the resolver: active hash -> tenant; unknown/revoked -> NULL.
+    async with rls_engine.connect() as conn:
+
+        async def _resolve(raw: str):
+            return (
+                await conn.execute(
+                    text("SELECT public.resolve_tenant_api_key(:h)"), {"h": hash_key(raw)}
+                )
+            ).scalar_one()
+
+        active = await _resolve(api_ctx["key_a"])
+        unknown = await _resolve("uaidk_does_not_exist")
+        revoked = await _resolve(api_ctx["key_revoked"])
+    assert str(active) == str(api_ctx["ta"])  # active key resolves to its tenant
+    assert unknown is None  # uniform NULL — no key-exists oracle
+    assert revoked is None

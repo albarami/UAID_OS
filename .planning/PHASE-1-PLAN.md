@@ -345,10 +345,18 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
 6. `app/repositories/projects.py` — first-party-before-third-party import order; tidy
    if/when ruff `I` (isort) is enabled.
 
+## Post-Phase-1 hardening
+- **D4 SECURITY-DEFINER key resolver — IMPLEMENTED (plan v1; pending review/merge)** · branch
+  `feat/control-plane-key-resolver-hardening`. Replaces `uaid_app`'s direct `SELECT` on `tenant_api_keys`
+  with a `SECURITY DEFINER` `resolve_tenant_api_key(text)` owned by a new least-privilege NOLOGIN role
+  `api_key_resolver`; `uaid_app` gets EXECUTE-only (no direct key-table read); raw key never enters SQL.
+  Files: `migrations/versions/0013_key_resolver.py`, `scripts/bootstrap_rls_role.sql` (+role),
+  `app/repositories/api_keys.py` (`resolve` via function), `tests/test_api.py` (catalog + resolver tests),
+  docs. `make test` → 86; `make test-db` → 147; drift empty; reversible `0013 → 0012 → head`. Boundary
+  (`require_tenant`) unchanged. Deferred: HMAC/salted hashing.
+
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9 merged (PRs #1–#11). D2 decided; D3 = API-only; D4 = hashed
-bearer-key → tenant. **Slice 10 (minimal read API / dashboard, §18.6) implemented on branch
-`feat/control-plane-read-api`, pending implementation review/commit — the final Phase‑1 slice.**
-After Slice 10 merges, the Phase‑1 control-plane foundation (§26.1) is complete; the deferred items
-(D4 SECURITY-DEFINER resolver, request-auth hardening, evidence packs, the §23.3 control loop, the
+Phase 1 (Slices 1–10) merged (PRs #1–#12) and tagged **`v0.1.0`** (`39a66c7`); stale branch pruned.
+**D4 hardening implemented on branch `feat/control-plane-key-resolver-hardening`, pending review/commit.**
+Remaining deferred items (request-auth beyond keys, HMAC hashing, evidence packs, the §23.3 control loop,
 intake/documentation compiler, agent factory, etc.) move to later phases.
