@@ -14,8 +14,8 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5, 6, 7 merged; Slice 8a
-(durable runtime substrate) on branch `feat/control-plane-workflow-runtime-8a`,
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a merged; Slice 8b
+(runtime integration) on branch `feat/control-plane-workflow-runtime-8b`,
 pending review/merge.** Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -24,9 +24,11 @@ engine (Slice 3), an approval engine (Slice 4), a tool broker skeleton (deny-by-
 decision chokepoint composing policy + approval, Slice 5), an agent registry (global
 blueprints + immutable content-hashed versions + tenant-scoped instances, Slice 6), a
 cost ledger (immutable `cost_events` + per-project `budgets` + a deterministic
-stop-condition decision, Slice 7), **and a durable workflow-runtime substrate
-(LangGraph + a custom UAID-owned RLS checkpointer, run state machine, immutable
-`run_steps`, crash→resume, Slice 8a)**. The rest of the engine described in the spec
+stop-condition decision, Slice 7), a durable workflow-runtime substrate (LangGraph +
+a custom UAID-owned RLS checkpointer, run state machine, immutable `run_steps`,
+crash→resume, Slice 8a), **and runtime integration (subject-scoped approval
+wait/resume, node retry/backoff, cost STOP→pause, Slice 8b)**. The rest of the engine
+described in the spec
 (intake compiler, agent factory, maker-checker-verifier, evidence packs, etc.) is
 **not** implemented. Do not assume any spec capability exists
 unless it is listed under "What exists" below.
@@ -146,9 +148,18 @@ the admin `app` role only.
   `run_checkpoint_write.py` (**mutable working state**; `adelete_thread` cleans them) +
   `run_step.py` (**immutable** append-only history; UPDATE/DELETE/TRUNCATE triggers).
   **"Deterministic replay" here = state reconstruction from checkpoints + `run_steps` + the
-  existing audit/tool/cost ledgers — NOT Temporal-style automatic re-execution.** **Skeleton
-  (8a): no approval waits / retry-backoff / cost hook / tool-result persistence / §23.3 loop /
-  distributed workers** (those are 8b+).
+  existing audit/tool/cost ledgers — NOT Temporal-style automatic re-execution.**
+  **Slice 8b — runtime integration** (`engine.py`): subject-scoped **approval wait/resume**
+  (sentinel `approval_gate` before the protected node + `interrupt_after`; engine requests a
+  `workflow.resume` approval [tier `high`, `requires_explicit_approval=True`, subject
+  `run:<id>:node:<protected>`], `running→blocked`; APPROVED ⇒ resume→complete, terminal
+  denial ⇒ `blocked→failed`, PENDING ⇒ stays blocked) using the additively-extended
+  `ApprovalRepository.is_blocked(..., subject_ref=None)`; node **retry/backoff** via LangGraph
+  `RetryPolicy` (`retried` recorded only for attempts > 1; non-retryable ⇒ `failed`); **cost
+  STOP→pause** consuming Slice-7 `evaluate` at the step boundary (`running→paused` before the
+  node). **Still skeleton: no tool-result persistence / §23.3 loop / distributed workers; cost
+  guard is opt-in per run (not yet mandatory for every run); LangGraph native `interrupt()` not
+  used (the gate decision lives in the audited approval engine).**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -168,6 +179,8 @@ the admin `app` role only.
   `0008_cost_ledger.py` (**tenant-owned, IMMUTABLE** `cost_events` [UPDATE/DELETE/TRUNCATE triggers +
   REVOKE; `uaid_app` SELECT/INSERT only; partial unique idempotency index] + tenant-owned `budgets`
   [SELECT/INSERT/UPDATE, no DELETE]; both ENABLE+FORCE RLS + `tenant_isolation`);
+  `0010_runtime_events.py` (Slice 8b: expands the `run_steps.event_type` CHECK with
+  `blocked_on_approval` / `retried` / `cost_paused`; no tables/columns/grants change);
   `0009_workflow_runtime.py` (tenant-owned **mutable** `run_checkpoints` [SELECT/INSERT/DELETE] +
   `run_checkpoint_writes` [SELECT/INSERT/UPDATE/DELETE; carries `task_path`] + **immutable**
   `run_steps` [UPDATE/DELETE/TRUNCATE triggers; SELECT/INSERT only]; all three ENABLE+FORCE RLS +
@@ -190,14 +203,13 @@ the admin `app` role only.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
-  `test_agents.py`, `test_cost.py`, `test_runtime.py` (DB-backed `db` + Docker-free units) and
-  `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction
-  rollback; auto-dispose of the `app.db` engine).
-  **`make test` → 75 passing (Docker-free, incl. pure policy/approval/broker logic + agent-registry
-  content-hash/validation + cost money/stop-decision + runtime transition/serde); `make test-db` → 111
-  passing (DB-backed: tenancy, readiness, RLS, audit, policy, approval, tool-broker, agent-registry,
-  cost-ledger, and runtime checkpointer-conformance/crash-resume/state-machine/RLS/FK/immutability/catalog).
-  `make test-db` requires `RLS_DB_PASSWORD`.**
+  `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py` (DB-backed `db` +
+  Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as
+  `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
+  **`make test` → 79 passing (Docker-free); `make test-db` → 128 passing (DB-backed: tenancy,
+  readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime
+  substrate [checkpointer/crash-resume/immutability], and runtime integration [subject-scoped
+  approval matrix, retry/backoff, cost STOP→pause]). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -230,8 +242,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 75 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 111 passing
+make test                                  # Docker-free tests (no services) — 79 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 128 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -252,14 +264,16 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   require approval. (§2.6)
 
 ## Not yet present (future build items — not blockers for the skeleton)
-- Durable workflow runtime (§23.2): **substrate present (Slice 8a)** — D2 decided = LangGraph +
-  a custom UAID-owned RLS checkpointer (NOT `.setup()` tables). `run_checkpoints`/`run_checkpoint_writes`
-  (mutable working state; `task_path` carried) + immutable `run_steps`; `project_runs` state machine;
-  **crash→resume proven**. "Deterministic replay" = reconstruction from checkpoints + `run_steps` +
-  ledgers, **not** Temporal-style automatic re-execution. **Deferred to Slice 8b+:** approval wait/resume
-  (subject-scoped, `requires_explicit_approval`), retry/backoff, cost pre-step STOP→pause hook,
-  tool-result persistence, the §23.3 business loop, distributed multi-worker execution. Temporal revisit
-  triggers recorded in `.planning/PHASE-1-PLAN.md`.
+- Durable workflow runtime (§23.2): **substrate (Slice 8a) + integration (Slice 8b) present** —
+  D2 = LangGraph + a custom UAID-owned RLS checkpointer (NOT `.setup()` tables);
+  `run_checkpoints`/`run_checkpoint_writes` (mutable; `task_path`) + immutable `run_steps`;
+  `project_runs` state machine; **crash→resume**, **subject-scoped approval wait/resume**
+  (terminal denial fails the run), **node retry/backoff**, **cost STOP→pause**. "Deterministic
+  replay" = reconstruction from checkpoints + `run_steps` + ledgers, **not** Temporal-style
+  automatic re-execution. **Deferred:** tool-result persistence, the §23.3 business loop,
+  distributed multi-worker execution, durable timers/scheduler for approval deadlines (on-demand
+  expiry only), per-node (vs step-boundary) cost hooks, making the cost guard mandatory for every
+  run, LangGraph native `interrupt()`. Temporal revisit triggers in `.planning/PHASE-1-PLAN.md`.
 - Knowledge-graph store (added when KG features are built).
 - Multi-tenant isolation (§17): **present for the spine** — app-layer scoping + schema FKs
   (Slice 1) **and DB-level RLS** on `projects`/`project_runs` (Slice 1b). Future tenant-owned

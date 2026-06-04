@@ -6,8 +6,8 @@ TRUNCATE blocked by triggers (migration ``0009``); grants SELECT/INSERT only.
 ``adelete_thread`` (checkpoint cleanup) never touches this table. ``payload``
 carries safe metadata only.
 
-(8b will add further ``event_type`` values — e.g. retried / blocked_on_approval —
-via its own migration.)
+Slice 8b (migration ``0010``) added ``blocked_on_approval`` / ``retried`` /
+``cost_paused`` to the event-type set.
 """
 
 import uuid
@@ -35,6 +35,10 @@ _EVENT_TYPES = (
     "run_resumed",
     "run_completed",
     "run_failed",
+    # Slice 8b — runtime integration
+    "blocked_on_approval",
+    "retried",
+    "cost_paused",
 )
 
 
