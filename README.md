@@ -252,6 +252,31 @@ report**, persisted as an **immutable tenant-owned snapshot** (`readiness_report
   snapshots order deterministically. **Slice 12 is deterministic only — no LLM, no gap/contradiction
   detector (Slice 13), no evidence pack, no new artifact kinds, and no HTTP/API endpoint.**
 
+## Gap & contradiction detector (Phase 2, Slice 13 — §4.4 / §14.4 / §16.5)
+`app/intake/findings.py` + `app/repositories/findings.py` add a **deterministic (no-LLM, no
+semantic analysis)** detector over the Slice‑11 spine that separates **gaps** from **structural
+contradictions**, persisted as an **immutable tenant-owned snapshot** (`intake_findings_reports`).
+It is purely descriptive — it computes **no** readiness level and makes no R0–R5 claim.
+- **Input is structural-only by type:** `StructuralArtifactView` carries only
+  `id`/`kind`/`ref`/`parent_id`/`classification` — never `title`/`body`/`data` — so no tenant prose
+  can enter the detector, the report, or the audit log. Findings reference `ref` handles only and
+  are **deterministically sorted**.
+- **Gaps:** `G_NO_REQUIREMENTS`, `G_REQUIREMENT_WITHOUT_ACCEPTANCE`, `G_ACCEPTANCE_WITHOUT_ORACLE`
+  (§14.4), `G_UNRESOLVED_ASSUMPTION` (non-`safe_assumption` labels, §4.4/§16.5).
+- **Structural contradictions:** `C_REQUIREMENT_HAS_PARENT`, `C_WRONG_KIND_PARENT` (an acceptance
+  criterion whose parent is not a requirement, or an oracle whose parent is not an acceptance
+  criterion — parent-kind validation does **not** trust the DB FK alone), `C_ORPHAN_ACCEPTANCE`,
+  `C_ORPHAN_ORACLE`, and `C_SELF_PARENT` (generic across **all** kinds, detected before the
+  kind-specific checks so a requirement self-parent is not shadowed). Multi-node parent cycles are
+  **structurally impossible** under append-only insertion (a parent must pre-exist and is never
+  updated), so only self-parent is guarded.
+- `intake_findings_reports` is tenant-owned, RLS ENABLE+FORCE, **append-only** (`SELECT, INSERT`
+  only; UPDATE/DELETE/TRUNCATE blocked), with `gap_count`/`contradiction_count` `CHECK >= 0` and
+  `created_at` `clock_timestamp()`; `latest`/`history` order `created_at DESC, id DESC`. The audit
+  records **counts/metadata only** (no refs/titles/body/report JSON). **Slice 13 is deterministic
+  only — no LLM, no semantic contradiction analysis, no evidence pack, no new artifact kinds, and no
+  HTTP/API endpoint; Slice 12 `readiness.py` is untouched.**
+
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
 decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an

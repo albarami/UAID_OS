@@ -17,6 +17,7 @@ from app.models.budget import Budget
 from app.models.cost_event import CostEvent
 from app.models.document import Document
 from app.models.intake_artifact import IntakeArtifact
+from app.models.intake_findings_report import IntakeFindingsReport
 from app.models.intake_provenance import IntakeProvenance
 from app.models.run_checkpoint import RunCheckpoint
 from app.models.run_checkpoint_write import RunCheckpointWrite
@@ -51,6 +52,7 @@ __all__ = [
     "RunStep",
     "Document",
     "IntakeArtifact",
+    "IntakeFindingsReport",
     "IntakeProvenance",
     "ReadinessReportRecord",
     "TenantApiKey",
