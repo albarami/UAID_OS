@@ -19,6 +19,7 @@ from app.models.document import Document
 from app.models.run_checkpoint import RunCheckpoint
 from app.models.run_checkpoint_write import RunCheckpointWrite
 from app.models.run_step import RunStep
+from app.models.tenant_api_key import TenantApiKey
 from app.models.organization import Organization
 from app.models.project import Project
 from app.models.project_run import ProjectRun
@@ -46,4 +47,5 @@ __all__ = [
     "RunCheckpointWrite",
     "RunStep",
     "Document",
+    "TenantApiKey",
 ]

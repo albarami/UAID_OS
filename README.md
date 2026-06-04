@@ -35,6 +35,8 @@ connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
 - Liveness:  http://localhost:8000/health/live   (200 `{"status":"alive"}`, no dependency calls)
 - Readiness: http://localhost:8000/health/ready  (real `SELECT 1`; 200 when DB up, 503 when down)
 - Demo:      http://localhost:8000/demo
+- Dashboard (read-only, §18.6): `GET /api/projects/{id}/{runs,approvals,blockers,cost}` — require
+  `Authorization: Bearer <api-key>`; missing/invalid ⇒ 401 (see "Read API / dashboard" below).
 
 ## CI
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main`: `uv sync`,
@@ -198,6 +200,22 @@ identifiers only — never the body**. DB-level guards (the `documents_guard` tr
 quarantine; `quarantined → accepted` is rejected by the DB). `documents` is `SELECT, INSERT, UPDATE`
 (no DELETE). **Skeleton — no Documentation Compiler, ML/embedding classification, LLM/RAG wiring,
 binary parsing, malware scanning, or per-section quarantine.**
+
+## Read API / dashboard (§18.6)
+`app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
+decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an
+HTTP request becomes a tenant: it parses `Authorization: Bearer <key>`, resolves the key (its
+`sha256:` hash → an active `tenant_api_keys` row) on a pre-tenant session, and returns a
+`TenantContext`; a missing/malformed/unknown/revoked key ⇒ **`401` with no fallback tenant**.
+Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost}` —
+and each opens `tenant_scope(context)` so all reads pass through RLS; a `project_id` outside the
+caller's tenant returns nothing (never another tenant's data, proven end-to-end over HTTP).
+`tenant_api_keys` is a **global auth-lookup table** (intentionally not RLS, since resolution happens
+before any tenant is known) storing **only key hashes** — never the raw key; keys are issued/revoked
+by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Covers the implemented
+§18.6 subset (run state, open approvals, blockers, cost + stop decision); **forecast, critical path,
+readiness, evidence-pack status, high-risk findings, deployment status, next action, and any web UI
+are deferred.**
 
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate

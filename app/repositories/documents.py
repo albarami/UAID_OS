@@ -9,7 +9,7 @@ are untrusted caller labels (validated/bounded).
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,6 +101,15 @@ class DocumentRepository(TenantScopedRepository):
             Document.status == "accepted",
         )
         return (await self.session.execute(stmt)).scalars().all()
+
+    async def count_quarantined(self, project_id: uuid.UUID) -> int:
+        """Count of quarantined documents for the project, scoped to the tenant."""
+        stmt = select(func.count()).where(
+            Document.tenant_id == self.context.tenant_id,
+            Document.project_id == project_id,
+            Document.status == "quarantined",
+        )
+        return (await self.session.execute(stmt)).scalar_one()
 
     async def _by_hash(self, project_id: uuid.UUID, chash: str) -> Document:
         stmt = select(Document).where(

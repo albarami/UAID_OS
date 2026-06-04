@@ -289,13 +289,29 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
 - **Non-goals (held):** Documentation Compiler (Phase 2); ML/embedding classification; LLM/RAG wiring; binary
   parsing; malware scanning; per-section quarantine; un-quarantine; Sanad wiring; request-auth.
 
-### Slice 10 — Minimal read API / dashboard (§18.6)
-- **Scope:** read-only, tenant-scoped endpoints: run state, open approvals, blockers, cost.
-- **Files:** `app/api/` routers, tests.
-- **Schema:** none (reads existing).
-- **Tests:** tenant-scoped reads; cannot read another tenant.
-- **Evidence:** endpoint output; isolation on reads.
-- **Non-goals:** web UI (unless decided); request auth → tenant mapping (separate slice/decision).
+### Slice 10 — Minimal read API / dashboard (§18.6) — **IMPLEMENTED (plan v1; pending review/merge)** · branch `feat/control-plane-read-api`
+- **Decisions:** D3 = API-only JSON reads · D4 = hashed bearer-key → tenant, deny-by-default
+  (D‑A baseline resolver / D‑B plain `sha256` of a high-entropy key / D‑C httpx AsyncClient tests).
+- **Scope (delivered):** read-only, tenant-scoped JSON endpoints `GET /api/projects/{id}/{runs,
+  approvals,blockers,cost}` + the request-auth boundary. `require_tenant` resolves a `Bearer` key
+  (sha256 → active `tenant_api_keys`) to a `TenantContext` on a pre-tenant session; missing/malformed/
+  unknown/revoked ⇒ **401, no fallback**. Endpoints open `tenant_scope` (RLS); cross-tenant `project_id`
+  yields nothing. Covers the implemented §18.6 subset (run state / open approvals / blockers / cost +
+  stop decision).
+- **Files (actual):** `app/api/{__init__,auth,dashboard}.py`, `app/repositories/api_keys.py`,
+  `app/models/tenant_api_key.py`, `migrations/versions/0012_tenant_api_keys.py`, `tests/test_api.py`;
+  modified `app/main.py` (router), `app/models/__init__.py`, `app/repositories/{approvals,runs,documents}.py`
+  (additive read methods). **Untouched:** `app/db.py`, `app/tenancy.py`, engines.
+- **Schema:** `tenant_api_keys` — **global auth-lookup, NOT RLS** (resolution is pre-tenant); hash-only
+  `key_hash` (format CHECK + UNIQUE), bounded `label`, status CHECK; `uaid_app` SELECT only; admin issue/revoke.
+- **Tests/evidence:** `make test` → 86; `make test-db` → 145 (bearer parsing, key hash/gen; real-HTTP via
+  httpx+ASGITransport: happy reads, auth deny-by-default [missing/malformed/unknown/revoked⇒401],
+  **cross-tenant denial through dependency→tenant_scope/RLS**, read-only [GET; POST⇒405; no row mutation],
+  blockers/cost shapes, catalog [hash-only columns, SELECT grant, not RLS]). Drift empty; reversible
+  `0012 → 0011 → head`.
+- **Non-goals (held):** web UI; §18.6 forecast/critical-path/readiness/evidence-pack/findings/deployment/
+  next-action (subsystems not built); auth-event audit; HTTP key issuance (admin-path only); SECURITY-DEFINER
+  resolver (future hardening); salted/HMAC key hashing.
 
 ---
 
@@ -330,7 +346,9 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b merged (PRs #1–#10). D2 decided (LangGraph + custom UAID checkpointer).
-**Slice 9 (document intake sandbox, §16.3) implemented on branch `feat/control-plane-document-intake`,
-pending implementation review/commit.** Next after 9 merges: Slice 10 (minimal read API / dashboard, §18.6)
-— carries open decisions D3 (API-only vs minimal web UI) and D4 (request-auth → tenant mapping). Do not start until greenlit.
+Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9 merged (PRs #1–#11). D2 decided; D3 = API-only; D4 = hashed
+bearer-key → tenant. **Slice 10 (minimal read API / dashboard, §18.6) implemented on branch
+`feat/control-plane-read-api`, pending implementation review/commit — the final Phase‑1 slice.**
+After Slice 10 merges, the Phase‑1 control-plane foundation (§26.1) is complete; the deferred items
+(D4 SECURITY-DEFINER resolver, request-auth hardening, evidence packs, the §23.3 control loop, the
+intake/documentation compiler, agent factory, etc.) move to later phases.

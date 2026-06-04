@@ -7,8 +7,10 @@ exercises the start / resume / complete / fail subset (paused/blocked are 8b).
 """
 
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
@@ -48,6 +50,18 @@ class RunRepository(TenantScopedRepository):
         if run is None:
             raise RunNotFound(str(run_id))
         return run
+
+    async def list_for_project(self, project_id: uuid.UUID) -> Sequence[ProjectRun]:
+        """Read-only: all runs for a project, scoped to the context tenant."""
+        stmt = (
+            select(ProjectRun)
+            .where(
+                ProjectRun.tenant_id == self.context.tenant_id,
+                ProjectRun.project_id == project_id,
+            )
+            .order_by(ProjectRun.created_at)
+        )
+        return (await self.session.execute(stmt)).scalars().all()
 
     async def record_step(
         self,
