@@ -14,8 +14,8 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a merged; Slice 8b
-(runtime integration) on branch `feat/control-plane-workflow-runtime-8b`,
+**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b merged; Slice 9
+(document intake sandbox) on branch `feat/control-plane-document-intake`,
 pending review/merge.** Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -26,9 +26,11 @@ blueprints + immutable content-hashed versions + tenant-scoped instances, Slice 
 cost ledger (immutable `cost_events` + per-project `budgets` + a deterministic
 stop-condition decision, Slice 7), a durable workflow-runtime substrate (LangGraph +
 a custom UAID-owned RLS checkpointer, run state machine, immutable `run_steps`,
-crash→resume, Slice 8a), **and runtime integration (subject-scoped approval
-wait/resume, node retry/backoff, cost STOP→pause, Slice 8b)**. The rest of the engine
-described in the spec
+crash→resume, Slice 8a), runtime integration (subject-scoped approval
+wait/resume, node retry/backoff, cost STOP→pause, Slice 8b), **and a document
+intake sandbox (untrusted-data documents: deterministic injection scan + quarantine,
+instruction/data labeling, DB-verified content integrity, Slice 9)**. The rest of the
+engine described in the spec
 (intake compiler, agent factory, maker-checker-verifier, evidence packs, etc.) is
 **not** implemented. Do not assume any spec capability exists
 unless it is listed under "What exists" below.
@@ -160,6 +162,18 @@ the admin `app` role only.
   node). **Still skeleton: no tool-result persistence / §23.3 loop / distributed workers; cost
   guard is opt-in per run (not yet mandatory for every run); LangGraph native `interrupt()` not
   used (the gate decision lives in the audited approval engine).**
+- `app/intake/` — document intake sandbox (Slice 9, §16.3). `sandbox.py` (pure): treats
+  customer documents as **untrusted data** — `scan(content)` is a **best-effort, deterministic**
+  prompt-injection signal returning marker **identifiers** (never raw excerpts; no ML);
+  `as_untrusted_block` labels content as data with a do-not-follow preamble; validators
+  (content ≤1 MiB non-empty, `content_type`/`source` allowlists, bounded `filename`, no NUL) +
+  `content_hash` (`sha256:`). `app/repositories/documents.py`: `DocumentRepository` —
+  `ingest` (validate→scan→store; status `accepted`/`quarantined`; **idempotent on
+  `(tenant,project,content_hash)`**; audited with metadata + marker ids, **never the body**),
+  one-way reviewer `quarantine`, `list_usable` (accepted only). `app/models/document.py`
+  (tenant-owned, RLS). **Guarantee = instruction/data separation + no LLM wired; scanning is
+  best-effort, not a detection guarantee.** **Skeleton: no Documentation Compiler / ML / RAG /
+  binary parsing / malware scanning / per-section quarantine.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -184,7 +198,12 @@ the admin `app` role only.
   `0009_workflow_runtime.py` (tenant-owned **mutable** `run_checkpoints` [SELECT/INSERT/DELETE] +
   `run_checkpoint_writes` [SELECT/INSERT/UPDATE/DELETE; carries `task_path`] + **immutable**
   `run_steps` [UPDATE/DELETE/TRUNCATE triggers; SELECT/INSERT only]; all three ENABLE+FORCE RLS +
-  `tenant_isolation`; triple FK `(run_id, project_id, tenant_id) → project_runs`).
+  `tenant_isolation`; triple FK `(run_id, project_id, tenant_id) → project_runs`);
+  `0010_runtime_events.py` (expands `run_steps.event_type` CHECK: `blocked_on_approval`/`retried`/
+  `cost_paused`); `0011_documents.py` (**tenant-owned** `documents`: ENABLE+FORCE RLS +
+  `tenant_isolation`; SELECT/INSERT/UPDATE, no DELETE; metadata/format CHECKs; combined
+  `documents_guard` trigger — content integrity [size + core-`sha256` hash] on INSERT, content/identity
+  immutability + one-way `accepted→quarantined` lifecycle on UPDATE).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -203,13 +222,13 @@ the admin `app` role only.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
-  `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py` (DB-backed `db` +
-  Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as
-  `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
-  **`make test` → 79 passing (Docker-free); `make test-db` → 128 passing (DB-backed: tenancy,
+  `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`
+  (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`;
+  `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
+  **`make test` → 84 passing (Docker-free); `make test-db` → 138 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime
-  substrate [checkpointer/crash-resume/immutability], and runtime integration [subject-scoped
-  approval matrix, retry/backoff, cost STOP→pause]). `make test-db` requires `RLS_DB_PASSWORD`.**
+  substrate + integration, and document-intake [scan/quarantine, content-integrity, lifecycle,
+  immutability, dedup, RLS]). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -242,8 +261,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 79 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 128 passing
+make test                                  # Docker-free tests (no services) — 84 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 138 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -312,7 +331,16 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   verified human approvals** (approval workflow for increases deferred). **Skeleton: no price cards /
   provider calls / model routing / billing UI / workflow runtime (the stop signal is decision-only,
   not halting) / broker-agent wiring / forecasting / per-phase budgets.**
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a.
+- Document intake sandbox (§16.3): **present (Slice 9)** — tenant-owned RLS `documents`; customer
+  documents handled as **untrusted data** (instruction/data separation; **no LLM wired**, so nothing
+  is injectable here). Deterministic **best-effort** injection `scan` (marker identifiers, no ML) ⇒
+  quarantine; `as_untrusted_block` labeling; **DB-verified content integrity** (size + core-`sha256`
+  hash), content/identity immutability, **one-way `accepted→quarantined`** lifecycle (all via the
+  `documents_guard` trigger); idempotent on content hash; audit never carries the body. **Honest:
+  scanning is best-effort/bypassable — the guarantee is data-not-instruction + quarantine, not
+  detection. Deferred: Documentation Compiler (Phase 2), ML/embedding classification, LLM/RAG wiring,
+  binary parsing, malware scanning, per-section quarantine, un-quarantine, Sanad wiring.**
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a / 8b / 9.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was
