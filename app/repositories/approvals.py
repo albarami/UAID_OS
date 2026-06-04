@@ -118,11 +118,13 @@ class ApprovalRepository(TenantScopedRepository):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def list_pending(self):
+    async def list_pending(self, project_id: uuid.UUID | None = None):
         stmt = select(Approval).where(
             Approval.tenant_id == self.context.tenant_id,
             Approval.status == Status.PENDING.value,
         )
+        if project_id is not None:  # additive filter; tenant-wide when omitted
+            stmt = stmt.where(Approval.project_id == project_id)
         return (await self.session.execute(stmt)).scalars().all()
 
     async def latest_for(

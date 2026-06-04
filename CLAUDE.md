@@ -13,10 +13,10 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-06-03)
-**Phase 1 (§26.1) in progress — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b merged; Slice 9
-(document intake sandbox) on branch `feat/control-plane-document-intake`,
-pending review/merge.** Beyond the original scaffold: the persistence spine (async
+## Current status (2026-06-04)
+**Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9 merged; Slice 10
+(minimal read API / dashboard) on branch `feat/control-plane-read-api`, pending
+review/merge — the final Phase‑1 slice.** Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
 tamper-evident hash-chained audit log (Slice 2), a deterministic autonomy policy
@@ -27,9 +27,10 @@ cost ledger (immutable `cost_events` + per-project `budgets` + a deterministic
 stop-condition decision, Slice 7), a durable workflow-runtime substrate (LangGraph +
 a custom UAID-owned RLS checkpointer, run state machine, immutable `run_steps`,
 crash→resume, Slice 8a), runtime integration (subject-scoped approval
-wait/resume, node retry/backoff, cost STOP→pause, Slice 8b), **and a document
+wait/resume, node retry/backoff, cost STOP→pause, Slice 8b), a document
 intake sandbox (untrusted-data documents: deterministic injection scan + quarantine,
-instruction/data labeling, DB-verified content integrity, Slice 9)**. The rest of the
+instruction/data labeling, DB-verified content integrity, Slice 9), **and a read-only
+JSON dashboard API behind hashed bearer-key tenant auth (§18.6, Slice 10)**. The rest of the
 engine described in the spec
 (intake compiler, agent factory, maker-checker-verifier, evidence packs, etc.) is
 **not** implemented. Do not assume any spec capability exists
@@ -52,8 +53,22 @@ the admin `app` role only.
 
 ### Code skeleton
 - `app/main.py` — FastAPI app; `/health/live` + `/health/ready` (real `SELECT 1`,
-  503 when DB down) and a `/demo` endpoint that exercises the kernel below. The old
-  fake `/health` was removed. DB engine disposed on shutdown via lifespan.
+  503 when DB down), a `/demo` endpoint that exercises the kernel below, and the Slice‑10
+  read-only `/api` dashboard router. The old fake `/health` was removed. DB engine
+  disposed on shutdown via lifespan.
+- `app/api/` — read-only JSON dashboard (Slice 10, §18.6; D3 API-only / D4 bearer-key auth).
+  `auth.py`: `require_tenant` dependency — the **single** place untrusted HTTP input becomes a
+  tenant. Parses `Authorization: Bearer <key>`, resolves it (hash → active `tenant_api_keys`
+  row) on a **plain pre-tenant session**, returns `TenantContext`; missing/malformed/unknown/
+  revoked ⇒ **401, no fallback tenant**. `dashboard.py`: GET-only, project-scoped endpoints
+  (`/api/projects/{id}/{runs,approvals,blockers,cost}`) that open `tenant_scope` and read via
+  existing repos — a cross-tenant `project_id` yields nothing (RLS). `app/repositories/api_keys.py`:
+  `TenantApiKeyRepository` (admin `issue`/`revoke`; runtime `resolve`); raw key generated with
+  `secrets.token_urlsafe(32)`, **only the `sha256:` hash stored**, raw returned once.
+  `app/models/tenant_api_key.py` (**global** auth-lookup — intentionally NOT RLS; `uaid_app` SELECT).
+  **Skeleton: read-only; covers the implemented §18.6 subset (run state / open approvals / blockers /
+  cost + stop decision); forecast / critical path / readiness / evidence-pack / findings / deployment /
+  next-action deferred; no web UI; no auth-event audit; admin-path key issuance only.**
 - `app/health.py` — liveness/readiness handlers; readiness's DB ping is injected
   via a FastAPI dependency (`get_db_ping`) so it is overridable in route tests.
 - `app/db.py` — lazy async engine + session factory from `settings.database_url`
@@ -203,7 +218,10 @@ the admin `app` role only.
   `cost_paused`); `0011_documents.py` (**tenant-owned** `documents`: ENABLE+FORCE RLS +
   `tenant_isolation`; SELECT/INSERT/UPDATE, no DELETE; metadata/format CHECKs; combined
   `documents_guard` trigger — content integrity [size + core-`sha256` hash] on INSERT, content/identity
-  immutability + one-way `accepted→quarantined` lifecycle on UPDATE).
+  immutability + one-way `accepted→quarantined` lifecycle on UPDATE);
+  `0012_tenant_api_keys.py` (**global** `tenant_api_keys` auth-lookup — **NOT RLS** [resolution is
+  pre-tenant]; hash-only `key_hash` with format CHECK + UNIQUE, bounded `label`, status CHECK; grant
+  `SELECT` to `uaid_app`).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
   password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
@@ -222,13 +240,14 @@ the admin `app` role only.
 - `app/compute/` — reserved for deterministic NumPy/SciPy calculation cores.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
-  `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`
-  (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed `app_test`;
-  `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db` engine).
-  **`make test` → 84 passing (Docker-free); `make test-db` → 138 passing (DB-backed: tenancy,
-  readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime
-  substrate + integration, and document-intake [scan/quarantine, content-integrity, lifecycle,
-  immutability, dedup, RLS]). `make test-db` requires `RLS_DB_PASSWORD`.**
+  `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
+  `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed
+  `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db`
+  engine).
+  **`make test` → 86 passing (Docker-free); `make test-db` → 145 passing (DB-backed: tenancy,
+  readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
+  document-intake, and the read API [real-HTTP auth deny-by-default, cross-tenant denial via
+  dependency→tenant_scope/RLS, read-only, catalog]). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -261,8 +280,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 84 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 138 passing
+make test                                  # Docker-free tests (no services) — 86 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 145 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -270,7 +289,8 @@ make dev                                   # run API at http://localhost:8000
 `make test` runs `pytest -m "not db"` (Docker-free). `make test-db` bootstraps the
 `uaid_app` role (needs `RLS_DB_PASSWORD`), creates+migrates `app_test` **as admin**,
 then runs `-m db` with the runtime `uaid_app` connection. Migrations never run as
-`uaid_app`. Endpoints: `/health/live`, `/health/ready`, `/demo`.
+`uaid_app`. Endpoints: `/health/live`, `/health/ready`, `/demo`, and the read-only
+`/api/projects/{id}/{runs,approvals,blockers,cost}` (require `Authorization: Bearer <key>`).
 
 ## Conventions to uphold (from the spec — non-negotiable, including in our own code)
 - **No fake done.** No placeholders/stubs/hardcoded outputs presented as real. Prefer
@@ -340,7 +360,14 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   scanning is best-effort/bypassable — the guarantee is data-not-instruction + quarantine, not
   detection. Deferred: Documentation Compiler (Phase 2), ML/embedding classification, LLM/RAG wiring,
   binary parsing, malware scanning, per-section quarantine, un-quarantine, Sanad wiring.**
-- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a / 8b / 9.
+- Read API / dashboard (§18.6): **present (Slice 10)** — read-only JSON `/api` endpoints
+  (run state, open approvals, blockers, cost + stop decision) behind **hashed bearer-key tenant
+  auth** (D4: `tenant_api_keys` stores only `sha256:` hashes; missing/invalid/revoked ⇒ 401, no
+  fallback). The auth dependency is the single HTTP→tenant boundary; all reads stay in
+  `tenant_scope`/RLS (cross-tenant reads return nothing). **Deferred: forecast, critical path,
+  readiness level, evidence-pack status, high-risk findings, deployment status, next action; web UI;
+  auth-event audit; HTTP key issuance (admin-path only); the SECURITY-DEFINER resolver hardening.**
+- Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a / 8b / 9 / 10.
 
 ## Secrets
 `.env` holds **live API keys** and is **gitignored** (verified not tracked). It was
