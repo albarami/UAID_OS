@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     chroma_url: str = "http://localhost:8001"
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    # Slice 14a — LLM extraction. No default model: empty ⇒ fail closed (no provider
+    # call). The exact model id must be set AND present in the price card.
+    llm_extraction_model: str = ""
+    llm_max_output_tokens: int = 2048
 
 
 settings = Settings()

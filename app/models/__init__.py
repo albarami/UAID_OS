@@ -16,6 +16,8 @@ from app.models.base import Base
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
 from app.models.document import Document
+from app.models.extraction_proposal import ExtractionProposal
+from app.models.extraction_run import ExtractionRun
 from app.models.intake_artifact import IntakeArtifact
 from app.models.intake_findings_report import IntakeFindingsReport
 from app.models.intake_provenance import IntakeProvenance
@@ -51,6 +53,8 @@ __all__ = [
     "RunCheckpointWrite",
     "RunStep",
     "Document",
+    "ExtractionRun",
+    "ExtractionProposal",
     "IntakeArtifact",
     "IntakeFindingsReport",
     "IntakeProvenance",
