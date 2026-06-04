@@ -15,6 +15,7 @@ from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
+from app.models.document import Document
 from app.models.run_checkpoint import RunCheckpoint
 from app.models.run_checkpoint_write import RunCheckpointWrite
 from app.models.run_step import RunStep
@@ -44,4 +45,5 @@ __all__ = [
     "RunCheckpoint",
     "RunCheckpointWrite",
     "RunStep",
+    "Document",
 ]

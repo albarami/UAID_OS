@@ -182,6 +182,23 @@ broker/ledger-mediated, and nodes do no hidden I/O.
 guard is opt-in per run; LangGraph's native `interrupt()` is not used (the gate decision lives in the
 audited, RLS-backed approval engine).
 
+## Document intake sandbox (§16.3)
+`app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
+**instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and
+no code path lets document content reach the policy/authority/approval engines. `scan()` is a
+**best-effort, deterministic** prompt-injection signal (a curated marker set, **no ML**) returning
+marker **identifiers** (never raw excerpts) — used to **quarantine**, not as a detection guarantee.
+`as_untrusted_block()` wraps content as data with a do-not-follow preamble (retrieval-time labeling).
+`DocumentRepository.ingest()` validates (content ≤ 1 MiB, `content_type`/`source` allowlists, bounded
+`filename`), scans, and stores to the tenant-owned, RLS `documents` table as `accepted` or
+`quarantined`; it is **idempotent on `(tenant, project, content_hash)`** and audits **metadata + marker
+identifiers only — never the body**. DB-level guards (the `documents_guard` trigger + CHECKs) enforce
+**content integrity** (`size_bytes` and the core-`sha256` `content_hash` must match the content),
+**content/identity immutability**, and a **one-way `accepted → quarantined`** lifecycle (a reviewer can
+quarantine; `quarantined → accepted` is rejected by the DB). `documents` is `SELECT, INSERT, UPDATE`
+(no DELETE). **Skeleton — no Documentation Compiler, ML/embedding classification, LLM/RAG wiring,
+binary parsing, malware scanning, or per-section quarantine.**
+
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
 

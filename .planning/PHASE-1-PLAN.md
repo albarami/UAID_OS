@@ -265,13 +265,29 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
   served by Temporal namespaces + managed durability.
 - **Non-goals (held):** the full §23.3 business control loop; multi-worker scaling tuning.
 
-### Slice 9 — Document intake sandbox (§16.3)
-- **Scope:** `documents` ingested as untrusted data; injection scanning; quarantine; instruction/data labeling.
-- **Files:** `app/intake/sandbox.py`, `app/models/document.py`, tests.
-- **Schema:** `documents` (tenant-owned) with classification/quarantine fields.
-- **Tests:** injected "ignore the reviewer" content is quarantined, never executed.
-- **Evidence:** quarantine on a malicious sample; labels applied.
-- **Non-goals:** full Documentation Compiler (Phase 2); ML classification.
+### Slice 9 — Document intake sandbox (§16.3) — **IMPLEMENTED (plan v3; pending review/merge)** · branch `feat/control-plane-document-intake`
+- **Scope (delivered):** tenant-owned RLS `documents`; customer documents handled as **untrusted data**
+  (instruction/data separation; no LLM wired); deterministic **best-effort** injection `scan` (marker
+  identifiers, no ML) ⇒ quarantine; `as_untrusted_block` labeling; **DB-verified content integrity**
+  (Option B), content/identity immutability, **one-way `accepted→quarantined`** lifecycle; idempotent
+  on content hash; audit never carries the body.
+- **Files (actual):** `app/intake/{__init__,sandbox}.py`, `app/models/document.py`,
+  `app/repositories/documents.py`, `migrations/versions/0011_documents.py`, `tests/test_intake.py`,
+  `app/models/__init__.py`, docs. **Untouched:** `app/db.py`, runtime/policy/approvals/tools/agents/cost.
+- **Schema:** `documents` (tenant-owned) — CHECKs (status/content_type/source allowlists, filename &
+  content bounds, `content_hash` format) + UNIQUE`(tenant,project,content_hash)` + combined
+  `documents_guard` trigger (INSERT: size + core-`sha256` hash integrity; UPDATE: content/identity
+  immutability + one-way lifecycle). ENABLE+FORCE RLS + `tenant_isolation`; grants SELECT/INSERT/UPDATE (no DELETE).
+- **Decisions:** D‑1 inline TEXT · D‑2 immutability trigger · D‑3 whole-document quarantine · D‑4
+  content_type+source allowlists, bounded filename · D‑5 idempotent-return dedup · content integrity = Option B.
+- **Tests/evidence:** `make test` → 84; `make test-db` → 138 (scanner marker-ids/benign, labeling, validators;
+  ingest accept/quarantine + audit-without-body; DB content-integrity rejections [empty/oversized/size-mismatch/
+  bad-format/wrong-hash]; metadata CHECK rejections; one-way lifecycle [quarantined→accepted rejected];
+  content/identity immutability; idempotent dedup [same/diff content, diff project]; RLS deny-by-default +
+  cross-tenant WITH CHECK + repo invisibility; FK pinning; catalog/grants/trigger). Drift empty; reversible
+  `0011 → 0010 → head`.
+- **Non-goals (held):** Documentation Compiler (Phase 2); ML/embedding classification; LLM/RAG wiring; binary
+  parsing; malware scanning; per-section quarantine; un-quarantine; Sanad wiring; request-auth.
 
 ### Slice 10 — Minimal read API / dashboard (§18.6)
 - **Scope:** read-only, tenant-scoped endpoints: run state, open approvals, blockers, cost.
@@ -314,7 +330,7 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a merged (PRs #1–#9). D2 decided (LangGraph + custom UAID checkpointer).
-**Slice 8b (runtime integration) implemented on branch `feat/control-plane-workflow-runtime-8b`,
-pending implementation review/commit.** Next after 8b merges: Slice 9 (document intake sandbox, §16.3)
-— do not start until greenlit.
+Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b merged (PRs #1–#10). D2 decided (LangGraph + custom UAID checkpointer).
+**Slice 9 (document intake sandbox, §16.3) implemented on branch `feat/control-plane-document-intake`,
+pending implementation review/commit.** Next after 9 merges: Slice 10 (minimal read API / dashboard, §18.6)
+— carries open decisions D3 (API-only vs minimal web UI) and D4 (request-auth → tenant mapping). Do not start until greenlit.
