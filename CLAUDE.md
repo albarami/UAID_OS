@@ -14,9 +14,10 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
 ## Current status (2026-06-04)
-**Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9 merged; Slice 10
-(minimal read API / dashboard) on branch `feat/control-plane-read-api`, pending
-review/merge — the final Phase‑1 slice.** Beyond the original scaffold: the persistence spine (async
+**Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
+API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) Slice 11 (canonical
+intake spine) on branch `feat/control-plane-intake-spine`, pending review/merge.**
+Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
 tamper-evident hash-chained audit log (Slice 2), a deterministic autonomy policy
@@ -29,11 +30,15 @@ a custom UAID-owned RLS checkpointer, run state machine, immutable `run_steps`,
 crash→resume, Slice 8a), runtime integration (subject-scoped approval
 wait/resume, node retry/backoff, cost STOP→pause, Slice 8b), a document
 intake sandbox (untrusted-data documents: deterministic injection scan + quarantine,
-instruction/data labeling, DB-verified content integrity, Slice 9), **and a read-only
-JSON dashboard API behind hashed bearer-key tenant auth (§18.6, Slice 10)**. The rest of the
+instruction/data labeling, DB-verified content integrity, Slice 9), a read-only
+JSON dashboard API behind hashed bearer-key tenant auth (§18.6, Slice 10), **and a
+deterministic, provenance-backed canonical intake spine — tenant-owned, append-only
+`intake_artifacts` + `intake_provenance` with DB-enforced Sanad source-count and
+accepted-document-only pinning (Phase 2, Slice 11)**. The rest of the
 engine described in the spec
-(intake compiler, agent factory, maker-checker-verifier, evidence packs, etc.) is
-**not** implemented. Do not assume any spec capability exists
+(the LLM-backed documentation compiler / classifier / extractor, build-readiness
+auditor, gap/contradiction detector, agent factory, maker-checker-verifier, evidence
+packs, etc.) is **not** implemented. Do not assume any spec capability exists
 unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
@@ -192,6 +197,28 @@ the admin `app` role only.
   (tenant-owned, RLS). **Guarantee = instruction/data separation + no LLM wired; scanning is
   best-effort, not a detection guarantee.** **Skeleton: no Documentation Compiler / ML / RAG /
   binary parsing / malware scanning / per-section quarantine.**
+- `app/intake/compiler.py` + `app/repositories/intake.py` — canonical intake spine (Phase 2,
+  Slice 11, §3.4/§4.2/§4.4). `compiler.py` (pure, **no LLM**): `ARTIFACT_KINDS`
+  (`requirement`/`acceptance_criterion`/`test_oracle`/`assumption`), `ASSUMPTION_CLASSIFICATIONS`
+  (§4.4 machine values), `SourceInput`, `validate_kind`/`validate_classification`, and
+  `assert_sources` — the **fail-closed Sanad gate** built on `app/core/provenance.py`
+  (`Fact`/`Source`/`NoFreeFactsError`). `IntakeRepository.add_artifact` validates kind +
+  classification, **fails closed if no source is supplied**, pre-checks each document-backed
+  source against the tenant-scoped `DocumentRepository` (must exist, be **accepted**, same
+  project), then writes the artifact + its sources and audits **safe metadata only — never
+  title/body/data**. `app/models/intake_artifact.py` (**tenant-owned, append-only**; unified
+  `kind` table; self triple-FK `parent_id` pins a child to the same project+tenant; tightened
+  §4.4 classification CHECK — assumptions **must** carry one valid value, others **must** be
+  NULL) + `app/models/intake_provenance.py` (**tenant-owned, append-only** Sanad sources;
+  composite FK pins a document-backed source to the **same tenant+project accepted document**;
+  NULL `document_id` = non-document origin, skips the doc FK). **DB invariants:** a **deferrable
+  constraint trigger** rejects any artifact that commits with zero provenance; a **BEFORE INSERT**
+  trigger rejects non-accepted document sources; both tables append-only (SELECT/INSERT;
+  UPDATE/DELETE/TRUNCATE blocked) + ENABLE+FORCE RLS + `tenant_isolation`. `app/models/document.py`
+  gains an additive `UNIQUE(id, project_id, tenant_id)` (the document composite-FK target — the
+  only change to the Slice‑9 table). **Skeleton: deterministic only — no LLM/classifier/extractor,
+  no build-readiness auditor (Slice 12), no gap/contradiction detector (Slice 13), no artifact
+  generation, no API exposure.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -227,7 +254,13 @@ the admin `app` role only.
   `tenant_api_keys` to `api_key_resolver`, `REVOKE SELECT` from `uaid_app`; downgrade restores 0012);
   `0012_tenant_api_keys.py` (**global** `tenant_api_keys` auth-lookup — **NOT RLS** [resolution is
   pre-tenant]; hash-only `key_hash` with format CHECK + UNIQUE, bounded `label`, status CHECK; grant
-  `SELECT` to `uaid_app`).
+  `SELECT` to `uaid_app`); `0014_intake_spine.py` (Slice 11: **tenant-owned, append-only**
+  `intake_artifacts` [unified `kind` table; self triple-FK `parent_id`; tightened §4.4 classification
+  CHECK] + `intake_provenance` [Sanad sources; composite FK `(document_id, project_id, tenant_id) →
+  documents`]; both ENABLE+FORCE RLS + `tenant_isolation`, SELECT/INSERT only + UPDATE/DELETE/TRUNCATE
+  block triggers; a **DEFERRABLE** constraint trigger enforcing ≥1 provenance per artifact; a BEFORE
+  INSERT accepted-document-only trigger; plus an additive `documents` `UNIQUE(id, project_id, tenant_id)`
+  as the composite-FK target).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -250,14 +283,17 @@ the admin `app` role only.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
-  `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed
-  `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db`
-  engine).
-  **`make test` → 86 passing (Docker-free); `make test-db` → 147 passing (DB-backed: tenancy,
+  `test_intake_compiler.py`, `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py`
+  (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
+  auto-dispose of the `app.db` engine).
+  **`make test` → 93 passing (Docker-free); `make test-db` → 161 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
-  document-intake, and the read API [real-HTTP auth deny-by-default, cross-tenant denial via
+  document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
-  no direct key-table read]). `make test-db` requires `RLS_DB_PASSWORD`.**
+  no direct key-table read], and the intake spine [Sanad fail-closed source-count via the
+  deferrable constraint, document composite-FK cross-project/cross-tenant rejection,
+  accepted-document-only trigger, append-only, the §4.4 classification CHECK, RLS + cross-tenant]).
+  `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
