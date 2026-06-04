@@ -162,9 +162,25 @@ A crash→resume test proves a run continues from its last checkpoint **without 
 steps**. **"Deterministic replay" here means state reconstruction** from checkpoints + `run_steps` +
 the audit/tool/cost ledgers — **not** Temporal-style automatic event-history re-execution; it is valid
 only while nodes stay deterministic over persisted state, external actions are idempotent and
-broker/ledger-mediated, and nodes do no hidden I/O. **Slice 8a is the substrate only — approval
-waits, retry/backoff, the cost stop-hook, tool-result persistence, the §23.3 control loop, and
-distributed workers are Slice 8b+.**
+broker/ledger-mediated, and nodes do no hidden I/O.
+
+**Runtime integration (Slice 8b)** wires the substrate to the rest of the control plane:
+- **Approval wait/resume** — a sentinel `approval_gate` precedes the protected node (so protected
+  work never runs pre-approval); the engine requests a `workflow.resume` approval (risk tier `high`,
+  `requires_explicit_approval=True`, subject `run:<run_id>:node:<protected>`) and marks the run
+  `blocked`. Resume consults the additively-extended `ApprovalRepository.is_blocked(..., subject_ref=None)`:
+  `APPROVED` ⇒ resume → complete; a terminal denial (`REJECTED`/`CANCELLED`/`EXPIRED`/explicit
+  `PROCEEDED_BY_POLICY`) ⇒ the run **fails** (no stuck runs, no silent progress); `PENDING` stays blocked.
+  Auto-policy proceed never unblocks an explicit workflow wait.
+- **Retry/backoff** — node-level LangGraph `RetryPolicy`; a dedicated `TransientNodeError` is retryable,
+  anything else fails the run; `retried` is recorded in `run_steps` **only for attempts > 1**, bounded by
+  `max_attempts`.
+- **Cost STOP→pause** — the engine consumes the Slice‑7 `evaluate` stop signal **before the next node**
+  (at a checkpoint boundary); STOP ⇒ `running→paused` (`cost_paused`) without executing the node.
+
+**Still skeleton:** no tool-result persistence, no §23.3 control loop, no distributed workers; the cost
+guard is opt-in per run; LangGraph's native `interrupt()` is not used (the gate decision lives in the
+audited, RLS-backed approval engine).
 
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate

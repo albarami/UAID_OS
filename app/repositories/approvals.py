@@ -145,9 +145,16 @@ class ApprovalRepository(TenantScopedRepository):
         stmt = stmt.order_by(Approval.requested_at.desc()).limit(1)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def is_blocked(self, project_id: uuid.UUID, action: str) -> bool:
-        """Gate: is the dependent action blocked by the latest relevant approval?"""
-        approval = await self.latest_for(project_id, action)  # subject_ref=None: unchanged behavior
+    async def is_blocked(
+        self, project_id: uuid.UUID, action: str, subject_ref: str | None = None
+    ) -> bool:
+        """Gate: is the dependent action blocked by the latest relevant approval?
+
+        ``subject_ref=None`` keeps the action-level semantics (Slice 4); a concrete
+        value (e.g. ``"run:<id>:node:<name>"``) scopes the gate to that subject — an
+        action-level (NULL subject_ref) or different-subject approval will not satisfy it.
+        """
+        approval = await self.latest_for(project_id, action, subject_ref=subject_ref)
         if approval is None:
             return True  # no approval on record ⇒ blocked
         return _gate_is_blocked(

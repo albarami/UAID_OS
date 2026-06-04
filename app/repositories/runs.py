@@ -126,3 +126,32 @@ class RunRepository(TenantScopedRepository):
         return await self.transition(
             run_id=run_id, to_status="failed", event_type="run_failed", actor=actor, payload=payload
         )
+
+    # Slice 8b lifecycle wrappers (transitions already in the _ALLOWED table).
+    async def mark_blocked_on_approval(self, *, run_id, actor, payload=None) -> ProjectRun:
+        return await self.transition(
+            run_id=run_id,
+            to_status="blocked",
+            event_type="blocked_on_approval",
+            actor=actor,
+            payload=payload,
+        )
+
+    async def mark_paused_for_cost(self, *, run_id, actor, payload=None) -> ProjectRun:
+        return await self.transition(
+            run_id=run_id,
+            to_status="paused",
+            event_type="cost_paused",
+            actor=actor,
+            payload=payload,
+        )
+
+    async def mark_resumed(self, *, run_id, actor, payload=None) -> ProjectRun:
+        # blocked/paused -> running, recorded as run_resumed.
+        return await self.transition(
+            run_id=run_id,
+            to_status="running",
+            event_type="run_resumed",
+            actor=actor,
+            payload=payload,
+        )

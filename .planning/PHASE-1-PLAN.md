@@ -236,11 +236,30 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
   state machine + invalid rejected, RLS deny-by-default all 3 + cross-tenant WITH CHECK, FK pinning, run_steps
   immutability [uaid_app + admin], catalog/grants/triggers). Drift empty; reversible `0009 → 0008 → head`.
 
-#### Slice 8b — Runtime integration (deferred)
-- approval wait/resume (subject-scoped `is_blocked(..., subject_ref)` or `is_subject_blocked`; action `workflow.resume`;
-  subject `run:<run_id>:node:<node>`; `requires_explicit_approval=True`; intentional risk tier; full pending/rejected/
-  cancelled/expired/`proceeded_by_policy`/`APPROVED` matrix); retry/backoff; cost pre-step STOP→pause; stricter
-  idempotency/side-effect integration; additional incident-reconstruction tests.
+#### Slice 8b — Runtime integration — **IMPLEMENTED (plan v2; pending review/merge)** · branch `feat/control-plane-workflow-runtime-8b`
+- **Scope (delivered):** subject-scoped approval wait/resume, node retry/backoff, cost STOP→pause.
+  - **Approval:** sentinel `approval_gate` before the protected node (`interrupt_after`); engine requests
+    `workflow.resume` (tier `high`, `requires_explicit_approval=True`, subject `run:<id>:node:<protected>`),
+    `running→blocked`; **APPROVED ⇒ resume→complete; terminal denial (rejected/cancelled/forced expired/forced
+    proceeded_by_policy) ⇒ `blocked→failed`; PENDING ⇒ stays blocked.** Auto-policy proceed never unblocks
+    (explicit). Uses additively-extended `ApprovalRepository.is_blocked(..., subject_ref=None)`.
+  - **Retry:** LangGraph `RetryPolicy(max_attempts, retry_on=TransientNodeError)`; `retried` recorded **only for
+    attempts > 1** (Option A); non-retryable ⇒ `failed` (`node_error`); exhausted ⇒ `failed` (`retry_exhausted`).
+  - **Cost:** engine consumes Slice-7 `evaluate` at the step boundary; STOP ⇒ `running→paused` (`cost_paused`)
+    before the node runs; resume re-evaluates.
+- **Files (actual):** `app/repositories/approvals.py` (+`subject_ref` on `is_blocked`), `app/repositories/runs.py`
+  (+block/pause/resume helpers), `app/runtime/engine.py` (gate/protected/flaky/broken/cost graphs + orchestration),
+  `app/models/run_step.py` (+3 event types), `migrations/versions/0010_runtime_events.py`, `tests/test_runtime_8b.py`,
+  docs. **Untouched:** `app/db.py`, `app/approvals/states.py`, `app/tools/*`, `app/agents/*`, `app/policy/*`,
+  `app/cost.py`, `app/repositories/cost.py`.
+- **Schema:** only the `run_steps.event_type` CHECK expanded (`blocked_on_approval`/`retried`/`cost_paused`); no new
+  tables/columns/grants; RLS/FK/immutability unchanged.
+- **Tests/evidence:** `make test` → 79; `make test-db` → 128 (gate matrix, subject scoping incl. action-level &
+  cross-tenant non-satisfaction, gate-before-protected, PENDING/APPROVED/rejected/cancelled/forced-expired/forced-
+  proceeded resume matrix, retry success/exhausted/non-retryable, cost STOP→pause + resume). Drift empty;
+  reversible `0010 → 0009 → head` (clean on a schema without 8b-event rows).
+- **Deferred:** tool-result persistence; §23.3 loop; distributed workers; durable timers; per-node cost hooks;
+  mandatory cost guard; LangGraph native `interrupt()`; re-request path after terminal denial (Option A fails instead).
 - **Temporal revisit triggers:** distributed multi-worker orchestration across machines/languages; hard requirement
   for full automatic event-sourced replay; LangGraph checkpoint-API churn too costly; a compliance/ops need better
   served by Temporal namespaces + managed durability.
@@ -295,7 +314,7 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4, 5, 6, 7 merged (PRs #1–#8). D2 decided (LangGraph + custom UAID checkpointer).
-**Slice 8a (durable runtime substrate) implemented on branch `feat/control-plane-workflow-runtime-8a`,
-pending implementation review/commit.** Next after 8a merges: Slice 8b (runtime integration — approval
-wait/resume, retry/backoff, cost stop-hook) — do not start until greenlit.
+Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a merged (PRs #1–#9). D2 decided (LangGraph + custom UAID checkpointer).
+**Slice 8b (runtime integration) implemented on branch `feat/control-plane-workflow-runtime-8b`,
+pending implementation review/commit.** Next after 8b merges: Slice 9 (document intake sandbox, §16.3)
+— do not start until greenlit.
