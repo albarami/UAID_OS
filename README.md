@@ -227,6 +227,31 @@ artifact title/body/data**. `documents` gains an additive `UNIQUE(id, project_id
 the composite-FK target. **Slice 11 is deterministic only — no LLM/classifier/extractor, no
 build-readiness auditor, no gap/contradiction detector, no artifact generation, and no API exposure.**
 
+## Build-readiness auditor (Phase 2, Slice 12 — §4.3 / §4.4 / §4.5)
+`app/intake/readiness.py` + `app/repositories/readiness.py` add a **deterministic (no-LLM),
+fail-closed** auditor that reads the Slice‑11 intake spine and emits the **§4.5 intake validation
+report**, persisted as an **immutable tenant-owned snapshot** (`readiness_reports`).
+- **Capped at R2.** The spine models only requirement / acceptance_criterion / test_oracle /
+  assumption, while §4.3 R3 needs architecture/stack/data/workflows (and Appendix‑A R5 needs ~22
+  further categories) that are **not modeled** — so the auditor never certifies above R2. R0 = no
+  requirements; R1 = requirements but no valid requirement → acceptance-criterion chain; R2 = at
+  least one valid chain (missing oracles are reported, not level-raising).
+- **Parent-kind validation does not trust the DB FK alone:** an acceptance criterion counts only
+  if its parent **is a requirement**, an oracle only if its parent **is that acceptance criterion**;
+  orphan/wrong-kind links become `spine_gaps` and never satisfy coverage.
+- **`can_build_to_staging` and `can_go_live_autonomously` are hard-false** in Slice 12, each with a
+  recorded reason. The auditor wires the Slice‑3 autonomy policy via
+  `decision_for(project_id, "deploy_production")` purely as transparent context
+  (`production_authority_decision`) — `deploy_production` is mandatory-approval, so it returns
+  `needs_approval`/`deny`, **never** authorization, and can never make go-live true.
+- The `report` JSON carries the §4.5 keys plus deterministic extensions (`readiness_cap`,
+  `readiness_cap_reason`, `not_assessed_categories`, `spine_gaps`, `production_authority_decision`,
+  `ruleset_version`); the audit log records **safe metadata only** (no assumption titles / report body).
+  `readiness_reports` is tenant-owned, RLS ENABLE+FORCE, **append-only** (`SELECT, INSERT` only;
+  UPDATE/DELETE/TRUNCATE blocked); `created_at` uses `clock_timestamp()` so same-transaction
+  snapshots order deterministically. **Slice 12 is deterministic only — no LLM, no gap/contradiction
+  detector (Slice 13), no evidence pack, no new artifact kinds, and no HTTP/API endpoint.**
+
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
 decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an
