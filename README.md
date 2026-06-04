@@ -212,7 +212,11 @@ and each opens `tenant_scope(context)` so all reads pass through RLS; a `project
 caller's tenant returns nothing (never another tenant's data, proven end-to-end over HTTP).
 `tenant_api_keys` is a **global auth-lookup table** (intentionally not RLS, since resolution happens
 before any tenant is known) storing **only key hashes** — never the raw key; keys are issued/revoked
-by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Covers the implemented
+by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Resolution goes through a
+**`SECURITY DEFINER` function** (`resolve_tenant_api_key`, owned by the least-privilege NOLOGIN role
+`api_key_resolver`): the runtime role `uaid_app` has **EXECUTE-only** access and **no direct read** of
+the key table, and only the hash is passed into SQL (the raw key never reaches the statement/logs).
+Covers the implemented
 §18.6 subset (run state, open approvals, blockers, cost + stop decision); **forecast, critical path,
 readiness, evidence-pack status, high-risk findings, deployment status, next action, and any web UI
 are deferred.**

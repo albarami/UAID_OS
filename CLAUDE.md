@@ -64,8 +64,11 @@ the admin `app` role only.
   (`/api/projects/{id}/{runs,approvals,blockers,cost}`) that open `tenant_scope` and read via
   existing repos — a cross-tenant `project_id` yields nothing (RLS). `app/repositories/api_keys.py`:
   `TenantApiKeyRepository` (admin `issue`/`revoke`; runtime `resolve`); raw key generated with
-  `secrets.token_urlsafe(32)`, **only the `sha256:` hash stored**, raw returned once.
-  `app/models/tenant_api_key.py` (**global** auth-lookup — intentionally NOT RLS; `uaid_app` SELECT).
+  `secrets.token_urlsafe(32)`, **only the `sha256:` hash stored**, raw returned once. **D4 hardening
+  (migration 0013):** `resolve` calls the **`SECURITY DEFINER`** function `resolve_tenant_api_key(hash)`
+  (owned by the least-privilege NOLOGIN `api_key_resolver`); `uaid_app` has **EXECUTE only, no direct
+  SELECT** on the key table; only the hash is passed to SQL (raw key never enters statement/logs).
+  `app/models/tenant_api_key.py` (**global** auth-lookup — intentionally NOT RLS).
   **Skeleton: read-only; covers the implemented §18.6 subset (run state / open approvals / blockers /
   cost + stop decision); forecast / critical path / readiness / evidence-pack / findings / deployment /
   next-action deferred; no web UI; no auth-event audit; admin-path key issuance only.**
@@ -219,12 +222,18 @@ the admin `app` role only.
   `tenant_isolation`; SELECT/INSERT/UPDATE, no DELETE; metadata/format CHECKs; combined
   `documents_guard` trigger — content integrity [size + core-`sha256` hash] on INSERT, content/identity
   immutability + one-way `accepted→quarantined` lifecycle on UPDATE);
+  `0013_key_resolver.py` (D4 hardening: `SECURITY DEFINER` `resolve_tenant_api_key(text)` owned by
+  `api_key_resolver`, `REVOKE ALL FROM PUBLIC` + `GRANT EXECUTE` to `uaid_app`; `GRANT SELECT` on
+  `tenant_api_keys` to `api_key_resolver`, `REVOKE SELECT` from `uaid_app`; downgrade restores 0012);
   `0012_tenant_api_keys.py` (**global** `tenant_api_keys` auth-lookup — **NOT RLS** [resolution is
   pre-tenant]; hash-only `key_hash` with format CHECK + UNIQUE, bounded `label`, status CHECK; grant
   `SELECT` to `uaid_app`).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
-  `RLS_DB_PASSWORD` via psql `\getenv`, never committed) **and `audit_writer`** (NOLOGIN, no
-  password — the limited SECURITY DEFINER owner of the audit functions). Run by `make db-bootstrap-rls-role`.
+  `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
+  SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
+  SECURITY DEFINER owner of the API-key resolver; SELECT on `tenant_api_keys` only). Run by
+  `make db-bootstrap-rls-role`. **Must run before migrations 0003 / 0013 (which assign function
+  ownership to these roles); `make test-db` bootstraps before migrating.**
 - `app/config.py` — `Settings` (pydantic-settings) loaded from `.env`. Reads
   `DATABASE_URL` + `TEST_DATABASE_URL` (**runtime `uaid_app`**), `ADMIN_DATABASE_URL` +
   `TEST_ADMIN_DATABASE_URL` (**admin `app`**, migrations/bootstrap/seed only),
@@ -244,10 +253,11 @@ the admin `app` role only.
   `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed
   `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db`
   engine).
-  **`make test` → 86 passing (Docker-free); `make test-db` → 145 passing (DB-backed: tenancy,
+  **`make test` → 86 passing (Docker-free); `make test-db` → 147 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, and the read API [real-HTTP auth deny-by-default, cross-tenant denial via
-  dependency→tenant_scope/RLS, read-only, catalog]). `make test-db` requires `RLS_DB_PASSWORD`.**
+  dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
+  no direct key-table read]). `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
 - `docker-compose.yml` — postgres:16, redis:7, chromadb. Pinned to compose project
@@ -281,7 +291,7 @@ the admin `app` role only.
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 86 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 145 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 147 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -364,9 +374,11 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   (run state, open approvals, blockers, cost + stop decision) behind **hashed bearer-key tenant
   auth** (D4: `tenant_api_keys` stores only `sha256:` hashes; missing/invalid/revoked ⇒ 401, no
   fallback). The auth dependency is the single HTTP→tenant boundary; all reads stay in
-  `tenant_scope`/RLS (cross-tenant reads return nothing). **Deferred: forecast, critical path,
-  readiness level, evidence-pack status, high-risk findings, deployment status, next action; web UI;
-  auth-event audit; HTTP key issuance (admin-path only); the SECURITY-DEFINER resolver hardening.**
+  `tenant_scope`/RLS (cross-tenant reads return nothing). **D4 hardened (migration 0013):** resolution
+  is via a `SECURITY DEFINER` function (`api_key_resolver`-owned); `uaid_app` has EXECUTE-only access
+  and **no direct read of the key table**. **Deferred: forecast, critical path, readiness level,
+  evidence-pack status, high-risk findings, deployment status, next action; web UI; auth-event audit;
+  HTTP key issuance (admin-path only); HMAC/salted key hashing.**
 - Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a / 8b / 9 / 10.
 
 ## Secrets

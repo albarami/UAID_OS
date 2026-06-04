@@ -11,7 +11,7 @@ import hashlib
 import secrets
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tenant_api_key import TenantApiKey
@@ -51,9 +51,13 @@ class TenantApiKeyRepository:
         )
 
     async def resolve(self, raw_key: str) -> uuid.UUID | None:
-        """Runtime pre-tenant lookup: ACTIVE key hash → tenant_id, else None."""
-        stmt = select(TenantApiKey.tenant_id).where(
-            TenantApiKey.key_hash == hash_key(raw_key),
-            TenantApiKey.status == "active",
+        """Runtime pre-tenant lookup via the SECURITY DEFINER resolver (D4 hardening).
+
+        ``uaid_app`` has EXECUTE on the resolver but no direct SELECT on the key table.
+        Only the hash is passed to SQL — the raw key never enters the statement/logs.
+        Returns the tenant for an active key, else ``None`` (uniform for unknown/revoked).
+        """
+        result = await self.session.execute(
+            text("SELECT public.resolve_tenant_api_key(:h)"), {"h": hash_key(raw_key)}
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        return result.scalar_one()  # uuid or None

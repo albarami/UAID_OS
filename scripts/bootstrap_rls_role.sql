@@ -46,3 +46,18 @@ END
 $$;
 ALTER ROLE audit_writer
     WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+
+-- D4 hardening: limited owner role for the SECURITY DEFINER API-key resolver.
+-- NOLOGIN (never authenticates), no password; its only privilege is SELECT on
+-- tenant_api_keys (granted by migration 0013), so the resolver can look up a key
+-- hash while `uaid_app` holds EXECUTE-only access (no direct key-table read).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'api_key_resolver') THEN
+        CREATE ROLE api_key_resolver
+            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+    END IF;
+END
+$$;
+ALTER ROLE api_key_resolver
+    WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
