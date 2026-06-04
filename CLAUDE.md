@@ -15,8 +15,10 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 
 ## Current status (2026-06-04)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
-API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) Slice 11 (canonical
-intake spine) on branch `feat/control-plane-intake-spine`, pending review/merge.**
+API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slice 11 (canonical
+intake spine) merged; Slice 12 (deterministic build-readiness auditor, R2-capped) on
+branch `feat/control-plane-readiness-audit`, pending review/merge. No `v0.2.0` tag yet
+(awaits a user-visible Phase‑2 milestone).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -34,12 +36,14 @@ instruction/data labeling, DB-verified content integrity, Slice 9), a read-only
 JSON dashboard API behind hashed bearer-key tenant auth (§18.6, Slice 10), **and a
 deterministic, provenance-backed canonical intake spine — tenant-owned, append-only
 `intake_artifacts` + `intake_provenance` with DB-enforced Sanad source-count and
-accepted-document-only pinning (Phase 2, Slice 11)**. The rest of the
-engine described in the spec
-(the LLM-backed documentation compiler / classifier / extractor, build-readiness
-auditor, gap/contradiction detector, agent factory, maker-checker-verifier, evidence
-packs, etc.) is **not** implemented. Do not assume any spec capability exists
-unless it is listed under "What exists" below.
+accepted-document-only pinning (Phase 2, Slice 11)**, **and a deterministic,
+fail-closed build-readiness auditor over that spine — R2-capped, emitting the §4.5
+validation report as an immutable `readiness_reports` snapshot (Phase 2, Slice 12)**.
+The rest of the engine described in the spec
+(the LLM-backed documentation compiler / classifier / extractor, the gap/contradiction
+detector, R3–R5 readiness from un-modeled intake categories, agent factory,
+maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
+spec capability exists unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
 at two layers simultaneously:** app-layer (repository scoping + schema FKs, INV-1..4)
@@ -219,6 +223,25 @@ the admin `app` role only.
   only change to the Slice‑9 table). **Skeleton: deterministic only — no LLM/classifier/extractor,
   no build-readiness auditor (Slice 12), no gap/contradiction detector (Slice 13), no artifact
   generation, no API exposure.**
+- `app/intake/readiness.py` + `app/repositories/readiness.py` — deterministic build-readiness
+  auditor (Phase 2, Slice 12, §4.3/§4.4/§4.5). `readiness.py` (pure, **no LLM**): `evaluate_readiness`
+  reads a snapshot of spine artifacts and emits the §4.5 report, **fail-closed and capped at R2**
+  (R0 = no requirements; R1 = no valid requirement→acceptance chain; R2 = ≥1 valid chain). **Parent-kind
+  validation does not trust the DB FK alone** — an acceptance criterion counts only if its parent is a
+  `requirement`, an oracle only if its parent is that `acceptance_criterion`; orphan/wrong-kind links
+  become `spine_gaps` and never raise the level. `can_build_to_staging`/`can_go_live_autonomously` are
+  **hard-false** with recorded reasons. The `report` carries the §4.5 keys + deterministic extensions
+  (`readiness_cap`, `readiness_cap_reason`, `not_assessed_categories` [22 Appendix‑A categories],
+  `spine_gaps`, `production_authority_decision`, `ruleset_version`). `ReadinessRepository`
+  (`evaluate`/`evaluate_and_record`/`latest`/`history`) wires the **Slice‑3** autonomy policy via
+  `decision_for(project_id, "deploy_production")` as **transparent context only** (mandatory-approval ⇒
+  `needs_approval`/`deny`, never authorization; never makes go-live true), and audits **safe metadata
+  only — no assumption titles / report body**. `app/models/readiness_report.py` (`ReadinessReportRecord`,
+  table `readiness_reports`): **tenant-owned, RLS, append-only**; `readiness_level` CHECK allows R0..R5
+  (forward-compat) but the code emits only R0/R1/R2; `created_at` uses `clock_timestamp()` so
+  same-transaction snapshots order deterministically (`latest`/`history` order `created_at DESC, id DESC`).
+  **Skeleton: deterministic only — no LLM, no gap/contradiction detector (Slice 13), no evidence pack,
+  no new artifact kinds, no HTTP/API endpoint.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -260,7 +283,10 @@ the admin `app` role only.
   documents`]; both ENABLE+FORCE RLS + `tenant_isolation`, SELECT/INSERT only + UPDATE/DELETE/TRUNCATE
   block triggers; a **DEFERRABLE** constraint trigger enforcing ≥1 provenance per artifact; a BEFORE
   INSERT accepted-document-only trigger; plus an additive `documents` `UNIQUE(id, project_id, tenant_id)`
-  as the composite-FK target).
+  as the composite-FK target); `0015_readiness_reports.py` (Slice 12: **tenant-owned, append-only**
+  `readiness_reports` — ENABLE+FORCE RLS + `tenant_isolation`, SELECT/INSERT only + UPDATE/DELETE/TRUNCATE
+  block triggers; `readiness_level` CHECK `R0..R5`; `created_at` default `clock_timestamp()`; composite FK
+  `(project_id, tenant_id) → projects`; no change to existing tables).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -283,10 +309,10 @@ the admin `app` role only.
 - `tests/` — `test_provenance.py`, `test_health.py` (Docker-free) + `test_tenancy.py`,
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
-  `test_intake_compiler.py`, `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py`
-  (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
-  auto-dispose of the `app.db` engine).
-  **`make test` → 93 passing (Docker-free); `make test-db` → 161 passing (DB-backed: tenancy,
+  `test_intake_compiler.py`, `test_readiness.py`, `test_api.py` (DB-backed `db` + Docker-free units) and
+  `conftest.py` (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction
+  rollback; auto-dispose of the `app.db` engine).
+  **`make test` → 103 passing (Docker-free); `make test-db` → 168 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -326,8 +352,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 86 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 147 passing
+make test                                  # Docker-free tests (no services) — 103 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 168 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
