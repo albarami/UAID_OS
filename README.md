@@ -201,6 +201,32 @@ quarantine; `quarantined → accepted` is rejected by the DB). `documents` is `S
 (no DELETE). **Skeleton — no Documentation Compiler, ML/embedding classification, LLM/RAG wiring,
 binary parsing, malware scanning, or per-section quarantine.**
 
+## Canonical intake spine (Phase 2, Slice 11 — §3.4 / §4.2 / §4.4)
+`app/intake/compiler.py` + `app/repositories/intake.py` add a **deterministic (no-LLM),
+provenance-backed canonical intake spine**: the foundation later Phase‑2 work attaches to.
+Two tenant-owned, RLS-protected (ENABLE+FORCE + `tenant_isolation`), **append-only** tables:
+- **`intake_artifacts`** — a unified `kind` table (`requirement` / `acceptance_criterion` /
+  `test_oracle` / `assumption`). A self **triple-FK** `parent_id` pins a child to the same
+  project+tenant. A tightened §4.4 CHECK means an `assumption` **must** carry exactly one valid
+  classification (`safe_assumption` / `needs_approval` / `unsafe_assumption_blocked` /
+  `unknown_cannot_proceed`) and every other kind **must** be `NULL` (the `IS NOT NULL` guard
+  defeats SQL three-valued logic, so a missing assumption classification is rejected, not passed).
+- **`intake_provenance`** — the Sanad source store. A document-backed source is pinned to an
+  **accepted** document of the **same tenant+project** by a composite FK
+  `(document_id, project_id, tenant_id) → documents` **plus** a `BEFORE INSERT` trigger that rejects
+  non-accepted documents; a `NULL document_id` is a non-document origin (e.g. a recorded human
+  decision) and skips the document FK.
+
+**Fail-closed (No-Free-Facts, §2.4) is DB-enforced:** a **deferrable constraint trigger** rejects
+any artifact that commits with zero provenance rows (the artifact may be inserted before its
+sources within one transaction; the check runs at commit). The repository (`IntakeRepository.add_artifact`)
+also fails closed via the `app/core/provenance.py` `Fact` gate and pre-checks document sources against
+the tenant-scoped `DocumentRepository` (exists, accepted, same project). Both tables are `SELECT, INSERT`
+only (UPDATE/DELETE/TRUNCATE blocked by triggers); audit records **safe metadata only — never the
+artifact title/body/data**. `documents` gains an additive `UNIQUE(id, project_id, tenant_id)` solely as
+the composite-FK target. **Slice 11 is deterministic only — no LLM/classifier/extractor, no
+build-readiness auditor, no gap/contradiction detector, no artifact generation, and no API exposure.**
+
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
 decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an
