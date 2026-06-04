@@ -25,6 +25,7 @@ from app.models.tenant_api_key import TenantApiKey
 from app.models.organization import Organization
 from app.models.project import Project
 from app.models.project_run import ProjectRun
+from app.models.readiness_report import ReadinessReportRecord
 from app.models.tenant import Tenant
 from app.models.tool_call import ToolCall
 
@@ -51,5 +52,6 @@ __all__ = [
     "Document",
     "IntakeArtifact",
     "IntakeProvenance",
+    "ReadinessReportRecord",
     "TenantApiKey",
 ]
