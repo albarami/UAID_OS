@@ -214,13 +214,37 @@ This plan is built one **vertical slice** at a time. Slices 2+ are summarized he
   (stop signal decision-only); forecast-based approvals; per-phase budgets; refunds/credits; multi-currency;
   request-auth (`actor` untrusted); broker/agent wiring; non-cost `stop_if` conditions (Slice 8+).
 
-### Slice 8 — Durable workflow runtime (§23.2)  ← major engine decision
-- **Scope:** resumable run state machine on `project_runs`; step persistence; retries/backoff; human-approval waits; deterministic replay.
-- **Files:** `app/runtime/` (engine, steps, checkpoints), `migrations/`, tests.
-- **Schema:** `run_steps`, `workflow_checkpoints` (or engine-native checkpoint tables).
-- **Tests:** kill mid-run → resume from last checkpoint; retry on transient failure; pause-for-approval then resume.
-- **Evidence:** resume-after-crash demo; replay determinism.
-- **Non-goals:** the full §23.3 business control loop; multi-worker scaling tuning.
+### Slice 8 — Durable workflow runtime (§23.2)  ← **D2 DECIDED: LangGraph + custom UAID-owned RLS Postgres checkpointer** (not Temporal). Split into 8a/8b.
+
+#### Slice 8a — Durable runtime substrate — **IMPLEMENTED (plan v2; pending review/merge)** · branch `feat/control-plane-workflow-runtime-8a`
+- **Scope (delivered):** custom `UAIDCheckpointer(BaseCheckpointSaver)` over UAID-owned RLS tables (NOT
+  `.setup()`); `project_runs` state-machine repository; immutable `run_steps`; minimal deterministic demo
+  graph; **crash→resume proof**. **No approval waits / retry / cost hook / tool-result / §23.3 loop** (8b).
+- **Files (actual):** `app/runtime/{__init__,checkpointer,engine}.py`, `app/repositories/runs.py`,
+  `app/models/{run_checkpoint,run_checkpoint_write,run_step}.py`, `migrations/versions/0009_workflow_runtime.py`,
+  `tests/test_runtime.py`, `app/models/__init__.py`, docs. `app/db.py`/`app/approvals/*`/`app/tools/*`/`app/agents/*`/`app/cost.py` untouched.
+- **Schema/integrity:** `run_checkpoints` + `run_checkpoint_writes` (mutable working state; `task_path` at rest;
+  serde→BYTEA) + immutable `run_steps` (UPDATE/DELETE/TRUNCATE triggers); all three ENABLE+FORCE RLS +
+  `tenant_isolation`; triple FK `(run_id, project_id, tenant_id) → project_runs`. `thread_id = str(run_id)`.
+- **"Deterministic replay" framing:** state reconstruction from checkpoints + `run_steps` + audit/tool/cost
+  ledgers — **not** Temporal-style automatic re-execution. Valid only while nodes are deterministic over
+  persisted state, external actions idempotent + broker/ledger-mediated, and no hidden node I/O.
+- **Grants:** `run_checkpoints` SELECT/INSERT/DELETE; `run_checkpoint_writes` SELECT/INSERT/UPDATE/DELETE;
+  `run_steps` SELECT/INSERT only.
+- **Tests/evidence:** `make test` → 75; `make test-db` → 111 (transition table, serde round-trip, no-un-mediated-IO;
+  checkpointer conformance [put/get/list/writes+task_path/adelete_thread-keeps-run_steps], crash→resume [node_a once],
+  state machine + invalid rejected, RLS deny-by-default all 3 + cross-tenant WITH CHECK, FK pinning, run_steps
+  immutability [uaid_app + admin], catalog/grants/triggers). Drift empty; reversible `0009 → 0008 → head`.
+
+#### Slice 8b — Runtime integration (deferred)
+- approval wait/resume (subject-scoped `is_blocked(..., subject_ref)` or `is_subject_blocked`; action `workflow.resume`;
+  subject `run:<run_id>:node:<node>`; `requires_explicit_approval=True`; intentional risk tier; full pending/rejected/
+  cancelled/expired/`proceeded_by_policy`/`APPROVED` matrix); retry/backoff; cost pre-step STOP→pause; stricter
+  idempotency/side-effect integration; additional incident-reconstruction tests.
+- **Temporal revisit triggers:** distributed multi-worker orchestration across machines/languages; hard requirement
+  for full automatic event-sourced replay; LangGraph checkpoint-API churn too costly; a compliance/ops need better
+  served by Temporal namespaces + managed durability.
+- **Non-goals (held):** the full §23.3 business control loop; multi-worker scaling tuning.
 
 ### Slice 9 — Document intake sandbox (§16.3)
 - **Scope:** `documents` ingested as untrusted data; injection scanning; quarantine; instruction/data labeling.
@@ -271,7 +295,7 @@ Slice 1 commit). None is reachable as a bug within current Slice 1 scope.
    if/when ruff `I` (isort) is enabled.
 
 ## Immediate next action
-Slices 1, 1b, 2, 3, 4, 5, 6 merged (PRs #1–#7). **Slice 7 (cost ledger, §19) implemented on
-branch `feat/control-plane-cost-ledger`, pending implementation review/commit.**
-Next slice after Slice 7 merges: Slice 8 (durable workflow runtime, §23.2 — major engine
-decision D2: langgraph + Postgres checkpointing vs. Temporal) — do not start until greenlit.
+Slices 1, 1b, 2, 3, 4, 5, 6, 7 merged (PRs #1–#8). D2 decided (LangGraph + custom UAID checkpointer).
+**Slice 8a (durable runtime substrate) implemented on branch `feat/control-plane-workflow-runtime-8a`,
+pending implementation review/commit.** Next after 8a merges: Slice 8b (runtime integration — approval
+wait/resume, retry/backoff, cost stop-hook) — do not start until greenlit.

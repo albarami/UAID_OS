@@ -15,6 +15,9 @@ from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
+from app.models.run_checkpoint import RunCheckpoint
+from app.models.run_checkpoint_write import RunCheckpointWrite
+from app.models.run_step import RunStep
 from app.models.organization import Organization
 from app.models.project import Project
 from app.models.project_run import ProjectRun
@@ -38,4 +41,7 @@ __all__ = [
     "AgentInstance",
     "CostEvent",
     "Budget",
+    "RunCheckpoint",
+    "RunCheckpointWrite",
+    "RunStep",
 ]
