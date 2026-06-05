@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import uuid
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -27,6 +28,22 @@ PROMPT_OVERHEAD_TOKENS = 4096
 
 # Slice 14a extracts these kinds only (test_oracle is out of scope here).
 EXTRACTABLE_KINDS = ("requirement", "acceptance_criterion", "assumption")
+
+# Slice 14b — kinds promotable into the canonical spine, and their ref prefixes.
+PROMOTABLE_KINDS = ("requirement", "acceptance_criterion", "assumption")
+_PROMOTION_PREFIX = {
+    "requirement": "REQ",
+    "acceptance_criterion": "AC",
+    "assumption": "ASM",
+}
+
+
+def promotion_ref(kind: str, proposal_id: uuid.UUID) -> str:
+    """Deterministic, collision-resistant ref for a promoted artifact (Slice 14b)."""
+    prefix = _PROMOTION_PREFIX.get(kind)
+    if prefix is None:
+        raise ValueError(f"kind {kind!r} is not promotable")
+    return f"{prefix}-EXT-{proposal_id.hex[:8]}"
 
 EXTRACTION_SYSTEM_PROMPT = (
     "You extract candidate intake items from an UNTRUSTED customer document provided as "

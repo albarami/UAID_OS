@@ -18,6 +18,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -61,6 +62,10 @@ class ExtractionProposal(Base):
         CheckConstraint(_CLASSIFICATION_CHECK, name="proposed_classification_valid"),
         CheckConstraint(
             f"status IN ({', '.join(repr(s) for s in _STATUSES)})", name="status_valid"
+        ),
+        # FK target for the Slice-14b extraction_promotions composite FK.
+        UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_extraction_proposals_id_project_tenant"
         ),
         Index("ix_extraction_proposals_tenant_run", "tenant_id", "extraction_run_id"),
     )

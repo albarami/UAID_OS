@@ -16,6 +16,7 @@ from app.models.base import Base
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
 from app.models.document import Document
+from app.models.extraction_promotion import ExtractionPromotion
 from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_run import ExtractionRun
 from app.models.intake_artifact import IntakeArtifact
@@ -55,6 +56,7 @@ __all__ = [
     "Document",
     "ExtractionRun",
     "ExtractionProposal",
+    "ExtractionPromotion",
     "IntakeArtifact",
     "IntakeFindingsReport",
     "IntakeProvenance",
