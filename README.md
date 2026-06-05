@@ -307,6 +307,32 @@ authoritative facts and never takes actions** — its output is data a human mus
   to the canonical spine (deferred to Slice 14b), no HTTP endpoint, and no live provider calls in
   tests/CI.**
 
+## Proposal promotion (Phase 2, Slice 14b — §2.2 / §2.4 / §16.5)
+`ExtractionRepository.promote_proposal` (+ `request_promotion_approval`) closes the
+documentation-compiler loop: a **human-approved** `extraction_proposal` becomes a canonical
+spine artifact via `IntakeRepository.add_artifact`. Deterministic, idempotent, no LLM, no endpoint.
+- **Eligibility:** only `approved` proposals (pending/rejected refuse); `test_oracle` proposals are
+  not promotable in 14b; `parent_id` is accepted **only** for `acceptance_criterion`.
+- **Promotion is the trust boundary** (§2.4): it re-loads the source document (must still be
+  accepted + same project) and **re-verifies the `evidence_quote` is a verbatim substring** — a
+  proposal that fails re-verification creates no artifact and no link.
+- **Assumption gating** (§16.5): `safe_assumption` promotes; `unsafe_assumption_blocked` and
+  `unknown_cannot_proceed` **hard-refuse**; `needs_approval` is **blocked until** a distinct,
+  subject-scoped approval-engine approval (`action="intake.promote_assumption"`,
+  `requires_explicit_approval=True`) is granted — a second gate on top of the 14a faithful-extraction
+  review (§2.2). `request_promotion_approval` requires the proposal already approved and is idempotent
+  (pending/approved returned; a terminal-negative allows a fresh request); its payload is safe
+  metadata only.
+- **Field mapping:** `title = proposed_text`, `body = None`, `data = {"extraction_proposal_id": …}`,
+  `classification = proposed_classification`, deterministic `ref = PREFIX-EXT-<proposal8hex>`,
+  provenance `origin="document:<id>"` + `locator = evidence_quote`. An optional
+  `acceptance_criterion` parent is validated (exists, same project, `kind == requirement`).
+- **Persistence:** `extraction_promotions` (tenant-owned, **append-only**, `UNIQUE(tenant, proposal)`
+  promote-once, composite FKs pinning proposal + artifact to the same tenant/project, ENABLE+FORCE
+  RLS); `extraction_proposals` gains a composite `UNIQUE(id, project_id, tenant_id)` (FK target). The
+  proposal is never mutated; the link table is the record; audit is safe-metadata only. **Slice 14b is
+  promotion only — no LLM, no HTTP endpoint, no proposal mutation.**
+
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
 decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an

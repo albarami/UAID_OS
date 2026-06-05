@@ -17,9 +17,10 @@ The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Stan
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, R2-capped), and 13
-(deterministic gap & structural contradiction detector) merged; Slice 14a
-(LLM-assisted extractor → inert, provenance-verified, human-review proposals — the first
-real LLM integration) on branch `feat/control-plane-llm-extraction`, pending review/merge.
+(deterministic gap & structural contradiction detector) and 14a (LLM-assisted extractor →
+inert, provenance-verified, human-review proposals — the first real LLM integration) merged;
+Slice 14b (promotion of approved proposals into the canonical spine) on branch
+`feat/control-plane-proposal-promotion`, pending review/merge.
 No `v0.2.0` tag yet (awaits a user-visible Phase‑2 milestone).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
@@ -46,11 +47,13 @@ descriptive findings (gaps + structural contradictions) as an immutable
 `intake_findings_reports` snapshot, no readiness claims (Phase 2, Slice 13)**, **and an
 LLM-assisted extractor that turns an accepted document into inert, provenance-verified
 proposals requiring human review (budget-gated, injection-hard-refused, no
-auto-promotion) (Phase 2, Slice 14a)**.
+auto-promotion) (Phase 2, Slice 14a)**, **and deterministic promotion of human-approved
+proposals into canonical spine artifacts via `add_artifact` — promotion-time evidence
+re-verification + §16.5 assumption gating + idempotent append-only link (Phase 2,
+Slice 14b)**.
 The rest of the engine described in the spec
-(promotion of approved proposals into the spine [Slice 14b], **semantic** contradiction
-analysis, R3–R5 readiness from un-modeled intake categories, agent factory,
-maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
+(**semantic** contradiction analysis, R3–R5 readiness from un-modeled intake categories,
+agent factory, maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
 spec capability exists unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
@@ -291,6 +294,23 @@ the admin `app` role only.
   enforced by the `extraction_proposals_guard` trigger). Both ENABLE+FORCE RLS + `tenant_isolation`.
   **Skeleton: no auto-promotion to the spine (Slice 14b), no HTTP endpoint, no live provider calls in
   tests; real-model quality/eval is future work; price card ships empty (fail-closed until configured).**
+- `app/repositories/extraction.py` (Slice 14b promotion methods) + `app/models/extraction_promotion.py`
+  — deterministic promotion of human-approved proposals into the canonical spine (§2.2/§2.4/§16.5).
+  `promote_proposal`: eligibility (`approved` only) → **idempotent** (returns the existing artifact if
+  already promoted; one promotion per proposal via `UNIQUE(tenant, proposal)`) → promotable-kind
+  (`test_oracle` refused; `parent_id` only for `acceptance_criterion`) → **promotion-time re-verification**
+  (re-load source doc: accepted + same project; `evidence_quote` must be a **verbatim substring** — the
+  trust boundary, not trusting 14a alone) → §16.5 assumption gating (`safe_assumption` promotes;
+  `unsafe_assumption_blocked`/`unknown_cannot_proceed` **hard-refuse**; `needs_approval` blocked until a
+  distinct subject-scoped approval-engine approval) → optional AC parent validated (exists, same project,
+  `kind=requirement`) → `IntakeRepository.add_artifact` (title=`proposed_text`, body=None,
+  data=`{extraction_proposal_id}`, classification, ref=`PREFIX-EXT-<proposal8hex>`, source=`document:<id>`
+  + locator=`evidence_quote`) → append-only `extraction_promotions` link → audit (safe metadata only).
+  `request_promotion_approval`: idempotent, **requires the proposal already approved** (two-gate model),
+  safe-metadata payload. `extraction_promotions` is tenant-owned, append-only, RLS ENABLE+FORCE, with
+  composite FKs pinning proposal + artifact to the same tenant/project; `extraction_proposals` gains a
+  composite `UNIQUE(id, project_id, tenant_id)` (FK target). **Skeleton: promotion only — no LLM, no HTTP
+  endpoint, no proposal mutation.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -345,7 +365,11 @@ the admin `app` role only.
   + `extraction_proposals` [SELECT/INSERT/UPDATE, no DELETE; `extraction_proposals_guard` trigger =
   accepted-doc on insert + content immutability + one-way `pending→approved|rejected` + distinct-reviewer
   & `reviewed_at` required & review metadata frozen once decided]; both ENABLE+FORCE RLS +
-  `tenant_isolation`; no change to existing tables).
+  `tenant_isolation`; no change to existing tables); `0018_extraction_promotions.py` (Slice 14b:
+  additive `extraction_proposals` `UNIQUE(id, project_id, tenant_id)` + **tenant-owned, append-only**
+  `extraction_promotions` [composite FKs → `extraction_proposals` and `intake_artifacts`;
+  `UNIQUE(tenant_id, extraction_proposal_id)` promote-once; ENABLE+FORCE RLS + `tenant_isolation`;
+  SELECT/INSERT only + UPDATE/DELETE/TRUNCATE block triggers]).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -370,10 +394,10 @@ the admin `app` role only.
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
-  `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py` (admin fixtures build/seed
-  `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback; auto-dispose of the `app.db`
-  engine).
-  **`make test` → 133 passing (Docker-free); `make test-db` → 196 passing (DB-backed: tenancy,
+  `test_extraction_promotion.py`, `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py`
+  (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
+  auto-dispose of the `app.db` engine).
+  **`make test` → 134 passing (Docker-free); `make test-db` → 213 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -386,7 +410,10 @@ the admin `app` role only.
   and the LLM extractor [FakeLLMClient only — no network; projected-cost preflight gating
   (no-budget/over/projected-over ⇒ no call), run-keyed cost idempotency, injection hard-refuse,
   hallucinated-evidence rejection, token/price fail-closed, DB review guard (distinct reviewer +
-  frozen-once-decided), RLS, append-only runs, accepted-doc pinning, audit safety]).
+  frozen-once-decided), RLS, append-only runs, accepted-doc pinning, audit safety], and proposal
+  promotion [eligibility + idempotency, promotion-time evidence re-verification, test_oracle/non-AC-parent
+  refusal, parent validation, §16.5 assumption gating incl. approval-engine, approval-request idempotency
+  + payload/audit safety, RLS, append-only]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -420,8 +447,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 133 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 196 passing
+make test                                  # Docker-free tests (no services) — 134 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 213 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
