@@ -20,6 +20,7 @@ from app.models.extraction_promotion import ExtractionPromotion
 from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_run import ExtractionRun
 from app.models.intake_artifact import IntakeArtifact
+from app.models.intake_category import IntakeCategory
 from app.models.intake_findings_report import IntakeFindingsReport
 from app.models.intake_provenance import IntakeProvenance
 from app.models.run_checkpoint import RunCheckpoint
@@ -58,6 +59,7 @@ __all__ = [
     "ExtractionProposal",
     "ExtractionPromotion",
     "IntakeArtifact",
+    "IntakeCategory",
     "IntakeFindingsReport",
     "IntakeProvenance",
     "ReadinessReportRecord",

@@ -14,15 +14,16 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-06-04)
+## Current status (2026-06-12)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
-intake spine), 12 (deterministic build-readiness auditor, R2-capped), and 13
-(deterministic gap & structural contradiction detector) and 14a (LLM-assisted extractor →
-inert, provenance-verified, human-review proposals — the first real LLM integration) merged;
-Slice 14b (promotion of approved proposals into the canonical spine) on branch
-`feat/control-plane-proposal-promotion`, pending review/merge.
-No `v0.2.0` tag yet (awaits a user-visible Phase‑2 milestone).**
+intake spine), 12 (deterministic build-readiness auditor, R2-capped), 13 (deterministic
+gap & structural contradiction detector), 14a (LLM-assisted extractor → inert,
+provenance-verified, human-review proposals — the first real LLM integration), and 14b
+(promotion of approved proposals into the canonical spine) merged; **tagged `v0.2.0`** —
+the Phase 2 documentation-compiler milestone, at the Slice‑14b commit. Slice 15 (intake
+category modeling — the R3–R5 readiness *foundation*, **inputs only**) on branch
+`feat/intake-category-modeling`, pending review/merge.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -51,10 +52,13 @@ proposals requiring human review (budget-gated, injection-hard-refused, no
 auto-promotion) (Phase 2, Slice 14a)**, **and deterministic promotion of human-approved
 proposals into canonical spine artifacts via `add_artifact` — promotion-time evidence
 re-verification + §16.5 assumption gating + idempotent append-only link (Phase 2,
-Slice 14b)**.
+Slice 14b)**, **and a declarable intake-category model — the §4.2 categories the readiness
+auditor doesn't yet assess, recorded as provenance-backed, secret-safe declarations (R3–R5
+readiness *foundation*, inputs only; the auditor still caps at R2) (Phase 2, Slice 15)**.
 The rest of the engine described in the spec
-(**semantic** contradiction analysis, R3–R5 readiness from un-modeled intake categories,
-agent factory, maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
+(**semantic** contradiction analysis, **R3–R5 readiness rules** that consume the Slice‑15
+categories + the gated autonomy/approval/cost/production-authority engines, agent factory,
+maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
 spec capability exists unless it is listed under "What exists" below.
 
 Slice plan/status live in `.planning/PHASE-1-PLAN.md`. **Tenant isolation now holds
@@ -312,6 +316,24 @@ the admin `app` role only.
   composite FKs pinning proposal + artifact to the same tenant/project; `extraction_proposals` gains a
   composite `UNIQUE(id, project_id, tenant_id)` (FK target). **Skeleton: promotion only — no LLM, no HTTP
   endpoint, no proposal mutation.**
+- `app/intake/categories.py` + `app/models/intake_category.py` + `app/repositories/intake_categories.py`
+  — declarable intake-category model (Phase 2, Slice 15, §4.2/§4.3/Appendix A). `categories.py` (pure):
+  partitions the **authoritative §4.2 26-file universe** (+ Appendix‑A `production_authority`) into three
+  disjoint sets — `SPINE_CATEGORIES` (3, already `intake_artifacts` kinds), `GATED_ENGINE_CATEGORIES`
+  (4: `autonomy_policy`/`human_approval_policy`/`cost_and_resource_policy`/`production_authority` —
+  evaluated later from Slices 3/4/7 + the policy matrix, **not** declarable and **not** verified-complete),
+  `DECLARABLE_INTAKE_CATEGORIES` (20). File 14 `architecture_and_technology_constraints` = architecture +
+  stack. Validators: declarable-only category; non-secret `data` (secrets = reference-only
+  `{manager, reference_name}`, inline values rejected); **source XOR** (document+locator+no-origin vs
+  origin-only), fail-closed. `IntakeCategoryRepository` (`declare`/`revise`/`list_categories`/`get_category`)
+  pre-checks document sources (accepted, same project) and audits **safe metadata only**
+  (`has_source_document`/`has_origin` booleans — never the UUID/locator/summary/data/secret). `IntakeCategory`
+  (table `intake_categories`): tenant-owned, RLS ENABLE+FORCE; one declaration per `(tenant, project,
+  category)`; source-XOR + bounds CHECKs; guard trigger (accepted-source-doc + immutable
+  `id`/`tenant_id`/`project_id`/`category`/`created_at`); **no DELETE/TRUNCATE**; `data` JSONB;
+  SELECT/INSERT/UPDATE grants. **Skeleton: inputs only — readiness auditor untouched (still R2-capped);
+  no R3/R4/R5 computation, no HTTP endpoint, no LLM, no secret values, no new spine kinds; gated categories
+  deferred to a later engine-reading readiness slice.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -366,7 +388,12 @@ the admin `app` role only.
   + `extraction_proposals` [SELECT/INSERT/UPDATE, no DELETE; `extraction_proposals_guard` trigger =
   accepted-doc on insert + content immutability + one-way `pending→approved|rejected` + distinct-reviewer
   & `reviewed_at` required & review metadata frozen once decided]; both ENABLE+FORCE RLS +
-  `tenant_isolation`; no change to existing tables); `0018_extraction_promotions.py` (Slice 14b:
+  `tenant_isolation`; no change to existing tables); `0019_intake_categories.py` (Slice 15:
+  **tenant-owned** `intake_categories` — one declaration per `(tenant, project, category)` over the 20
+  declarable §4.2 categories; source-XOR CHECK (document+locator XOR origin); composite FK to accepted
+  same-project `documents`; guard trigger [accepted-doc + immutable id/tenant/project/category/created_at];
+  no DELETE/TRUNCATE; ENABLE+FORCE RLS + `tenant_isolation`; SELECT/INSERT/UPDATE grants; no change to
+  existing tables); `0018_extraction_promotions.py` (Slice 14b:
   additive `extraction_proposals` `UNIQUE(id, project_id, tenant_id)` + **tenant-owned, append-only**
   `extraction_promotions` [composite FKs → `extraction_proposals` and `intake_artifacts`;
   `UNIQUE(tenant_id, extraction_proposal_id)` promote-once; ENABLE+FORCE RLS + `tenant_isolation`;
@@ -395,10 +422,11 @@ the admin `app` role only.
   `test_rls.py`, `test_audit.py`, `test_policy.py`, `test_approvals.py`, `test_tools.py`,
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
-  `test_extraction_promotion.py`, `test_api.py` (DB-backed `db` + Docker-free units) and `conftest.py`
+  `test_extraction_promotion.py`, `test_intake_categories.py`, `test_api.py`
+  (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 134 passing (Docker-free); `make test-db` → 213 passing (DB-backed: tenancy,
+  **`make test` → 141 passing (Docker-free); `make test-db` → 224 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -414,7 +442,9 @@ the admin `app` role only.
   frozen-once-decided), RLS, append-only runs, accepted-doc pinning, audit safety], and proposal
   promotion [eligibility + idempotency, promotion-time evidence re-verification, test_oracle/non-AC-parent
   refusal, parent validation, §16.5 assumption gating incl. approval-engine, approval-request idempotency
-  + payload/audit safety, RLS, append-only]).
+  + payload/audit safety, RLS, append-only], and intake category modeling [universe partition
+  3/20/4, declarable/secret/source-XOR validators, readiness anti-regression (R2 unchanged), accepted-doc
+  pinning, immutable keys, no-DELETE/TRUNCATE, RLS, catalog]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -448,8 +478,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 134 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 213 passing
+make test                                  # Docker-free tests (no services) — 141 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 224 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

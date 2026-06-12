@@ -333,6 +333,29 @@ spine artifact via `IntakeRepository.add_artifact`. Deterministic, idempotent, n
   proposal is never mutated; the link table is the record; audit is safe-metadata only. **Slice 14b is
   promotion only — no LLM, no HTTP endpoint, no proposal mutation.**
 
+## Intake category modeling (Phase 2, Slice 15 — §4.2 / §4.3 / Appendix A)
+`app/intake/categories.py` + `app/repositories/intake_categories.py` model the **missing canonical
+intake categories** as tenant-owned, provenance-backed **declarations** — the **inputs** a *later*
+slice will turn into R3–R5 readiness. **This slice adds inputs only; the readiness auditor is
+untouched and stays R2-capped** (a test asserts `evaluate_readiness` still caps at R2 and
+`NOT_ASSESSED_CATEGORIES` is unchanged).
+- **Authoritative universe** = the §4.2 26-file intake package (+ the Appendix‑A "production authority"
+  condition), partitioned into three disjoint sets: **SPINE** (3 — already `intake_artifacts` kinds),
+  **GATED_ENGINE** (4 — `autonomy_policy`/`human_approval_policy`/`cost_and_resource_policy`/
+  `production_authority`, evaluated **later** from the Slice‑3/4/7 engines and the policy matrix; **not**
+  declarable here and **not** treated as verified-complete), and **DECLARABLE** (20). §4.2 file 14
+  `architecture_and_technology_constraints` is the single architecture+stack category.
+- **`intake_categories`** (tenant-owned): one declaration per `(tenant, project, category)`; **exactly
+  one source** — a document (accepted, same project, + `locator`) **XOR** a bounded `origin` label
+  (CHECK + validator, fail-closed); `data` JSONB holds **non-secret** structured metadata only — the
+  `secrets_and_credentials_manifest` category accepts **reference metadata only** (`{manager,
+  reference_name}`), never secret values. RLS ENABLE+FORCE + `tenant_isolation`; a guard trigger keeps
+  `id`/`tenant_id`/`project_id`/`category`/`created_at` immutable; **no DELETE/TRUNCATE**; grants
+  `{SELECT, INSERT, UPDATE}`. Audit carries **safe metadata only** (`has_source_document`/`has_origin`
+  booleans — never the document UUID, locator, summary, data, or secret references). **Slice 15 makes
+  no R3/R4/R5 claim, adds no HTTP endpoint, uses no LLM, stores no secret values, and adds no new spine
+  kinds; the gated categories remain deferred to a later engine-reading readiness slice.**
+
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
 decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the **single place** an
