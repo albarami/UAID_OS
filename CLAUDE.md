@@ -1,5 +1,6 @@
 # CLAUDE.md — UAID OS
-
+## How to work
+- Engage project-orientation and task-standards first, every substantial task. One step at a time. No invented facts.
 Read this first in any session. Re-read after a context reset or compaction.
 
 ## What this project is
