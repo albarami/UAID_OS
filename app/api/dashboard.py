@@ -1,12 +1,18 @@
-"""Read-only dashboard endpoints (Slice 10, §18.6). API-only JSON.
+"""Read-only dashboard endpoints (Slice 10 + Slice 17, §18.6). API-only JSON.
 
 Every endpoint requires a bearer API key (``require_tenant``), then opens
 ``tenant_scope`` so all reads pass through RLS. A ``project_id`` outside the caller's
 tenant yields no rows (never another tenant's data). GET-only — no mutations.
 
 Covers the implemented §18.6 subset: run state, open approvals, blockers, cost
-consumed + stop decision. Forecast / critical path / readiness / evidence-pack /
-high-risk findings / deployment / next action are deferred (subsystems not built).
+consumed + stop decision, and (Slice 17) the latest persisted build-readiness (§4.5)
+and gap/contradiction findings snapshots. Forecast / critical path / evidence-pack /
+deployment / next action are deferred (subsystems not built).
+
+The readiness/findings endpoints return the **latest persisted snapshot** via
+``repo.latest`` (a read-only, tenant+project-scoped SELECT) — they never compute or
+persist on a GET. No snapshot, a cross-tenant ``project_id``, and a nonexistent
+project are all indistinguishable: ``200`` with a ``null`` body (no existence oracle).
 """
 
 import uuid
@@ -18,6 +24,8 @@ from app.repositories.approvals import ApprovalRepository
 from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.repositories.cost import evaluate as cost_evaluate
 from app.repositories.documents import DocumentRepository
+from app.repositories.findings import FindingsRepository
+from app.repositories.readiness import ReadinessRepository
 from app.repositories.runs import RunRepository
 from app.tenancy import TenantContext, tenant_scope
 
@@ -40,6 +48,29 @@ def _approval_dict(appr) -> dict:
         "subject_ref": appr.subject_ref,
         "risk_tier": appr.risk_tier,
         "requested_at": appr.requested_at.isoformat(),
+    }
+
+
+def _readiness_dict(rec) -> dict:
+    # ``evaluated_by`` (untrusted internal label) is intentionally omitted (D-17-1).
+    return {
+        "report_id": str(rec.id),
+        "evaluated_at": rec.created_at.isoformat(),
+        "readiness_level": rec.readiness_level,
+        "can_build_to_staging": rec.can_build_to_staging,
+        "can_go_live_autonomously": rec.can_go_live_autonomously,
+        "report": rec.report,  # full §4.5 doc + extensions, already JSON-safe from JSONB
+    }
+
+
+def _findings_dict(rec) -> dict:
+    # ``evaluated_by`` (untrusted internal label) is intentionally omitted (D-17-1).
+    return {
+        "report_id": str(rec.id),
+        "evaluated_at": rec.created_at.isoformat(),
+        "gap_count": rec.gap_count,
+        "contradiction_count": rec.contradiction_count,
+        "report": rec.report,  # gaps/contradictions (refs only) + counts, JSON-safe
     }
 
 
@@ -103,3 +134,21 @@ async def project_cost(
                 "reason": decision.reason.value if decision.reason else None,
             },
         }
+
+
+@router.get("/projects/{project_id}/readiness")
+async def project_readiness(
+    project_id: uuid.UUID, context: TenantContext = Depends(require_tenant)
+) -> dict:
+    async with tenant_scope(context) as session:
+        rec = await ReadinessRepository(session, context).latest(project_id)
+        return {"readiness": _readiness_dict(rec) if rec is not None else None}
+
+
+@router.get("/projects/{project_id}/findings")
+async def project_findings(
+    project_id: uuid.UUID, context: TenantContext = Depends(require_tenant)
+) -> dict:
+    async with tenant_scope(context) as session:
+        rec = await FindingsRepository(session, context).latest(project_id)
+        return {"findings": _findings_dict(rec) if rec is not None else None}
