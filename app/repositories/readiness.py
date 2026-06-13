@@ -1,11 +1,11 @@
-"""Tenant-scoped readiness auditor repository (Slice 12, §4.5).
+"""Tenant-scoped readiness auditor repository (Slice 12 base + Slice 16 R3 rules, §4.3/§4.5).
 
-``evaluate`` reads the canonical intake spine for a project, consults the autonomy
-policy for the (transparency-only) ``deploy_production`` decision, and runs the pure
-``app.intake.readiness`` engine — no write. ``evaluate_and_record`` additionally
-persists an immutable snapshot and audits with **safe metadata only** (no assumption
-titles, no tenant content, no report body). Run inside ``tenant_scope`` (GUC set).
-``actor`` is an untrusted caller label.
+``evaluate`` reads three inputs for a project — the canonical intake spine, the Slice-15
+declared intake categories (the R3 rule's inputs), and the (transparency-only)
+``deploy_production`` autonomy-policy decision — then runs the pure ``app.intake.readiness``
+engine (no write). ``evaluate_and_record`` additionally persists an immutable snapshot and
+audits with **safe metadata only** (no assumption titles, no tenant content, no report body).
+Run inside ``tenant_scope`` (GUC set). ``actor`` is an untrusted caller label.
 """
 
 import uuid
@@ -15,10 +15,17 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
-from app.intake.readiness import ArtifactView, ReadinessReport, evaluate_readiness
+from app.intake.readiness import (
+    ArtifactView,
+    CategoryDeclarationView,
+    ReadinessReport,
+    evaluate_readiness,
+)
 from app.models.readiness_report import ReadinessReportRecord
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.documents import DocumentRepository
 from app.repositories.intake import IntakeRepository
+from app.repositories.intake_categories import IntakeCategoryRepository
 from app.tenancy import TenantContext, TenantScopedRepository
 
 
@@ -27,7 +34,7 @@ class ReadinessRepository(TenantScopedRepository):
         super().__init__(session, context, ReadinessReportRecord)
 
     async def evaluate(self, project_id: uuid.UUID) -> ReadinessReport:
-        """Pure read: compute the §4.5 report from the spine. Does not persist."""
+        """Pure read: compute the §4.5 report from the spine + declared categories. No persist."""
         artifacts = await IntakeRepository(self.session, self.context).list_artifacts(project_id)
         views = [
             ArtifactView(
@@ -45,9 +52,32 @@ class ReadinessRepository(TenantScopedRepository):
         decision = await AutonomyPolicyRepository(self.session, self.context).decision_for(
             project_id, "deploy_production"
         )
+        declarations = await self._category_declarations(project_id)
         return evaluate_readiness(
-            project_id, views, production_authority_decision=decision.value
+            project_id,
+            views,
+            production_authority_decision=decision.value,
+            declarations=declarations,
         )
+
+    async def _category_declarations(
+        self, project_id: uuid.UUID
+    ) -> tuple[CategoryDeclarationView, ...]:
+        """Slice-15 declarations for the R3 rule. D-6: a doc-backed declaration counts only if
+        its source document is still ``accepted`` and belongs to this project — a later-quarantined
+        or deleted source is dropped (fail-closed). The same-project clause is defense-in-depth:
+        the ``intake_categories`` composite FK already pins each doc-backed row to a same-project
+        document, so a cross-project source is rejected at declaration time, not here."""
+        rows = await IntakeCategoryRepository(self.session, self.context).list_categories(project_id)
+        docs = DocumentRepository(self.session, self.context)
+        views: list[CategoryDeclarationView] = []
+        for row in rows:
+            if row.source_document_id is not None:
+                doc = await docs.get(row.source_document_id)
+                if doc is None or doc.status != "accepted" or doc.project_id != project_id:
+                    continue  # missing/quarantined/cross-project source ⇒ exclude
+            views.append(CategoryDeclarationView(category=row.category, status=row.status))
+        return tuple(views)
 
     async def evaluate_and_record(
         self, *, project_id: uuid.UUID, actor: str

@@ -1,11 +1,13 @@
 """Slice 15 — intake category modeling (R3–R5 readiness foundation) tests.
 
 Docker-free: the three constants partition the §4.2 universe; declarable/secret/source
-validators; provenance XOR fail-closed; and a readiness ANTI-REGRESSION proving the
-auditor is untouched (still R2-capped, facets false, NOT_ASSESSED_CATEGORIES unchanged).
+validators; provenance XOR fail-closed; and a readiness INTERACTION check — Slice 16 now
+consumes these declared categories, so spine coverage WITHOUT any declared category still
+stays R2, the cap is now R3, and the R3-consumed categories drop out of
+NOT_ASSESSED_CATEGORIES (the Slice-15 R2/22-tuple anti-regression guards are superseded).
 DB-backed (`db`): declare (doc/origin-backed) + audit safety (no summary/data/locator),
 accepted-doc pinning, uniqueness, revise + immutability guard, no-DELETE, RLS, catalog.
-This slice models INPUTS ONLY — it computes no R3/R4/R5 and stores no secret values.
+This slice models INPUTS ONLY — it stores no secret values; Slice 16 reads them.
 """
 
 import uuid
@@ -115,10 +117,15 @@ def test_non_secret_data_rejects_obvious_secret_keys():
     )
 
 
-# --- Docker-free: readiness ANTI-REGRESSION (auditor untouched) ---------------
+# --- Docker-free: readiness interaction (Slice 16 supersedes the Slice-15 R2 guards) ---
+# Slice 15 pinned the auditor at R2 / a 22-tuple to prove it didn't touch readiness.
+# Slice 16 deliberately lifts the cap to R3 (consuming these declared categories), so
+# those guards are replaced here with the Slice-16 contract: spine coverage WITHOUT any
+# declared categories still stays R2, but the cap is now R3 and the R3-consumed categories
+# are no longer in NOT_ASSESSED_CATEGORIES.
 
 
-def test_readiness_still_capped_at_r2_and_facets_false():
+def test_readiness_without_declared_categories_stays_r2_cap_now_r3():
     req = ArtifactView(id=uuid.uuid4(), kind="requirement", ref="REQ-1", title="r")
     ac = ArtifactView(
         id=uuid.uuid4(), kind="acceptance_criterion", ref="AC-1", title="a", parent_id=req.id
@@ -127,37 +134,23 @@ def test_readiness_still_capped_at_r2_and_facets_false():
         id=uuid.uuid4(), kind="test_oracle", ref="OR-1", title="o", parent_id=ac.id
     )
     rep = evaluate_readiness("p", [req, ac, oracle], production_authority_decision="needs_approval")
-    assert rep.readiness_level == "R2"
+    assert rep.readiness_level == "R2"  # no declared categories -> R2 base only
+    assert rep.readiness_cap == "R3"  # Slice 16: cap is now R3
     assert rep.can_build_to_staging is False
     assert rep.can_go_live_autonomously is False
 
 
-def test_not_assessed_categories_output_unchanged():
-    # Golden tuple — proves readiness.py NOT_ASSESSED_CATEGORIES is untouched by Slice 15.
-    assert NOT_ASSESSED_CATEGORIES == (
-        "product_purpose",
-        "scope_and_out_of_scope",
-        "users_and_roles",
-        "permission_matrix",
-        "core_workflows",
-        "non_functional_requirements",
-        "domain_pack",
+def test_r3_consumed_categories_no_longer_not_assessed():
+    # The categories Slice 16 now consumes (R3 trio + environments) must NOT appear in the
+    # not-assessed list; the derived list is 20 items (27 universe - 3 spine - 4 consumed).
+    assert len(NOT_ASSESSED_CATEGORIES) == 20
+    for consumed in (
+        "architecture_and_technology_constraints",
         "data_model_and_contracts",
-        "required_integrations",
-        "environments",
-        "secrets",
-        "tool_access",
-        "autonomy_policy_approved",
-        "human_approval_policy_approved",
-        "cost_policy_approved",
-        "security_privacy_requirements",
-        "go_live_checklist",
-        "rollback_criteria",
-        "monitoring_expectations",
-        "risk_register",
-        "prior_decisions_and_architecture_log",
-        "production_authority",
-    )
+        "user_journeys_and_workflows",
+        "environments_and_deployment_targets",
+    ):
+        assert consumed not in NOT_ASSESSED_CATEGORIES
 
 
 # --- DB-backed fixtures -------------------------------------------------------
