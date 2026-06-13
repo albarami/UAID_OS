@@ -24,7 +24,7 @@ provenance-verified, human-review proposals — the first real LLM integration),
 intake-category model — the R3–R5 readiness *foundation*, inputs only) merged; **tagged `v0.2.0`** —
 the Phase 2 documentation-compiler milestone, at the Slice‑14b commit. Slice 16 (R3 readiness
 rules — the build-readiness auditor now consumes the Slice‑15 declared §4.3 technical categories
-and lifts the cap from R2 to **R3**) on branch `feat/r3-readiness-rules`, pending review/merge.**
+and lifts the cap from R2 to **R3**) **merged via PR #21 (commit `eaa9da1`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
