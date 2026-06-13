@@ -1,4 +1,4 @@
-"""Deterministic build-readiness auditor (Slice 12 base; Slice 16 R3 rules; §4.3/§4.4/§4.5).
+"""Deterministic build-readiness auditor (Slice 12 base; Slice 16 R3; Slice 18 R4; §4.3/§4.4/§4.5).
 
 Pure, no DB, no LLM. Reads a snapshot of canonical-intake artifacts plus the project's
 declared intake categories (Slice 15) and produces the §4.5 intake validation report.
@@ -9,17 +9,21 @@ Readiness ladder:
   R2: ≥1 valid requirement→acceptance chain (parent-kind validated).
 - **R3 (Slice 16): the R2 base PLUS the three §4.3 technical categories — architecture/stack
   (``architecture_and_technology_constraints``), data (``data_model_and_contracts``), and
-  workflows (``user_journeys_and_workflows``) — each DECLARED via Slice 15.** The auditor is
-  **capped at R3**: R4/R5 require the gated autonomy/approval/cost/production-authority
-  engines + secrets/tooling/go-live/test-coverage rules that are NOT yet evaluated.
-- The R3 rule checks the **presence of a provenance-backed declaration**, not content
+  workflows (``user_journeys_and_workflows``) — each DECLARED via Slice 15.**
+- **R4 (Slice 18): the R3 base PLUS the two §4.3 "tools" categories DECLARED
+  (``integrations_and_external_systems``, ``tool_access_manifest``) PLUS "tests available" =
+  zero spine gaps (every requirement has a valid acceptance criterion, every valid acceptance
+  criterion has a valid test oracle, no invalid parent chains).** Secrets are excluded (R5).
+  The auditor is **capped at R4**: R5 requires gated autonomy/approval/cost/production-authority
+  completeness + environments/secrets/authority/approvals/go-live gates, NOT yet evaluated.
+- The category rules check the **presence of a provenance-backed declaration**, not content
   quality — "declared", not "verified".
 
-``can_build_to_staging`` is true only at R3 AND when ``environments_and_deployment_targets``
-is declared. ``can_go_live_autonomously`` is always false (capped below R5; gated categories
-unevaluated). Parent-kind validation does NOT trust the DB FK alone: an acceptance_criterion
-satisfies a requirement only if its parent IS a requirement; a test_oracle satisfies an
-acceptance criterion only if its parent IS that acceptance criterion.
+``can_build_to_staging`` is true at R3 **or R4** AND when ``environments_and_deployment_targets``
+is declared (monotonic, D-R4-3). ``can_go_live_autonomously`` is always false (capped below R5;
+gated categories unevaluated). Parent-kind validation does NOT trust the DB FK alone: an
+acceptance_criterion satisfies a requirement only if its parent IS a requirement; a test_oracle
+satisfies an acceptance criterion only if its parent IS that acceptance criterion.
 """
 
 from __future__ import annotations
@@ -29,21 +33,25 @@ from dataclasses import dataclass, field
 
 from app.intake.categories import CANONICAL_READINESS_CATEGORY_UNIVERSE, SPINE_CATEGORIES
 
-RULESET_VERSION = "slice16.v1"
+RULESET_VERSION = "slice18.v1"
 
-READINESS_CAP = "R3"
+READINESS_CAP = "R4"
 READINESS_CAP_REASON = (
-    "slice_16_rules_consume_declared_r3_categories_only; "
-    "r4_r5_require_gated_engine_evaluation_secrets_tooling_go_live_and_test_coverage_rules"
+    "slice_18_rules_consume_the_spine_ladder_the_R3_technical_trio_and_the_R4_tools_categories; "
+    "R5_requires_gated_engine_completeness_secrets_environments_authority_approvals_"
+    "and_go_live_gates_which_are_not_implemented"
 )
 NO_GO_LIVE_REASONS = (
     "readiness_capped_below_R5",
     "gated_engine_categories_not_evaluated:"
     "autonomy_policy,human_approval_policy,cost_and_resource_policy,production_authority",
 )
-# can_build_to_staging reasons (exact, stable strings).
+# can_build_to_staging reasons (exact, stable strings). The staging-true reason is shared
+# by R3+env and R4+env (D-R4-3 monotonic). R3-without-env keeps its original reason; R4
+# adds its own (the R3 string would be inaccurate at R4).
 STAGING_TRUE_REASON = "r3_with_environments_and_deployment_targets_declared"
 STAGING_R3_NO_ENV_REASON = "r3_but_environments_and_deployment_targets_not_declared"
+STAGING_R4_NO_ENV_REASON = "r4_but_environments_and_deployment_targets_not_declared"
 STAGING_BELOW_R3_REASON = "readiness_below_R3"
 
 # §4.3 R3 technical categories (in canonical §4.2 file order: 05, 11, 14).
@@ -51,6 +59,12 @@ R3_TECHNICAL_CATEGORIES = (
     "user_journeys_and_workflows",
     "data_model_and_contracts",
     "architecture_and_technology_constraints",
+)
+# §4.3 R4 "tools available" categories (canonical §4.2 file order: 12, 18). Secrets (17) are
+# intentionally excluded — they are an R5 concern (D-R4-2).
+R4_TOOL_CATEGORIES = (
+    "integrations_and_external_systems",
+    "tool_access_manifest",
 )
 STAGING_ENVIRONMENT_CATEGORY = "environments_and_deployment_targets"
 
@@ -86,13 +100,15 @@ _CANONICAL_FILE_ORDER = (
     "prior_decisions_and_architecture_log",      # 25
     "production_authority",                      # Appendix A condition
 )
-# Categories now consumed by a rule: spine (ladder) + R3 trio + the staging environment gate.
+# Categories now consumed by a rule: spine (ladder) + R3 trio + the staging environment gate
+# + the R4 tools categories.
 _CONSUMED_CATEGORIES = (
     frozenset(SPINE_CATEGORIES)
     | set(R3_TECHNICAL_CATEGORIES)
     | {STAGING_ENVIRONMENT_CATEGORY}
+    | set(R4_TOOL_CATEGORIES)
 )
-# Deterministic: §4.2 file order minus everything a rule consumes (20 items).
+# Deterministic: §4.2 file order minus everything a rule consumes (18 items).
 NOT_ASSESSED_CATEGORIES = tuple(
     c for c in _CANONICAL_FILE_ORDER if c not in _CONSUMED_CATEGORIES
 )
@@ -132,6 +148,9 @@ class ReadinessReport:
     safe_assumptions: list[dict] = field(default_factory=list)
     blocked_assumptions: list[dict] = field(default_factory=list)
     missing_r3_categories: list[str] = field(default_factory=list)
+    missing_r4_categories: list[str] = field(default_factory=list)
+    # Structured spine_gaps dicts (kind/ref/summary) that block R4; empty ⇒ test coverage complete.
+    missing_r4_test_coverage: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -140,8 +159,11 @@ class ReadinessReport:
             "readiness_level": self.readiness_level,
             "can_build_to_staging": self.can_build_to_staging,
             "can_go_live_autonomously": self.can_go_live_autonomously,
+            # spine-gap summaries already cover R4 test-coverage blockers (no duplicate
+            # r4_test_coverage_gap entries — structured detail lives in missing_r4_test_coverage).
             "missing_for_go_live": [g["summary"] for g in self.spine_gaps]
             + [f"r3_category_not_declared:{c}" for c in self.missing_r3_categories]
+            + [f"r4_category_not_declared:{c}" for c in self.missing_r4_categories]
             + list(NOT_ASSESSED_CATEGORIES),
             "safe_assumptions": self.safe_assumptions,
             "blocked_assumptions": self.blocked_assumptions,
@@ -153,6 +175,8 @@ class ReadinessReport:
             "not_assessed_categories": list(NOT_ASSESSED_CATEGORIES),
             "spine_gaps": self.spine_gaps,
             "missing_r3_categories": self.missing_r3_categories,
+            "missing_r4_categories": self.missing_r4_categories,
+            "missing_r4_test_coverage": self.missing_r4_test_coverage,
             "production_authority_decision": self.production_authority_decision,
             "ruleset_version": RULESET_VERSION,
         }
@@ -233,10 +257,21 @@ def evaluate_readiness(
     if level == "R2" and not missing_r3:
         level = "R3"
 
-    # Staging facet (D-3b): R3 AND environments declared.
-    if level == "R3" and STAGING_ENVIRONMENT_CATEGORY in declared:
+    # Slice 18 — R4: R3 base + the R4 tools categories DECLARED + zero spine gaps
+    # ("tests available" = complete requirement→AC→oracle coverage). Fail-closed.
+    missing_r4 = [c for c in R4_TOOL_CATEGORIES if c not in declared]
+    # spine_gaps (computed above) is the exhaustive test-coverage signal; any gap blocks R4.
+    missing_r4_test_coverage = list(spine_gaps)
+    if level == "R3" and not missing_r4 and not missing_r4_test_coverage:
+        level = "R4"
+
+    # Staging facet (D-3b, extended to R4 — D-R4-3 monotonic): R3/R4 AND environments declared.
+    if level in ("R3", "R4") and STAGING_ENVIRONMENT_CATEGORY in declared:
         can_build_to_staging = True
         staging_reason = STAGING_TRUE_REASON
+    elif level == "R4":
+        can_build_to_staging = False
+        staging_reason = STAGING_R4_NO_ENV_REASON
     elif level == "R3":
         can_build_to_staging = False
         staging_reason = STAGING_R3_NO_ENV_REASON
@@ -267,6 +302,8 @@ def evaluate_readiness(
         safe_assumptions=safe_assumptions,
         blocked_assumptions=blocked_assumptions,
         missing_r3_categories=missing_r3,
+        missing_r4_categories=missing_r4,
+        missing_r4_test_coverage=missing_r4_test_coverage,
     )
 
 

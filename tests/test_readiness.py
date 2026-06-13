@@ -1,15 +1,18 @@
-"""Deterministic build-readiness auditor (Slice 12 base; Slice 16 R3 rules) tests
-(§4.3/§4.4/§4.5).
+"""Deterministic build-readiness auditor (Slice 12 base; Slice 16 R3 rules; Slice 18 R4 rules)
+tests (§4.3/§4.4/§4.5).
 
 Docker-free: the R0/R1/R2 spine ladder, the **R3 rule** (R2 base + the three declared
-§4.3 technical categories, capped at R3), parent-kind validation (orphan/wrong-kind
-links never satisfy coverage), the staging facet (`R3 AND environments_and_deployment_targets`
-declared) and always-false go-live with recorded reasons, §4.4 assumption bucketing,
-and the report keys (`missing_r3_categories`, `r3_category_not_declared:<category>`).
+§4.3 technical categories), the **R4 rule** (R3 base + the two declared §4.3 "tools" categories
+[`integrations_and_external_systems`, `tool_access_manifest`] + zero spine gaps), **capped at R4**,
+parent-kind validation (orphan/wrong-kind links never satisfy coverage), the monotonic staging
+facet (`R3 or R4 AND environments_and_deployment_targets` declared, with an R4-specific no-env
+reason) and always-false go-live with recorded reasons, §4.4 assumption bucketing, and the report
+keys (`missing_r3_categories`, `missing_r4_categories`, `missing_r4_test_coverage`,
+`r3_category_not_declared:<category>`, `r4_category_not_declared:<category>`).
 DB-backed (`db`): evaluate_and_record persistence + audit safety, latest/history,
-the D-6 stale-source exclusion (a quarantined source document drops R3→R2; same-project
-pinning is enforced upstream by the intake-category repo + composite DB FK — see
-test_intake_categories.py), RLS deny-by-default + cross-tenant, append-only enforcement,
+the D-6 stale-source exclusion (a quarantined source document drops R3→R2, and for the R4 tool
+categories R4→R3; same-project pinning is enforced upstream by the intake-category repo + composite
+DB FK — see test_intake_categories.py), RLS deny-by-default + cross-tenant, append-only enforcement,
 grants/catalog.
 """
 
@@ -81,13 +84,13 @@ def test_r2_with_one_valid_chain():
 
 
 def test_full_coverage_without_categories_returns_r2():
-    # Spine coverage alone (no declared R3 categories) stays R2; the cap is now R3.
+    # Spine coverage alone (no declared categories) stays R2; the cap is now R4.
     req = _av("requirement", "REQ-1")
     ac = _av("acceptance_criterion", "AC-1", parent=req)
     oracle = _av("test_oracle", "OR-1", parent=ac)
     rep = evaluate_readiness("p", [req, ac, oracle], production_authority_decision="needs_approval")
     assert rep.readiness_level == "R2"
-    assert rep.readiness_cap == "R3"
+    assert rep.readiness_cap == "R4"
     assert rep.to_dict()["readiness_cap_reason"]
 
 
@@ -182,12 +185,14 @@ def test_report_has_all_required_keys():
         "not_assessed_categories",
         "spine_gaps",
         "missing_r3_categories",
+        "missing_r4_categories",
+        "missing_r4_test_coverage",
         "production_authority_decision",
         "ruleset_version",
     ):
         assert key in d, key
     assert d["ruleset_version"] == RULESET_VERSION
-    assert RULESET_VERSION == "slice16.v1"
+    assert RULESET_VERSION == "slice18.v1"
 
 
 # --- Docker-free: Slice 16 R3 rules -------------------------------------------
@@ -230,15 +235,28 @@ def test_below_r2_base_never_reaches_r3_even_if_categories_declared():
     assert rep.readiness_level == "R1"
 
 
-def test_all_declarable_categories_still_caps_at_r3_never_higher():
+def test_all_declarable_categories_with_full_chain_reaches_r4_never_r5():
     from app.intake.categories import DECLARABLE_INTAKE_CATEGORIES
 
+    # full spine chain (no gaps) + every declarable category ⇒ R4, capped (never R5).
+    decls = tuple(_decl(c) for c in DECLARABLE_INTAKE_CATEGORIES)
+    rep = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="allow", declarations=decls
+    )
+    assert rep.readiness_level == "R4"  # capped at R4, never R5
+    assert rep.can_go_live_autonomously is False
+
+
+def test_all_declarable_categories_but_spine_gap_stays_r3():
+    from app.intake.categories import DECLARABLE_INTAKE_CATEGORIES
+
+    # every category declared, but the spine has a gap (AC without oracle) ⇒ R4 blocked.
     decls = tuple(_decl(c) for c in DECLARABLE_INTAKE_CATEGORIES)
     rep = evaluate_readiness(
         "p", _r2_chain(), production_authority_decision="allow", declarations=decls
     )
-    assert rep.readiness_level == "R3"  # never R4/R5
-    assert rep.can_go_live_autonomously is False
+    assert rep.readiness_level == "R3"
+    assert rep.to_dict()["missing_r4_test_coverage"]  # the spine gap blocks R4
 
 
 def test_staging_false_at_r3_without_environments():
@@ -278,6 +296,7 @@ def test_r2_semantics_unchanged_without_declarations():
 
 
 def test_not_assessed_categories_golden_and_consistent():
+    # Slice 18 moved the two R4 tool categories (integrations, tool_access) into "consumed".
     assert NOT_ASSESSED_CATEGORIES == (
         "project_manifest",
         "product_brief",
@@ -286,11 +305,9 @@ def test_not_assessed_categories_golden_and_consistent():
         "users_roles_permissions",
         "non_functional_requirements",
         "domain_pack",
-        "integrations_and_external_systems",
         "existing_assets_and_repositories",
         "security_privacy_compliance",
         "secrets_and_credentials_manifest",
-        "tool_access_manifest",
         "autonomy_policy",
         "human_approval_policy",
         "cost_and_resource_policy",
@@ -311,8 +328,117 @@ def test_not_assessed_categories_golden_and_consistent():
         "data_model_and_contracts",
         "architecture_and_technology_constraints",
         "environments_and_deployment_targets",
+        "integrations_and_external_systems",
+        "tool_access_manifest",
     }
     assert set(NOT_ASSESSED_CATEGORIES) == set(CANONICAL_READINESS_CATEGORY_UNIVERSE) - consumed
+
+
+# --- Docker-free: Slice 18 R4 rules -------------------------------------------
+
+# Canonical §4.2 file order (12 before 18) — string literals so a missing constant
+# can't turn these into collection errors; they fail on the assertion instead.
+_R4_TOOLS = ("integrations_and_external_systems", "tool_access_manifest")
+
+
+def _full_chain():
+    """A complete requirement -> acceptance_criterion -> test_oracle chain (no spine gaps)."""
+    req = _av("requirement", "REQ-1")
+    ac = _av("acceptance_criterion", "AC-1", parent=req)
+    oracle = _av("test_oracle", "OR-1", parent=ac)
+    return [req, ac, oracle]
+
+
+def _r4_decls(*, extra=()):
+    """R3 trio + the two R4 tool categories (+ any extras), all declared."""
+    cats = tuple(R3_TECHNICAL_CATEGORIES) + _R4_TOOLS + tuple(extra)
+    return tuple(_decl(c) for c in cats)
+
+
+def test_r4_when_r3_plus_tools_and_full_coverage():
+    rep = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="needs_approval", declarations=_r4_decls()
+    )
+    assert rep.readiness_level == "R4"
+    d = rep.to_dict()
+    assert d["missing_r4_categories"] == []
+    assert d["missing_r4_test_coverage"] == []
+
+
+def test_r4_blocked_by_missing_tool_category():
+    # R3 trio + only integrations declared (tool_access_manifest missing) + full coverage.
+    decls = tuple(_decl(c) for c in R3_TECHNICAL_CATEGORIES) + (
+        _decl("integrations_and_external_systems"),
+    )
+    rep = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="deny", declarations=decls
+    )
+    assert rep.readiness_level == "R3"
+    assert rep.to_dict()["missing_r4_categories"] == ["tool_access_manifest"]
+
+
+def test_r4_blocked_by_spine_gap():
+    # R3 trio + both tools declared, but the AC has no oracle ⇒ spine gap blocks R4.
+    rep = evaluate_readiness(
+        "p", _r2_chain(), production_authority_decision="deny", declarations=_r4_decls()
+    )
+    assert rep.readiness_level == "R3"
+    assert rep.to_dict()["missing_r4_categories"] == []  # tools fine; only coverage blocks
+    cov = rep.to_dict()["missing_r4_test_coverage"]
+    assert cov  # non-empty
+    # structured spine_gaps dicts preserving kind/ref/summary
+    g = cov[0]
+    assert set(g) >= {"kind", "ref", "summary"}
+    assert g["kind"] == "acceptance_criterion_without_test_oracle" and g["ref"] == "AC-1"
+
+
+def test_r4_staging_monotonic():
+    # (a) regression: R3 + env stays staging-true.
+    r3_env = tuple(_decl(c) for c in R3_TECHNICAL_CATEGORIES) + (
+        _decl("environments_and_deployment_targets"),
+    )
+    rep_r3 = evaluate_readiness(
+        "p", _r2_chain(), production_authority_decision="deny", declarations=r3_env
+    )
+    assert rep_r3.readiness_level == "R3" and rep_r3.can_build_to_staging is True
+    # (b) R4 + env ⇒ staging-true.
+    rep_r4 = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="deny",
+        declarations=_r4_decls(extra=("environments_and_deployment_targets",)),
+    )
+    assert rep_r4.readiness_level == "R4" and rep_r4.can_build_to_staging is True
+    # (c) R4 without env ⇒ staging-false with the R4-specific reason.
+    rep_r4_no_env = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="deny", declarations=_r4_decls()
+    )
+    assert rep_r4_no_env.readiness_level == "R4" and rep_r4_no_env.can_build_to_staging is False
+    assert (
+        rep_r4_no_env.to_dict()["can_build_to_staging_reason"]
+        == "r4_but_environments_and_deployment_targets_not_declared"
+    )
+
+
+def test_r4_go_live_always_false():
+    rep = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="allow", declarations=_r4_decls()
+    )
+    assert rep.readiness_level == "R4"
+    assert rep.can_go_live_autonomously is False
+
+
+def test_readiness_cap_is_r4():
+    rep = evaluate_readiness(
+        "p", _full_chain(), production_authority_decision="deny", declarations=_r4_decls()
+    )
+    assert rep.readiness_cap == "R4"
+    d = rep.to_dict()
+    assert d["ruleset_version"] == "slice18.v1"
+    assert "R5" in d["readiness_cap_reason"]
+
+
+def test_not_assessed_excludes_r4_tool_categories():
+    for cat in _R4_TOOLS:
+        assert cat not in NOT_ASSESSED_CATEGORIES
 
 
 # --- DB-backed fixtures -------------------------------------------------------
@@ -483,6 +609,43 @@ async def test_db_stale_doc_backed_declaration_excluded_after_quarantine(rd_ctx,
         report = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
         assert report.readiness_level == "R2"
         assert set(report.missing_r3_categories) == set(_R3_TRIO)
+
+
+# --- DB-backed: Slice 18 R4 end-to-end + D-6 for R4 inputs ---------------------
+
+
+@pytest.mark.db
+async def test_db_r4_persists_and_d6_excludes_stale_tool_declaration(rd_ctx, admin_engine):
+    t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
+    ctx = TenantContext(t1)
+    await _seed_full_chain(ctx, p1, d1)
+    # R3 trio backed by d1 (stays accepted); R4 tools backed by a second doc (doc_b)
+    # so quarantining doc_b isolates the R4-tool D-6 exclusion (R3 trio is unaffected).
+    async with admin_engine.begin() as c:
+        content = f"docB-{rd_ctx['sfx']}"
+        doc_b = await _scalar(
+            c,
+            "INSERT INTO documents (tenant_id, project_id, filename, content_type, source, "
+            "content, content_hash, size_bytes, status) "
+            "VALUES (:t,:p,'b.txt','text/plain','manual',:c,:h,:sz,'accepted') RETURNING id",
+            t=t1, p=p1, c=content,
+            h="sha256:" + __import__("hashlib").sha256(content.encode()).hexdigest(),
+            sz=len(content),
+        )
+    await _declare_r3_categories(ctx, p1, d1, categories=_R3_TRIO)
+    await _declare_r3_categories(ctx, p1, doc_b, categories=_R4_TOOLS)
+    async with tenant_scope(ctx) as session:
+        rep = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        assert rep.readiness_level == "R4"
+    # quarantine doc_b ⇒ R4 tool declarations drop (D-6, generic) ⇒ back to R3
+    async with admin_engine.begin() as c:
+        await c.execute(
+            text("UPDATE documents SET status='quarantined' WHERE id=:i"), {"i": str(doc_b)}
+        )
+    async with tenant_scope(ctx) as session:
+        rep = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        assert rep.readiness_level == "R3"
+        assert set(rep.to_dict()["missing_r4_categories"]) == set(_R4_TOOLS)
 
 
 # --- DB-backed: persistence + audit safety ------------------------------------
