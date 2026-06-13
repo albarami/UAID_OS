@@ -27,7 +27,11 @@ rules — the build-readiness auditor now consumes the Slice‑15 declared §4.3
 and lifts the cap from R2 to **R3**) **merged via PR #21 (commit `eaa9da1`).** **Slice 17 adds
 read-only `GET /api/projects/{id}/{readiness,findings}` — exposing the latest persisted readiness
 (Slices 12+16) and findings (Slice 13) snapshots over the Slice‑10 auth boundary; latest-only, no
-compute/persist on GET, no migration/LLM/R4-R5 — merged via PR #23 (commit `eb19b4c`).**
+compute/persist on GET, no migration/LLM/R4-R5 — merged via PR #23 (commit `eb19b4c`).** **Slice 18
+lifts the readiness auditor cap R3→R4: R4 = R3 base + the two §4.3 "tools" categories declared
+(`integrations_and_external_systems`, `tool_access_manifest`) + zero spine gaps (full
+requirement→AC→oracle coverage); secrets stay an R5 concern; go-live stays false; staging is
+monotonic; `ruleset_version="slice18.v1"`; no migration.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -47,8 +51,10 @@ deterministic, provenance-backed canonical intake spine — tenant-owned, append
 `intake_artifacts` + `intake_provenance` with DB-enforced Sanad source-count and
 accepted-document-only pinning (Phase 2, Slice 11)**, **and a deterministic,
 fail-closed build-readiness auditor over that spine — R0–R2 from the spine, **R3 when the
-three §4.3 technical categories are declared** (Slice 16), emitting the §4.5
-validation report as an immutable `readiness_reports` snapshot (Phase 2, Slices 12 + 16)**,
+three §4.3 technical categories are declared** (Slice 16), **R4 when the two §4.3 "tools"
+categories are declared and the spine has full requirement→AC→oracle coverage** (Slice 18),
+emitting the §4.5 validation report as an immutable `readiness_reports` snapshot
+(Phase 2, Slices 12 + 16 + 18)**,
 **and a deterministic gap & structural contradiction detector over the spine —
 descriptive findings (gaps + structural contradictions) as an immutable
 `intake_findings_reports` snapshot, no readiness claims (Phase 2, Slice 13)**, **and an
@@ -59,11 +65,12 @@ proposals into canonical spine artifacts via `add_artifact` — promotion-time e
 re-verification + §16.5 assumption gating + idempotent append-only link (Phase 2,
 Slice 14b)**, **and a declarable intake-category model — the §4.2 categories
 recorded as provenance-backed, secret-safe declarations (R3–R5 readiness *foundation*, inputs
-only) (Phase 2, Slice 15)**, **and the Slice 16 R3 readiness rules that consume those
-declarations (R2 → R3 on the declared §4.3 technical trio; staging = R3 AND environments
-declared) — capping the auditor at R3**.
+only) (Phase 2, Slice 15)**, **and the Slice 16 R3 + Slice 18 R4 readiness rules that consume those
+declarations (R2 → R3 on the declared §4.3 technical trio; R3 → R4 on the two declared §4.3
+"tools" categories + zero spine gaps; staging = R3-or-R4 AND environments declared) — capping
+the auditor at R4**.
 The rest of the engine described in the spec
-(**semantic** contradiction analysis, **R4–R5 readiness rules** + the gated
+(**semantic** contradiction analysis, **R5 readiness rules** + the gated
 autonomy/approval/cost/production-authority engines, agent factory,
 maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
 spec capability exists unless it is listed under "What exists" below.
@@ -252,23 +259,28 @@ the admin `app` role only.
   no build-readiness auditor (Slice 12), no gap/contradiction detector (Slice 13), no artifact
   generation, no API exposure.**
 - `app/intake/readiness.py` + `app/repositories/readiness.py` — deterministic build-readiness
-  auditor (Phase 2, Slice 12 base + **Slice 16 R3 rules**, §4.3/§4.4/§4.5). `readiness.py` (pure,
-  **no LLM**): `evaluate_readiness` reads a snapshot of spine artifacts **plus the Slice‑15 declared
-  intake categories** (`CategoryDeclarationView(category, status)`) and emits the §4.5 report,
-  **fail-closed and capped at R3**. Ladder: R0 = no requirements; R1 = no valid requirement→acceptance
-  chain; R2 = ≥1 valid chain; **R3 = R2 base PLUS the three §4.3 technical categories declared —
-  `architecture_and_technology_constraints`, `data_model_and_contracts`, `user_journeys_and_workflows`**
-  (presence of a provenance-backed declaration, not content quality). R4/R5 require the gated engines +
-  secrets/tooling/go-live/test-coverage rules and are **out of scope**. **Parent-kind validation does
-  not trust the DB FK alone** — an acceptance criterion counts only if its parent is a `requirement`,
-  an oracle only if its parent is that `acceptance_criterion`; orphan/wrong-kind links become
-  `spine_gaps` and never raise the level. **`can_build_to_staging` is true only at R3 AND when
-  `environments_and_deployment_targets` is declared** (D‑3b); **`can_go_live_autonomously` is always
-  false** (capped < R5; gated categories unevaluated) — both with exact recorded reasons. The `report`
-  carries the §4.5 keys + deterministic extensions (`readiness_cap`, `readiness_cap_reason`,
-  `not_assessed_categories` [**20 categories**], `spine_gaps`, **`missing_r3_categories`**,
-  `production_authority_decision`, `ruleset_version="slice16.v1"`); `missing_for_go_live` also lists
-  `r3_category_not_declared:<category>`. `ReadinessRepository`
+  auditor (Phase 2, Slice 12 base + **Slice 16 R3 rules** + **Slice 18 R4 rules**, §4.3/§4.4/§4.5).
+  `readiness.py` (pure, **no LLM**): `evaluate_readiness` reads a snapshot of spine artifacts **plus
+  the Slice‑15 declared intake categories** (`CategoryDeclarationView(category, status)`) and emits the
+  §4.5 report, **fail-closed and capped at R4**. Ladder: R0 = no requirements; R1 = no valid
+  requirement→acceptance chain; R2 = ≥1 valid chain; **R3 = R2 base PLUS the three §4.3 technical
+  categories declared** (`architecture_and_technology_constraints`, `data_model_and_contracts`,
+  `user_journeys_and_workflows`); **R4 = R3 base PLUS the two §4.3 "tools" categories declared
+  (`integrations_and_external_systems`, `tool_access_manifest`) PLUS "tests available" = zero
+  `spine_gaps` (full requirement→AC→oracle coverage)** — secrets (17) excluded as an R5 concern.
+  Category rules check the presence of a provenance-backed declaration, not content quality. R5 requires
+  gated-engine completeness + environments/secrets/authority/approvals/go-live gates and is **out of
+  scope**. **Parent-kind validation does not trust the DB FK alone** — an acceptance criterion counts
+  only if its parent is a `requirement`, an oracle only if its parent is that `acceptance_criterion`;
+  orphan/wrong-kind links become `spine_gaps` and never raise the level. **`can_build_to_staging` is
+  true at R3 *or R4* AND when `environments_and_deployment_targets` is declared** (D‑3b, monotonic per
+  D‑R4‑3); **`can_go_live_autonomously` is always false** (capped < R5; gated categories unevaluated) —
+  both with exact recorded reasons (R4-without-env uses `r4_but_environments…_not_declared`). The
+  `report` carries the §4.5 keys + deterministic extensions (`readiness_cap`, `readiness_cap_reason`,
+  `not_assessed_categories` [**18 categories**], `spine_gaps`, **`missing_r3_categories`**,
+  **`missing_r4_categories`**, **`missing_r4_test_coverage`** [blocking spine_gaps dicts],
+  `production_authority_decision`, `ruleset_version="slice18.v1"`); `missing_for_go_live` also lists
+  `r3_category_not_declared:<category>` and `r4_category_not_declared:<category>`. `ReadinessRepository`
   (`evaluate`/`evaluate_and_record`/`latest`/`history`) reads the Slice‑15 declarations (D‑6: a
   doc-backed declaration counts only if its source document is still `accepted` — drops a
   later-quarantined source; same-project is enforced upstream by the `intake_categories` FK, with
@@ -278,10 +290,11 @@ the admin `app` role only.
   never makes go-live true), and audits **safe metadata only — no assumption titles / report body**.
   `app/models/readiness_report.py` (`ReadinessReportRecord`, table `readiness_reports`): **tenant-owned,
   RLS, append-only**; `readiness_level` CHECK allows R0..R5 (forward-compat); the code now emits
-  R0/R1/R2/R3; `created_at` uses `clock_timestamp()` so same-transaction snapshots order
-  deterministically (`latest`/`history` order `created_at DESC, id DESC`). **Skeleton: deterministic
-  only — no LLM, no evidence pack, no new artifact kinds, no HTTP/API endpoint; R4/R5 + gated-category
-  completion out of scope (no migration — `readiness_level` already allowed R0..R5).**
+  R0/R1/R2/R3/R4; `created_at` uses `clock_timestamp()` so same-transaction snapshots order
+  deterministically (`latest`/`history` order `created_at DESC, id DESC`). The latest snapshot is
+  read-only exposed at `GET /api/projects/{id}/readiness` (Slice 17). **Skeleton: deterministic
+  only — no LLM, no evidence pack, no new artifact kinds; R5 + gated-category completion out of
+  scope (no migration — `readiness_level` already allowed R0..R5).**
 - `app/intake/findings.py` + `app/repositories/findings.py` — deterministic gap & structural
   contradiction detector (Phase 2, Slice 13, §4.4/§14.4/§16.5). `findings.py` (pure, **no LLM**,
   **no semantic analysis**): `StructuralArtifactView` carries **only** structural fields
@@ -355,10 +368,12 @@ the admin `app` role only.
   (table `intake_categories`): tenant-owned, RLS ENABLE+FORCE; one declaration per `(tenant, project,
   category)`; source-XOR + bounds CHECKs; guard trigger (accepted-source-doc + immutable
   `id`/`tenant_id`/`project_id`/`category`/`created_at`); **no DELETE/TRUNCATE**; `data` JSONB;
-  SELECT/INSERT/UPDATE grants. **Skeleton: inputs only — Slice 15 itself adds no readiness computation;
-  the R3 rule that consumes these declarations lands in Slice 16 (the auditor is now R3-capped). No HTTP
-  endpoint, no LLM, no secret values, no new spine kinds; gated categories + R4/R5 deferred to a later
-  engine-reading readiness slice.**
+  SELECT/INSERT/UPDATE grants. **Skeleton: inputs only — Slice 15 itself adds no readiness computation.
+  The rules that consume these declarations landed later: Slice 16 consumes the three R3 technical
+  categories (+ the environments staging gate); Slice 18 consumes the two R4 "tools" categories
+  (`integrations_and_external_systems`, `tool_access_manifest`). No HTTP endpoint, no LLM, no secret
+  values, no new spine kinds; gated categories + R5/gated-engine completeness remain deferred to a
+  later engine-reading readiness slice.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -451,7 +466,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 152 passing (Docker-free); `make test-db` → 235 passing (DB-backed: tenancy,
+  **`make test` → 160 passing (Docker-free); `make test-db` → 236 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -459,9 +474,10 @@ the admin `app` role only.
   null, cross-tenant null, read-only/405, latest-ordering**], and the intake spine [Sanad fail-closed source-count via the
   deferrable constraint, document composite-FK cross-project/cross-tenant rejection,
   accepted-document-only trigger, append-only, the §4.4 classification CHECK, RLS + cross-tenant],
-  the readiness auditor [R0–R3 ladder, R3 = declared §4.3 technical trio, staging = R3 AND
-  environments declared, always-false go-live, D-6 stale-source exclusion (quarantined source
-  drops R3→R2; same-project pinning enforced upstream by the intake-category DB FK),
+  the readiness auditor [R0–R4 ladder, R3 = declared §4.3 technical trio, **R4 = declared §4.3 tools
+  pair + zero spine gaps** (Slice 18), staging = R3-or-R4 AND environments declared (monotonic),
+  always-false go-live, D-6 stale-source exclusion (quarantined source drops R3→R2 and, for R4 tools,
+  R4→R3; same-project pinning enforced upstream by the intake-category DB FK),
   deploy_production wiring, deterministic latest/history, RLS, append-only], and the
   gap/contradiction detector [taxonomy incl. generic
   C_SELF_PARENT, content-safe refs-only report + counts-only audit, RLS, append-only, count CHECKs],
@@ -508,8 +524,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 152 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 235 passing
+make test                                  # Docker-free tests (no services) — 160 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 236 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

@@ -229,7 +229,7 @@ artifact title/body/data**. `documents` gains an additive `UNIQUE(id, project_id
 the composite-FK target. **Slice 11 is deterministic only — no LLM/classifier/extractor, no
 build-readiness auditor, no gap/contradiction detector, no artifact generation, and no API exposure.**
 
-## Build-readiness auditor (Phase 2, Slice 12 base + Slice 16 R3 rules — §4.3 / §4.4 / §4.5)
+## Build-readiness auditor (Phase 2, Slice 12 base + Slice 16 R3 + Slice 18 R4 rules — §4.3 / §4.4 / §4.5)
 `app/intake/readiness.py` + `app/repositories/readiness.py` add a **deterministic (no-LLM),
 fail-closed** auditor that reads the Slice‑11 intake spine **plus the Slice‑15 declared intake
 categories** and emits the **§4.5 intake validation report**, persisted as an **immutable
@@ -241,32 +241,41 @@ tenant-owned snapshot** (`readiness_reports`).
   (`architecture_and_technology_constraints`), data (`data_model_and_contracts`), and workflows
   (`user_journeys_and_workflows`) — each **declared** via Slice 15 raises the level to R3. The rule
   checks the **presence of a provenance-backed declaration**, not content quality ("declared", not
-  "verified"). The auditor is now **capped at R3**: R4/R5 require the gated
-  autonomy/approval/cost/production-authority engines plus secrets/tooling/go-live/test-coverage
-  rules that are **not yet evaluated**.
+  "verified").
+- **R4 (Slice 18).** The R3 base **plus** the two §4.3 "tools" categories —
+  `integrations_and_external_systems` and `tool_access_manifest` — **declared**, **plus** "tests
+  available" = **zero `spine_gaps`** (every requirement has a valid acceptance criterion, every valid
+  acceptance criterion has a valid test oracle, no invalid parent chains). Secrets
+  (`secrets_and_credentials_manifest`) are **excluded** — an R5 concern, keeping the R4/R5 boundary
+  crisp. The auditor is now **capped at R4**: R5 requires gated-engine completeness plus
+  environments/secrets/authority/approvals/go-live gates that are **not yet evaluated**.
 - **Parent-kind validation does not trust the DB FK alone:** an acceptance criterion counts only
   if its parent **is a requirement**, an oracle only if its parent **is that acceptance criterion**;
   orphan/wrong-kind links become `spine_gaps` and never satisfy coverage.
-- **`can_build_to_staging`** is true only at **R3 AND** when `environments_and_deployment_targets`
-  is declared (the stricter D‑3b staging facet), with an exact recorded reason.
+- **`can_build_to_staging`** is true at **R3 or R4 AND** when `environments_and_deployment_targets`
+  is declared (the D‑3b staging facet, extended to R4 monotonically per D‑R4‑3), with an exact
+  recorded reason (R4-without-env uses its own `r4_but_environments…_not_declared` reason).
   **`can_go_live_autonomously` is always false** (capped below R5; gated categories unevaluated),
   with recorded reasons. The auditor wires the Slice‑3 autonomy policy via
   `decision_for(project_id, "deploy_production")` purely as transparent context
   (`production_authority_decision`) — `deploy_production` is mandatory-approval, so it returns
   `needs_approval`/`deny`, **never** authorization, and can never make go-live true.
-- A doc-backed category declaration counts toward R3 only if its source document is still
-  `accepted` (the D‑6 fail-closed exclusion of a later-quarantined source). Same-project
-  pinning is enforced upstream at declaration time by the `intake_categories` composite FK;
-  the auditor's same-project check is defense-in-depth.
+- A doc-backed category declaration counts toward R3/R4 only if its source document is still
+  `accepted` (the D‑6 fail-closed exclusion of a later-quarantined source — applied generically to
+  every declared category, so a quarantined R4-tool source drops R4→R3). Same-project pinning is
+  enforced upstream at declaration time by the `intake_categories` composite FK; the auditor's
+  same-project check is defense-in-depth.
 - The `report` JSON carries the §4.5 keys plus deterministic extensions (`readiness_cap`,
-  `readiness_cap_reason`, `not_assessed_categories` [20 categories], `spine_gaps`,
-  `missing_r3_categories`, `production_authority_decision`, `ruleset_version`); `missing_for_go_live`
-  additionally lists `r3_category_not_declared:<category>` entries. The audit log records
-  **safe metadata only** (no assumption titles / report body). `readiness_reports` is tenant-owned,
-  RLS ENABLE+FORCE, **append-only** (`SELECT, INSERT` only; UPDATE/DELETE/TRUNCATE blocked);
-  `created_at` uses `clock_timestamp()` so same-transaction snapshots order deterministically.
-  **Still deterministic only — no LLM, no evidence pack, no new artifact kinds; R4/R5 and
-  gated-category completion are out of scope.** The latest snapshot is now read-only exposed over HTTP
+  `readiness_cap_reason`, `not_assessed_categories` [18 categories], `spine_gaps`,
+  `missing_r3_categories`, `missing_r4_categories`, `missing_r4_test_coverage` [blocking
+  `spine_gaps` dicts], `production_authority_decision`, `ruleset_version` = `slice18.v1`);
+  `missing_for_go_live` additionally lists `r3_category_not_declared:<category>` and
+  `r4_category_not_declared:<category>` entries. The audit log records **safe metadata only** (no
+  assumption titles / report body). `readiness_reports` is tenant-owned, RLS ENABLE+FORCE,
+  **append-only** (`SELECT, INSERT` only; UPDATE/DELETE/TRUNCATE blocked); `created_at` uses
+  `clock_timestamp()` so same-transaction snapshots order deterministically.
+  **Still deterministic only — no LLM, no evidence pack, no new artifact kinds; R5 and
+  gated-category completion are out of scope.** The latest snapshot is read-only exposed over HTTP
   at `GET /api/projects/{id}/readiness` (Slice 17 — read-only, no compute/persist on GET).
 
 ## Gap & contradiction detector (Phase 2, Slice 13 — §4.4 / §14.4 / §16.5)
@@ -354,10 +363,12 @@ spine artifact via `IntakeRepository.add_artifact`. Deterministic, idempotent, n
 ## Intake category modeling (Phase 2, Slice 15 — §4.2 / §4.3 / Appendix A)
 `app/intake/categories.py` + `app/repositories/intake_categories.py` model the **missing canonical
 intake categories** as tenant-owned, provenance-backed **declarations** — the **inputs** the
-readiness auditor consumes for R3+. **Slice 15 added these inputs only;** the **R3 rule that reads
-them lands in Slice 16** (see the build-readiness auditor above — the three declared §4.3 technical
-categories raise R2 → R3, and `environments_and_deployment_targets` gates staging). The auditor is
-now **capped at R3** (R4/R5 still out of scope).
+readiness auditor consumes for R3+. **Slice 15 added these inputs only;** the rules that read them
+landed later (see the build-readiness auditor above): **Slice 16 R3** consumes the three §4.3
+technical categories (raising R2 → R3) and the `environments_and_deployment_targets` staging gate;
+**Slice 18 R4** consumes the two §4.3 "tools" categories (`integrations_and_external_systems`,
+`tool_access_manifest`) alongside zero-spine-gap test coverage (raising R3 → R4). The auditor is
+now **capped at R4** (R5 + gated-engine completeness still out of scope).
 - **Authoritative universe** = the §4.2 26-file intake package (+ the Appendix‑A "production authority"
   condition), partitioned into three disjoint sets: **SPINE** (3 — already `intake_artifacts` kinds),
   **GATED_ENGINE** (4 — `autonomy_policy`/`human_approval_policy`/`cost_and_resource_policy`/
@@ -371,9 +382,10 @@ now **capped at R3** (R4/R5 still out of scope).
   reference_name}`), never secret values. RLS ENABLE+FORCE + `tenant_isolation`; a guard trigger keeps
   `id`/`tenant_id`/`project_id`/`category`/`created_at` immutable; **no DELETE/TRUNCATE**; grants
   `{SELECT, INSERT, UPDATE}`. Audit carries **safe metadata only** (`has_source_document`/`has_origin`
-  booleans — never the document UUID, locator, summary, data, or secret references). **Slice 15 makes
-  no R3/R4/R5 claim, adds no HTTP endpoint, uses no LLM, stores no secret values, and adds no new spine
-  kinds; the gated categories remain deferred to a later engine-reading readiness slice.**
+  booleans — never the document UUID, locator, summary, data, or secret references). **Slice 15 itself
+  makes no R3/R4/R5 claim, adds no HTTP endpoint, uses no LLM, stores no secret values, and adds no new
+  spine kinds; the R3/R4 rules consuming these declarations live in Slices 16/18, and gated-category
+  completeness remains deferred to a later engine-reading readiness slice (R5).**
 
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
