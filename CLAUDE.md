@@ -31,7 +31,7 @@ compute/persist on GET, no migration/LLM/R4-R5 — merged via PR #23 (commit `eb
 lifts the readiness auditor cap R3→R4: R4 = R3 base + the two §4.3 "tools" categories declared
 (`integrations_and_external_systems`, `tool_access_manifest`) + zero spine gaps (full
 requirement→AC→oracle coverage); secrets stay an R5 concern; go-live stays false; staging is
-monotonic; `ruleset_version="slice18.v1"`; no migration.**
+monotonic; `ruleset_version="slice18.v1"`; no migration — merged via PR #25 (commit `f69da00`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
