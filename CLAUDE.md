@@ -27,7 +27,7 @@ rules — the build-readiness auditor now consumes the Slice‑15 declared §4.3
 and lifts the cap from R2 to **R3**) **merged via PR #21 (commit `eaa9da1`).** **Slice 17 adds
 read-only `GET /api/projects/{id}/{readiness,findings}` — exposing the latest persisted readiness
 (Slices 12+16) and findings (Slice 13) snapshots over the Slice‑10 auth boundary; latest-only, no
-compute/persist on GET, no migration/LLM/R4-R5.**
+compute/persist on GET, no migration/LLM/R4-R5 — merged via PR #23 (commit `eb19b4c`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
