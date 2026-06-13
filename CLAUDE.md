@@ -32,6 +32,9 @@ lifts the readiness auditor cap R3→R4: R4 = R3 base + the two §4.3 "tools" ca
 (`integrations_and_external_systems`, `tool_access_manifest`) + zero spine gaps (full
 requirement→AC→oracle coverage); secrets stay an R5 concern; go-live stays false; staging is
 monotonic; `ruleset_version="slice18.v1"`; no migration — merged via PR #25 (commit `f69da00`).**
+**Slice 19 adds read-only `GET /api/projects/{id}/{readiness,findings}/history` — the full persisted
+snapshot list (newest-first) via `repo.history`; empty/cross-tenant/nonexistent return `200` + `[]`;
+read-only, no pagination, no migration/LLM (closes the Slice 17 D-17-2 history deferral).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -100,12 +103,15 @@ the admin `app` role only.
   tenant. Parses `Authorization: Bearer <key>`, resolves it (hash → active `tenant_api_keys`
   row) on a **plain pre-tenant session**, returns `TenantContext`; missing/malformed/unknown/
   revoked ⇒ **401, no fallback tenant**. `dashboard.py`: GET-only, project-scoped endpoints
-  (`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}`) that open `tenant_scope`
+  (`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` + the Slice 19
+  `readiness/history` & `findings/history`) that open `tenant_scope`
   and read via existing repos — a cross-tenant `project_id` yields nothing (RLS). **Slice 17** added
   `readiness`/`findings`: each returns the **latest persisted snapshot** via `repo.latest`
   (read-only SELECT) or `null` — never-evaluated, cross-tenant, and nonexistent `project_id` are
   indistinguishable (`200` + `null`, no existence oracle); a GET never computes or persists.
-  `app/repositories/api_keys.py`:
+  **Slice 19** added `…/readiness/history` & `…/findings/history`: the full snapshot list
+  (newest-first, same per-element shape) via `repo.history`; empty/cross-tenant/nonexistent all
+  return `200` + `[]` (no leak, no pagination this slice). `app/repositories/api_keys.py`:
   `TenantApiKeyRepository` (admin `issue`/`revoke`; runtime `resolve`); raw key generated with
   `secrets.token_urlsafe(32)`, **only the `sha256:` hash stored**, raw returned once. **D4 hardening
   (migration 0013):** `resolve` calls the **`SECURITY DEFINER`** function `resolve_tenant_api_key(hash)`
@@ -466,12 +472,14 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 160 passing (Docker-free); `make test-db` → 236 passing (DB-backed: tenancy,
+  **`make test` → 160 passing (Docker-free); `make test-db` → 243 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
   no direct key-table read; **Slice 17 readiness/findings endpoints — latest snapshot, empty-state
-  null, cross-tenant null, read-only/405, latest-ordering**], and the intake spine [Sanad fail-closed source-count via the
+  null, cross-tenant null, read-only/405, latest-ordering**; **Slice 19 history endpoints —
+  newest-first ordering, empty-list, cross-tenant empty-list, auth deny, read-only/405,
+  latest+history coexistence**], and the intake spine [Sanad fail-closed source-count via the
   deferrable constraint, document composite-FK cross-project/cross-tenant rejection,
   accepted-document-only trigger, append-only, the §4.4 classification CHECK, RLS + cross-tenant],
   the readiness auditor [R0–R4 ladder, R3 = declared §4.3 technical trio, **R4 = declared §4.3 tools
@@ -525,7 +533,7 @@ the admin `app` role only.
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 160 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 236 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 243 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -534,7 +542,8 @@ make dev                                   # run API at http://localhost:8000
 `uaid_app` role (needs `RLS_DB_PASSWORD`), creates+migrates `app_test` **as admin**,
 then runs `-m db` with the runtime `uaid_app` connection. Migrations never run as
 `uaid_app`. Endpoints: `/health/live`, `/health/ready`, `/demo`, and the read-only
-`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` (require `Authorization: Bearer <key>`).
+`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` plus
+`…/{readiness,findings}/history` (require `Authorization: Bearer <key>`).
 
 ## Conventions to uphold (from the spec — non-negotiable, including in our own code)
 - **No fake done.** No placeholders/stubs/hardcoded outputs presented as real. Prefer
@@ -604,7 +613,7 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   scanning is best-effort/bypassable — the guarantee is data-not-instruction + quarantine, not
   detection. Deferred: Documentation Compiler (Phase 2), ML/embedding classification, LLM/RAG wiring,
   binary parsing, malware scanning, per-section quarantine, un-quarantine, Sanad wiring.**
-- Read API / dashboard (§18.6): **present (Slice 10 + Slice 17)** — read-only JSON `/api` endpoints
+- Read API / dashboard (§18.6): **present (Slice 10 + Slice 17 + Slice 19)** — read-only JSON `/api` endpoints
   (run state, open approvals, blockers, cost + stop decision, **and — Slice 17 — the latest persisted
   build-readiness (§4.5) and gap/contradiction findings snapshots**) behind **hashed bearer-key tenant
   auth** (D4: `tenant_api_keys` stores only `sha256:` hashes; missing/invalid/revoked ⇒ 401, no
@@ -614,9 +623,12 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   and **no direct read of the key table**. **Slice 17** = `GET /api/projects/{id}/{readiness,findings}`
   returning the latest snapshot via `repo.latest` or `null` (never-evaluated / cross-tenant /
   nonexistent all return `200` + `null` — no existence oracle); GET never computes or persists
-  (no `evaluate_and_record`); no migration, no LLM, no R4/R5. **Deferred: forecast, critical path,
-  evidence-pack status, deployment status, next action; readiness/findings *history* endpoints
-  (repos support it; not yet exposed); a write/trigger-evaluation endpoint; web UI; auth-event audit;
+  (no `evaluate_and_record`); no migration, no LLM, no R4/R5. **Slice 19** = `GET /api/projects/{id}/
+  {readiness,findings}/history` returning the full snapshot list (newest-first, same per-element shape)
+  via `repo.history`; empty/cross-tenant/nonexistent all return `200` + `[]`; read-only, no pagination.
+  **Deferred: forecast, critical path,
+  evidence-pack status, deployment status, next action; readiness/findings history **pagination**;
+  a write/trigger-evaluation endpoint; web UI; auth-event audit;
   HTTP key issuance (admin-path only); HMAC/salted key hashing.**
 - Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a / 8b / 9 / 10.
 

@@ -35,10 +35,12 @@ connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
 - Liveness:  http://localhost:8000/health/live   (200 `{"status":"alive"}`, no dependency calls)
 - Readiness: http://localhost:8000/health/ready  (real `SELECT 1`; 200 when DB up, 503 when down)
 - Demo:      http://localhost:8000/demo
-- Dashboard (read-only, §18.6): `GET /api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` —
+- Dashboard (read-only, §18.6): `GET /api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}`
+  plus `…/{readiness,findings}/history` —
   require `Authorization: Bearer <api-key>`; missing/invalid ⇒ 401 (see "Read API / dashboard" below).
-  `readiness`/`findings` (Slice 17) return the latest persisted snapshot or `null` (never evaluated /
-  cross-tenant / nonexistent all return `200` + `null`).
+  `readiness`/`findings` (Slice 17) return the latest persisted snapshot or `null`; the `…/history`
+  variants (Slice 19) return the full snapshot list newest-first or `[]` (never evaluated /
+  cross-tenant / nonexistent all return `200` + `null`/`[]`).
 
 ## CI
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main`: `uv sync`,
@@ -393,7 +395,8 @@ decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the *
 HTTP request becomes a tenant: it parses `Authorization: Bearer <key>`, resolves the key (its
 `sha256:` hash → an active `tenant_api_keys` row) on a pre-tenant session, and returns a
 `TenantContext`; a missing/malformed/unknown/revoked key ⇒ **`401` with no fallback tenant**.
-Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost|readiness|findings}` —
+Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost|readiness|findings}`
+plus `…/{readiness|findings}/history` (Slice 19 — the full snapshot list, newest-first, or `[]`) —
 and each opens `tenant_scope(context)` so all reads pass through RLS; a `project_id` outside the
 caller's tenant returns nothing (never another tenant's data, proven end-to-end over HTTP).
 `tenant_api_keys` is a **global auth-lookup table** (intentionally not RLS, since resolution happens
@@ -403,9 +406,10 @@ by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Re
 `api_key_resolver`): the runtime role `uaid_app` has **EXECUTE-only** access and **no direct read** of
 the key table, and only the hash is passed into SQL (the raw key never reaches the statement/logs).
 Covers the implemented
-§18.6 subset (run state, open approvals, blockers, cost + stop decision, and — Slice 17 — the latest
-persisted build-readiness and gap/contradiction findings snapshots); **forecast, critical path,
-evidence-pack status, deployment status, next action, and any web UI are deferred.**
+§18.6 subset (run state, open approvals, blockers, cost + stop decision, — Slice 17 — the latest
+persisted build-readiness and gap/contradiction findings snapshots, and — Slice 19 — their full
+snapshot **history** newest-first); **forecast, critical path, evidence-pack status, deployment
+status, next action, history pagination, and any web UI are deferred.**
 
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate
