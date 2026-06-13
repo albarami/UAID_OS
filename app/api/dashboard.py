@@ -1,18 +1,21 @@
-"""Read-only dashboard endpoints (Slice 10 + Slice 17, §18.6). API-only JSON.
+"""Read-only dashboard endpoints (Slice 10 + Slice 17 + Slice 19, §18.6). API-only JSON.
 
 Every endpoint requires a bearer API key (``require_tenant``), then opens
 ``tenant_scope`` so all reads pass through RLS. A ``project_id`` outside the caller's
 tenant yields no rows (never another tenant's data). GET-only — no mutations.
 
 Covers the implemented §18.6 subset: run state, open approvals, blockers, cost
-consumed + stop decision, and (Slice 17) the latest persisted build-readiness (§4.5)
-and gap/contradiction findings snapshots. Forecast / critical path / evidence-pack /
-deployment / next action are deferred (subsystems not built).
+consumed + stop decision, (Slice 17) the latest persisted build-readiness (§4.5)
+and gap/contradiction findings snapshots, and (Slice 19) their full snapshot
+**history**. Forecast / critical path / evidence-pack / deployment / next action are
+deferred (subsystems not built).
 
-The readiness/findings endpoints return the **latest persisted snapshot** via
-``repo.latest`` (a read-only, tenant+project-scoped SELECT) — they never compute or
-persist on a GET. No snapshot, a cross-tenant ``project_id``, and a nonexistent
-project are all indistinguishable: ``200`` with a ``null`` body (no existence oracle).
+The readiness/findings ``latest`` endpoints return the latest persisted snapshot via
+``repo.latest``; the ``…/history`` endpoints return the full list (newest-first) via
+``repo.history`` — both read-only, tenant+project-scoped SELECTs that never compute or
+persist on a GET. For ``latest``: no snapshot, a cross-tenant ``project_id``, and a
+nonexistent project are indistinguishable (``200`` + ``null``). For ``history``: the same
+cases all return ``200`` + an empty list — no existence oracle either way.
 """
 
 import uuid
@@ -152,3 +155,22 @@ async def project_findings(
     async with tenant_scope(context) as session:
         rec = await FindingsRepository(session, context).latest(project_id)
         return {"findings": _findings_dict(rec) if rec is not None else None}
+
+
+@router.get("/projects/{project_id}/readiness/history")
+async def project_readiness_history(
+    project_id: uuid.UUID, context: TenantContext = Depends(require_tenant)
+) -> dict:
+    # Full persisted history, newest-first (repo.history orders created_at DESC, id DESC).
+    async with tenant_scope(context) as session:
+        rows = await ReadinessRepository(session, context).history(project_id)
+        return {"readiness_history": [_readiness_dict(r) for r in rows]}
+
+
+@router.get("/projects/{project_id}/findings/history")
+async def project_findings_history(
+    project_id: uuid.UUID, context: TenantContext = Depends(require_tenant)
+) -> dict:
+    async with tenant_scope(context) as session:
+        rows = await FindingsRepository(session, context).history(project_id)
+        return {"findings_history": [_findings_dict(r) for r in rows]}

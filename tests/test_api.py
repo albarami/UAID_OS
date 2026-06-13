@@ -488,3 +488,144 @@ async def test_readiness_returns_most_recent_snapshot(api_ctx):
         r = await client.get(f"/api/projects/{pa}/readiness", headers=_auth(api_ctx["key_a"]))
     assert r.status_code == 200
     assert r.json()["readiness"]["report_id"] == str(second_id)
+
+
+# --- DB-backed: Slice 19 — readiness + findings history endpoints -------------
+
+
+@pytest.mark.db
+async def test_readiness_history_returns_ordered_snapshots(api_ctx):
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    first = await _record_readiness(pa, ta)
+    second = await _record_readiness(pa, ta)
+    async with _client() as client:
+        r = await client.get(
+            f"/api/projects/{pa}/readiness/history", headers=_auth(api_ctx["key_a"])
+        )
+    assert r.status_code == 200
+    hist = r.json()["readiness_history"]
+    assert [h["report_id"] for h in hist] == [str(second), str(first)]  # newest-first
+    assert set(hist[0]) >= {
+        "report_id",
+        "evaluated_at",
+        "readiness_level",
+        "can_build_to_staging",
+        "can_go_live_autonomously",
+        "report",
+    }
+    assert "evaluated_by" not in hist[0]  # D-17-1
+
+
+@pytest.mark.db
+async def test_findings_history_returns_ordered_snapshots(api_ctx):
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    first = await _record_findings(pa, ta)
+    second = await _record_findings(pa, ta)
+    async with _client() as client:
+        r = await client.get(
+            f"/api/projects/{pa}/findings/history", headers=_auth(api_ctx["key_a"])
+        )
+    assert r.status_code == 200
+    hist = r.json()["findings_history"]
+    assert [h["report_id"] for h in hist] == [str(second), str(first)]  # newest-first
+    assert set(hist[0]) >= {
+        "report_id",
+        "evaluated_at",
+        "gap_count",
+        "contradiction_count",
+        "report",
+    }
+    assert "evaluated_by" not in hist[0]
+
+
+@pytest.mark.db
+async def test_history_empty_state_returns_empty_list(api_ctx):
+    pa = api_ctx["pa"]  # no snapshots recorded
+    async with _client() as client:
+        rd = await client.get(
+            f"/api/projects/{pa}/readiness/history", headers=_auth(api_ctx["key_a"])
+        )
+        fn = await client.get(
+            f"/api/projects/{pa}/findings/history", headers=_auth(api_ctx["key_a"])
+        )
+    assert rd.status_code == 200 and rd.json() == {"readiness_history": []}
+    assert fn.status_code == 200 and fn.json() == {"findings_history": []}
+
+
+@pytest.mark.db
+async def test_history_cross_tenant_returns_empty_list(api_ctx):
+    # Record snapshots for tenant B's project; key A must see none (empty list, no leak).
+    tb, pb = api_ctx["tb"], api_ctx["pb"]
+    await _record_readiness(pb, tb)
+    await _record_findings(pb, tb)
+    async with _client() as client:
+        rd_cross = await client.get(
+            f"/api/projects/{pb}/readiness/history", headers=_auth(api_ctx["key_a"])
+        )
+        fn_cross = await client.get(
+            f"/api/projects/{pb}/findings/history", headers=_auth(api_ctx["key_a"])
+        )
+        rd_own = await client.get(
+            f"/api/projects/{pb}/readiness/history", headers=_auth(api_ctx["key_b"])
+        )
+        fn_own = await client.get(
+            f"/api/projects/{pb}/findings/history", headers=_auth(api_ctx["key_b"])
+        )
+    assert rd_cross.status_code == 200 and rd_cross.json() == {"readiness_history": []}
+    assert fn_cross.status_code == 200 and fn_cross.json() == {"findings_history": []}
+    assert rd_own.status_code == 200 and len(rd_own.json()["readiness_history"]) == 1
+    assert fn_own.status_code == 200 and len(fn_own.json()["findings_history"]) == 1
+
+
+@pytest.mark.db
+async def test_history_auth_deny_by_default(api_ctx):
+    for kind in ("readiness", "findings"):
+        path = f"/api/projects/{api_ctx['pa']}/{kind}/history"
+        async with _client() as client:
+            assert (await client.get(path)).status_code == 401  # missing
+            assert (await client.get(path, headers={"Authorization": "Basic x"})).status_code == 401
+            assert (await client.get(path, headers=_auth("uaidk_bogus"))).status_code == 401
+            assert (
+                await client.get(path, headers=_auth(api_ctx["key_revoked"]))
+            ).status_code == 401
+            # authorized request to the same path succeeds — proves auth, not path
+            assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
+
+
+@pytest.mark.db
+async def test_history_is_read_only(api_ctx, admin_engine):
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    await _record_readiness(pa, ta)
+    await _record_findings(pa, ta)
+
+    async def _count(table: str) -> int:
+        async with admin_engine.connect() as c:
+            return (
+                await c.execute(
+                    text(f"SELECT count(*) FROM {table} WHERE tenant_id=:t"),
+                    {"t": ta},
+                )
+            ).scalar_one()
+
+    before = {t: await _count(t) for t in ("readiness_reports", "intake_findings_reports")}
+    async with _client() as client:
+        for kind in ("readiness", "findings"):
+            path = f"/api/projects/{pa}/{kind}/history"
+            assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
+            assert (await client.post(path, headers=_auth(api_ctx["key_a"]))).status_code == 405
+    # no GET persists a new snapshot (either table)
+    assert {t: await _count(t) for t in before} == before
+
+
+@pytest.mark.db
+async def test_latest_and_history_coexist(api_ctx):
+    # Both the Slice 17 latest route and the Slice 19 history route resolve (no shadowing).
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    await _record_readiness(pa, ta)
+    async with _client() as client:
+        latest = await client.get(f"/api/projects/{pa}/readiness", headers=_auth(api_ctx["key_a"]))
+        history = await client.get(
+            f"/api/projects/{pa}/readiness/history", headers=_auth(api_ctx["key_a"])
+        )
+    assert latest.status_code == 200 and latest.json()["readiness"] is not None
+    assert history.status_code == 200 and len(history.json()["readiness_history"]) == 1
