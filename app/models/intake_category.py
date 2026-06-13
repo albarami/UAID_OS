@@ -1,7 +1,9 @@
 """``intake_categories`` — tenant-owned declared intake categories (Slice 15, §4.2).
 
 One declaration per ``(tenant, project, category)`` for the declarable §4.2 intake
-categories (inputs for a *later* R3–R5 readiness slice; the auditor is untouched here).
+categories. These declarations are read by the readiness auditor's **R3 rule** (Slice 16):
+the three §4.3 technical categories, when declared, raise the level from R2 to R3, and
+``environments_and_deployment_targets`` gates ``can_build_to_staging``.
 Each row carries exactly one source — a document (accepted, same project, + locator) XOR
 a bounded origin label — enforced by a CHECK and a guard trigger (migration ``0019``).
 Content/identity keys (``id``/``tenant_id``/``project_id``/``category``/``created_at``)
