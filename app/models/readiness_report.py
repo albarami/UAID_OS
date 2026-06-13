@@ -3,12 +3,12 @@
 One immutable row per readiness evaluation (history is preserved; each run inserts a
 new snapshot). Append-only: SELECT/INSERT only for the runtime role, with
 UPDATE/DELETE/TRUNCATE blocked by triggers (migration ``0015``). ``readiness_level``
-permits ``R0..R5`` for forward compatibility; the auditor emits ``R0``/``R1``/``R2`` and,
-since Slice 16, ``R3`` when the R2 base plus the three §4.3 technical categories
-(architecture/stack, data, workflows) are declared (Slice 15). It is **capped at R3** —
-R4/R5 require gated engine evaluation + further rules not yet implemented. The full §4.5
-document (plus deterministic extension keys) lives in ``report``; ``evaluated_by`` is an
-untrusted caller label.
+permits ``R0..R5`` for forward compatibility; the auditor emits ``R0``/``R1``/``R2``,
+``R3`` (Slice 16, R2 base plus the three §4.3 technical categories declared via Slice 15),
+and ``R4`` (Slice 18, R3 base plus the two §4.3 "tools" categories declared plus zero spine
+gaps). It is **capped at R4** — R5 requires gated-engine completeness + further rules not yet
+implemented. The full §4.5 document (plus deterministic extension keys) lives in ``report``;
+``evaluated_by`` is an untrusted caller label.
 """
 
 import uuid

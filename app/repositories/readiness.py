@@ -1,10 +1,12 @@
-"""Tenant-scoped readiness auditor repository (Slice 12 base + Slice 16 R3 rules, §4.3/§4.5).
+"""Tenant-scoped readiness auditor repository (Slice 12 base + Slice 16 R3 + Slice 18 R4, §4.3/§4.5).
 
 ``evaluate`` reads three inputs for a project — the canonical intake spine, the Slice-15
-declared intake categories (the R3 rule's inputs), and the (transparency-only)
+declared intake categories (the R3/R4 category rules' inputs), and the (transparency-only)
 ``deploy_production`` autonomy-policy decision — then runs the pure ``app.intake.readiness``
 engine (no write). ``evaluate_and_record`` additionally persists an immutable snapshot and
 audits with **safe metadata only** (no assumption titles, no tenant content, no report body).
+The D-6 stale-source exclusion in ``_category_declarations`` is generic across every declared
+category, so it covers the R4 "tools" categories too (a later-quarantined source drops R4→R3).
 Run inside ``tenant_scope`` (GUC set). ``actor`` is an untrusted caller label.
 """
 
