@@ -35,8 +35,10 @@ connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
 - Liveness:  http://localhost:8000/health/live   (200 `{"status":"alive"}`, no dependency calls)
 - Readiness: http://localhost:8000/health/ready  (real `SELECT 1`; 200 when DB up, 503 when down)
 - Demo:      http://localhost:8000/demo
-- Dashboard (read-only, §18.6): `GET /api/projects/{id}/{runs,approvals,blockers,cost}` — require
-  `Authorization: Bearer <api-key>`; missing/invalid ⇒ 401 (see "Read API / dashboard" below).
+- Dashboard (read-only, §18.6): `GET /api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` —
+  require `Authorization: Bearer <api-key>`; missing/invalid ⇒ 401 (see "Read API / dashboard" below).
+  `readiness`/`findings` (Slice 17) return the latest persisted snapshot or `null` (never evaluated /
+  cross-tenant / nonexistent all return `200` + `null`).
 
 ## CI
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main`: `uv sync`,
@@ -263,8 +265,9 @@ tenant-owned snapshot** (`readiness_reports`).
   **safe metadata only** (no assumption titles / report body). `readiness_reports` is tenant-owned,
   RLS ENABLE+FORCE, **append-only** (`SELECT, INSERT` only; UPDATE/DELETE/TRUNCATE blocked);
   `created_at` uses `clock_timestamp()` so same-transaction snapshots order deterministically.
-  **Still deterministic only — no LLM, no evidence pack, no new artifact kinds, no HTTP/API endpoint;
-  R4/R5 and gated-category completion are out of scope.**
+  **Still deterministic only — no LLM, no evidence pack, no new artifact kinds; R4/R5 and
+  gated-category completion are out of scope.** The latest snapshot is now read-only exposed over HTTP
+  at `GET /api/projects/{id}/readiness` (Slice 17 — read-only, no compute/persist on GET).
 
 ## Gap & contradiction detector (Phase 2, Slice 13 — §4.4 / §14.4 / §16.5)
 `app/intake/findings.py` + `app/repositories/findings.py` add a **deterministic (no-LLM, no
@@ -288,8 +291,9 @@ It is purely descriptive — it computes **no** readiness level and makes no R0�
   only; UPDATE/DELETE/TRUNCATE blocked), with `gap_count`/`contradiction_count` `CHECK >= 0` and
   `created_at` `clock_timestamp()`; `latest`/`history` order `created_at DESC, id DESC`. The audit
   records **counts/metadata only** (no refs/titles/body/report JSON). **Slice 13 is deterministic
-  only — no LLM, no semantic contradiction analysis, no evidence pack, no new artifact kinds, and no
-  HTTP/API endpoint; Slice 12 `readiness.py` is untouched.**
+  only — no LLM, no semantic contradiction analysis, no evidence pack, no new artifact kinds; Slice 12
+  `readiness.py` is untouched.** The latest snapshot is now read-only exposed over HTTP at
+  `GET /api/projects/{id}/findings` (Slice 17 — read-only, no compute/persist on GET).
 
 ## LLM-assisted extractor (Phase 2, Slice 14a — §2.1/§2.2/§2.4/§16.3/§16.5/§19)
 `app/llm/` + `app/intake/extraction.py` + `app/repositories/extraction.py` add the **first
@@ -377,7 +381,7 @@ decisions: D3 API-only, D4 hashed API-key → tenant). `require_tenant` is the *
 HTTP request becomes a tenant: it parses `Authorization: Bearer <key>`, resolves the key (its
 `sha256:` hash → an active `tenant_api_keys` row) on a pre-tenant session, and returns a
 `TenantContext`; a missing/malformed/unknown/revoked key ⇒ **`401` with no fallback tenant**.
-Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost}` —
+Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost|readiness|findings}` —
 and each opens `tenant_scope(context)` so all reads pass through RLS; a `project_id` outside the
 caller's tenant returns nothing (never another tenant's data, proven end-to-end over HTTP).
 `tenant_api_keys` is a **global auth-lookup table** (intentionally not RLS, since resolution happens
@@ -387,9 +391,9 @@ by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Re
 `api_key_resolver`): the runtime role `uaid_app` has **EXECUTE-only** access and **no direct read** of
 the key table, and only the hash is passed into SQL (the raw key never reaches the statement/logs).
 Covers the implemented
-§18.6 subset (run state, open approvals, blockers, cost + stop decision); **forecast, critical path,
-readiness, evidence-pack status, high-risk findings, deployment status, next action, and any web UI
-are deferred.**
+§18.6 subset (run state, open approvals, blockers, cost + stop decision, and — Slice 17 — the latest
+persisted build-readiness and gap/contradiction findings snapshots); **forecast, critical path,
+evidence-pack status, deployment status, next action, and any web UI are deferred.**
 
 ## Migrations (admin only)
     ALEMBIC_DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head   # or: make migrate

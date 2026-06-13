@@ -24,7 +24,10 @@ provenance-verified, human-review proposals — the first real LLM integration),
 intake-category model — the R3–R5 readiness *foundation*, inputs only) merged; **tagged `v0.2.0`** —
 the Phase 2 documentation-compiler milestone, at the Slice‑14b commit. Slice 16 (R3 readiness
 rules — the build-readiness auditor now consumes the Slice‑15 declared §4.3 technical categories
-and lifts the cap from R2 to **R3**) **merged via PR #21 (commit `eaa9da1`).**
+and lifts the cap from R2 to **R3**) **merged via PR #21 (commit `eaa9da1`).** **Slice 17 adds
+read-only `GET /api/projects/{id}/{readiness,findings}` — exposing the latest persisted readiness
+(Slices 12+16) and findings (Slice 13) snapshots over the Slice‑10 auth boundary; latest-only, no
+compute/persist on GET, no migration/LLM/R4-R5.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -90,8 +93,12 @@ the admin `app` role only.
   tenant. Parses `Authorization: Bearer <key>`, resolves it (hash → active `tenant_api_keys`
   row) on a **plain pre-tenant session**, returns `TenantContext`; missing/malformed/unknown/
   revoked ⇒ **401, no fallback tenant**. `dashboard.py`: GET-only, project-scoped endpoints
-  (`/api/projects/{id}/{runs,approvals,blockers,cost}`) that open `tenant_scope` and read via
-  existing repos — a cross-tenant `project_id` yields nothing (RLS). `app/repositories/api_keys.py`:
+  (`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}`) that open `tenant_scope`
+  and read via existing repos — a cross-tenant `project_id` yields nothing (RLS). **Slice 17** added
+  `readiness`/`findings`: each returns the **latest persisted snapshot** via `repo.latest`
+  (read-only SELECT) or `null` — never-evaluated, cross-tenant, and nonexistent `project_id` are
+  indistinguishable (`200` + `null`, no existence oracle); a GET never computes or persists.
+  `app/repositories/api_keys.py`:
   `TenantApiKeyRepository` (admin `issue`/`revoke`; runtime `resolve`); raw key generated with
   `secrets.token_urlsafe(32)`, **only the `sha256:` hash stored**, raw returned once. **D4 hardening
   (migration 0013):** `resolve` calls the **`SECURITY DEFINER`** function `resolve_tenant_api_key(hash)`
@@ -99,8 +106,9 @@ the admin `app` role only.
   SELECT** on the key table; only the hash is passed to SQL (raw key never enters statement/logs).
   `app/models/tenant_api_key.py` (**global** auth-lookup — intentionally NOT RLS).
   **Skeleton: read-only; covers the implemented §18.6 subset (run state / open approvals / blockers /
-  cost + stop decision); forecast / critical path / readiness / evidence-pack / findings / deployment /
-  next-action deferred; no web UI; no auth-event audit; admin-path key issuance only.**
+  cost + stop decision / readiness snapshot / findings snapshot [Slice 17]); forecast / critical path /
+  evidence-pack / deployment / next-action deferred; no web UI; no auth-event audit; admin-path key
+  issuance only.**
 - `app/health.py` — liveness/readiness handlers; readiness's DB ping is injected
   via a FastAPI dependency (`get_db_ping`) so it is overridable in route tests.
 - `app/db.py` — lazy async engine + session factory from `settings.database_url`
@@ -443,11 +451,12 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 152 passing (Docker-free); `make test-db` → 228 passing (DB-backed: tenancy,
+  **`make test` → 152 passing (Docker-free); `make test-db` → 235 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
-  no direct key-table read], and the intake spine [Sanad fail-closed source-count via the
+  no direct key-table read; **Slice 17 readiness/findings endpoints — latest snapshot, empty-state
+  null, cross-tenant null, read-only/405, latest-ordering**], and the intake spine [Sanad fail-closed source-count via the
   deferrable constraint, document composite-FK cross-project/cross-tenant rejection,
   accepted-document-only trigger, append-only, the §4.4 classification CHECK, RLS + cross-tenant],
   the readiness auditor [R0–R3 ladder, R3 = declared §4.3 technical trio, staging = R3 AND
@@ -500,7 +509,7 @@ the admin `app` role only.
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 152 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 228 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 235 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -509,7 +518,7 @@ make dev                                   # run API at http://localhost:8000
 `uaid_app` role (needs `RLS_DB_PASSWORD`), creates+migrates `app_test` **as admin**,
 then runs `-m db` with the runtime `uaid_app` connection. Migrations never run as
 `uaid_app`. Endpoints: `/health/live`, `/health/ready`, `/demo`, and the read-only
-`/api/projects/{id}/{runs,approvals,blockers,cost}` (require `Authorization: Bearer <key>`).
+`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` (require `Authorization: Bearer <key>`).
 
 ## Conventions to uphold (from the spec — non-negotiable, including in our own code)
 - **No fake done.** No placeholders/stubs/hardcoded outputs presented as real. Prefer
@@ -579,14 +588,19 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   scanning is best-effort/bypassable — the guarantee is data-not-instruction + quarantine, not
   detection. Deferred: Documentation Compiler (Phase 2), ML/embedding classification, LLM/RAG wiring,
   binary parsing, malware scanning, per-section quarantine, un-quarantine, Sanad wiring.**
-- Read API / dashboard (§18.6): **present (Slice 10)** — read-only JSON `/api` endpoints
-  (run state, open approvals, blockers, cost + stop decision) behind **hashed bearer-key tenant
+- Read API / dashboard (§18.6): **present (Slice 10 + Slice 17)** — read-only JSON `/api` endpoints
+  (run state, open approvals, blockers, cost + stop decision, **and — Slice 17 — the latest persisted
+  build-readiness (§4.5) and gap/contradiction findings snapshots**) behind **hashed bearer-key tenant
   auth** (D4: `tenant_api_keys` stores only `sha256:` hashes; missing/invalid/revoked ⇒ 401, no
   fallback). The auth dependency is the single HTTP→tenant boundary; all reads stay in
   `tenant_scope`/RLS (cross-tenant reads return nothing). **D4 hardened (migration 0013):** resolution
   is via a `SECURITY DEFINER` function (`api_key_resolver`-owned); `uaid_app` has EXECUTE-only access
-  and **no direct read of the key table**. **Deferred: forecast, critical path, readiness level,
-  evidence-pack status, high-risk findings, deployment status, next action; web UI; auth-event audit;
+  and **no direct read of the key table**. **Slice 17** = `GET /api/projects/{id}/{readiness,findings}`
+  returning the latest snapshot via `repo.latest` or `null` (never-evaluated / cross-tenant /
+  nonexistent all return `200` + `null` — no existence oracle); GET never computes or persists
+  (no `evaluate_and_record`); no migration, no LLM, no R4/R5. **Deferred: forecast, critical path,
+  evidence-pack status, deployment status, next action; readiness/findings *history* endpoints
+  (repos support it; not yet exposed); a write/trigger-evaluation endpoint; web UI; auth-event audit;
   HTTP key issuance (admin-path only); HMAC/salted key hashing.**
 - Everything else in the Phase 1–7 roadmap (§26) beyond Slices 1 / 1b / 2 / 3 / 4 / 5 / 6 / 7 / 8a / 8b / 9 / 10.
 
