@@ -34,7 +34,8 @@ requirement→AC→oracle coverage); secrets stay an R5 concern; go-live stays f
 monotonic; `ruleset_version="slice18.v1"`; no migration — merged via PR #25 (commit `f69da00`).**
 **Slice 19 adds read-only `GET /api/projects/{id}/{readiness,findings}/history` — the full persisted
 snapshot list (newest-first) via `repo.history`; empty/cross-tenant/nonexistent return `200` + `[]`;
-read-only, no pagination, no migration/LLM (closes the Slice 17 D-17-2 history deferral).**
+read-only, no pagination, no migration/LLM (closes the Slice 17 D-17-2 history deferral) — merged
+via PR #27 (commit `0b40c91`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
