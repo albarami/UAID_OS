@@ -331,3 +331,160 @@ async def test_uaid_app_resolver_execute_not_table_read(api_ctx, rls_engine):
     assert str(active) == str(api_ctx["ta"])  # active key resolves to its tenant
     assert unknown is None  # uniform NULL — no key-exists oracle
     assert revoked is None
+
+
+# --- DB-backed: Slice 17 — readiness + findings read endpoints ----------------
+
+
+async def _record_readiness(project_id, tenant_id):
+    """Persist one readiness snapshot via the repo (R0 over an empty spine is fine)."""
+    from app.repositories.readiness import ReadinessRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(tenant_id)
+    async with tenant_scope(ctx) as session:
+        _, row = await ReadinessRepository(session, ctx).evaluate_and_record(
+            project_id=project_id, actor="t"
+        )
+        return row.id
+
+
+async def _record_findings(project_id, tenant_id):
+    """Persist one findings snapshot via the repo (empty spine ⇒ G_NO_REQUIREMENTS gap)."""
+    from app.repositories.findings import FindingsRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(tenant_id)
+    async with tenant_scope(ctx) as session:
+        _, row = await FindingsRepository(session, ctx).evaluate_and_record(
+            project_id=project_id, actor="t"
+        )
+        return row.id
+
+
+@pytest.mark.db
+async def test_readiness_endpoint_returns_latest_snapshot(api_ctx):
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    report_id = await _record_readiness(pa, ta)
+    async with _client() as client:
+        r = await client.get(f"/api/projects/{pa}/readiness", headers=_auth(api_ctx["key_a"]))
+    assert r.status_code == 200
+    body = r.json()["readiness"]
+    assert body is not None
+    assert body["report_id"] == str(report_id)
+    assert set(body) >= {
+        "report_id",
+        "evaluated_at",
+        "readiness_level",
+        "can_build_to_staging",
+        "can_go_live_autonomously",
+        "report",
+    }
+    assert "evaluated_by" not in body  # D-17-1: internal label omitted
+    assert body["readiness_level"] == "R0"  # empty spine
+    assert body["can_go_live_autonomously"] is False
+    assert body["report"]["ruleset_version"]  # full §4.5 doc carried through
+
+
+@pytest.mark.db
+async def test_findings_endpoint_returns_latest_snapshot(api_ctx):
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    report_id = await _record_findings(pa, ta)
+    async with _client() as client:
+        r = await client.get(f"/api/projects/{pa}/findings", headers=_auth(api_ctx["key_a"]))
+    assert r.status_code == 200
+    body = r.json()["findings"]
+    assert body is not None
+    assert body["report_id"] == str(report_id)
+    assert set(body) >= {
+        "report_id",
+        "evaluated_at",
+        "gap_count",
+        "contradiction_count",
+        "report",
+    }
+    assert "evaluated_by" not in body  # D-17-1
+    assert body["gap_count"] >= 1  # empty spine ⇒ G_NO_REQUIREMENTS
+    assert "gaps" in body["report"] and "contradictions" in body["report"]
+
+
+@pytest.mark.db
+async def test_readiness_findings_empty_state_returns_null(api_ctx):
+    # pa has no snapshot recorded ⇒ honest 200 + null, not 404.
+    pa = api_ctx["pa"]
+    async with _client() as client:
+        rd = await client.get(f"/api/projects/{pa}/readiness", headers=_auth(api_ctx["key_a"]))
+        fn = await client.get(f"/api/projects/{pa}/findings", headers=_auth(api_ctx["key_a"]))
+    assert rd.status_code == 200 and rd.json() == {"readiness": None}
+    assert fn.status_code == 200 and fn.json() == {"findings": None}
+
+
+@pytest.mark.db
+async def test_readiness_findings_cross_tenant_denied(api_ctx):
+    # Record snapshots for tenant B's project; key A must not see them (200 + null),
+    # while key B sees its own — no cross-tenant leak, no existence oracle.
+    tb, pb = api_ctx["tb"], api_ctx["pb"]
+    await _record_readiness(pb, tb)
+    await _record_findings(pb, tb)
+    async with _client() as client:
+        rd_cross = await client.get(f"/api/projects/{pb}/readiness", headers=_auth(api_ctx["key_a"]))
+        fn_cross = await client.get(f"/api/projects/{pb}/findings", headers=_auth(api_ctx["key_a"]))
+        rd_own = await client.get(f"/api/projects/{pb}/readiness", headers=_auth(api_ctx["key_b"]))
+        fn_own = await client.get(f"/api/projects/{pb}/findings", headers=_auth(api_ctx["key_b"]))
+    assert rd_cross.status_code == 200 and rd_cross.json() == {"readiness": None}
+    assert fn_cross.status_code == 200 and fn_cross.json() == {"findings": None}
+    assert rd_own.status_code == 200 and rd_own.json()["readiness"] is not None
+    assert fn_own.status_code == 200 and fn_own.json()["findings"] is not None
+
+
+@pytest.mark.db
+async def test_readiness_findings_auth_deny_by_default(api_ctx):
+    for kind in ("readiness", "findings"):
+        path = f"/api/projects/{api_ctx['pa']}/{kind}"
+        async with _client() as client:
+            assert (await client.get(path)).status_code == 401  # missing
+            assert (await client.get(path, headers={"Authorization": "Basic x"})).status_code == 401
+            assert (await client.get(path, headers=_auth("uaidk_bogus"))).status_code == 401
+            assert (
+                await client.get(path, headers=_auth(api_ctx["key_revoked"]))
+            ).status_code == 401
+            # authorized request to the same path succeeds — proves auth, not path
+            assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
+
+
+@pytest.mark.db
+async def test_readiness_findings_are_read_only(api_ctx, admin_engine):
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    await _record_readiness(pa, ta)
+    await _record_findings(pa, ta)
+
+    async def _count(table: str) -> int:
+        async with admin_engine.connect() as c:
+            return (
+                await c.execute(
+                    text(f"SELECT count(*) FROM {table} WHERE tenant_id=:t"),
+                    {"t": ta},
+                )
+            ).scalar_one()
+
+    before = {t: await _count(t) for t in ("readiness_reports", "intake_findings_reports")}
+    async with _client() as client:
+        for kind in ("readiness", "findings"):
+            path = f"/api/projects/{pa}/{kind}"
+            assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
+            # write verb to a read-only path is rejected (405), no mutation
+            assert (await client.post(path, headers=_auth(api_ctx["key_a"]))).status_code == 405
+    # neither GET persists a new snapshot (no evaluate_and_record side effect, either table)
+    assert {t: await _count(t) for t in before} == before
+
+
+@pytest.mark.db
+async def test_readiness_returns_most_recent_snapshot(api_ctx):
+    # Two snapshots; the endpoint returns the most recent (created_at DESC, id DESC).
+    ta, pa = api_ctx["ta"], api_ctx["pa"]
+    await _record_readiness(pa, ta)
+    second_id = await _record_readiness(pa, ta)
+    async with _client() as client:
+        r = await client.get(f"/api/projects/{pa}/readiness", headers=_auth(api_ctx["key_a"]))
+    assert r.status_code == 200
+    assert r.json()["readiness"]["report_id"] == str(second_id)
