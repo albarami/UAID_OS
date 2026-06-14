@@ -1,4 +1,4 @@
-"""Read-only dashboard endpoints (Slice 10 + Slice 17 + Slice 19, §18.6). API-only JSON.
+"""Read-only dashboard endpoints (Slice 10 + Slice 17 + Slice 19 + Slice 21, §18.6). API-only JSON.
 
 Every endpoint requires a bearer API key (``require_tenant``), then opens
 ``tenant_scope`` so all reads pass through RLS. A ``project_id`` outside the caller's
@@ -6,16 +6,18 @@ tenant yields no rows (never another tenant's data). GET-only — no mutations.
 
 Covers the implemented §18.6 subset: run state, open approvals, blockers, cost
 consumed + stop decision, (Slice 17) the latest persisted build-readiness (§4.5)
-and gap/contradiction findings snapshots, and (Slice 19) their full snapshot
-**history**. Forecast / critical path / evidence-pack / deployment / next action are
-deferred (subsystems not built).
+and gap/contradiction findings snapshots, (Slice 19) their full snapshot **history**,
+and (Slice 21) the fail-closed A5 **production-autonomy** report. Forecast / critical
+path / evidence-pack / deployment / next action are deferred (subsystems not built).
 
-The readiness/findings ``latest`` endpoints return the latest persisted snapshot via
-``repo.latest``; the ``…/history`` endpoints return the full list (newest-first) via
-``repo.history`` — both read-only, tenant+project-scoped SELECTs that never compute or
-persist on a GET. For ``latest``: no snapshot, a cross-tenant ``project_id``, and a
-nonexistent project are indistinguishable (``200`` + ``null``). For ``history``: the same
-cases all return ``200`` + an empty list — no existence oracle either way.
+Two distinct read shapes, both GET-only and never mutating:
+- **readiness/findings (Slice 17/19)** — return **persisted snapshots**, no compute on GET.
+  ``…/readiness`` & ``…/findings`` (``repo.latest``): latest snapshot or ``null``.
+  ``…/{readiness,findings}/history`` (``repo.history``): the full list (newest-first) or ``[]``.
+  No-snapshot / cross-tenant / nonexistent are indistinguishable (``200`` + ``null``/``[]``).
+- **production_autonomy (Slice 21)** — **computed on read** (no persistence), always
+  non-authorizing: ``a5_satisfied``/``can_go_live_autonomously`` are always false. Returns a
+  report (never ``null``); cross-tenant/nonexistent yield a generic not-satisfied report (no leak).
 """
 
 import uuid
@@ -28,6 +30,7 @@ from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.repositories.cost import evaluate as cost_evaluate
 from app.repositories.documents import DocumentRepository
 from app.repositories.findings import FindingsRepository
+from app.repositories.production_autonomy import ProductionAutonomyRepository
 from app.repositories.readiness import ReadinessRepository
 from app.repositories.runs import RunRepository
 from app.tenancy import TenantContext, tenant_scope
@@ -174,3 +177,15 @@ async def project_findings_history(
     async with tenant_scope(context) as session:
         rows = await FindingsRepository(session, context).history(project_id)
         return {"findings_history": [_findings_dict(r) for r in rows]}
+
+
+@router.get("/projects/{project_id}/production_autonomy")
+async def project_production_autonomy(
+    project_id: uuid.UUID, context: TenantContext = Depends(require_tenant)
+) -> dict:
+    # Slice 21 — fail-closed, non-authorizing A5 evaluator. Computed on read (no persistence);
+    # always not-A5-satisfied, can_go_live_autonomously false. Cross-tenant/nonexistent yields a
+    # generic not-satisfied report (no leak), never null.
+    async with tenant_scope(context) as session:
+        report = await ProductionAutonomyRepository(session, context).evaluate(project_id)
+        return {"production_autonomy": report.to_dict()}
