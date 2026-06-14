@@ -40,7 +40,7 @@ via PR #27 (commit `0b40c91`).**
 (incl. the two new presence-only declarable gates `human_approval_policy` + `production_authority`)
 + the two engine gates (valid `autonomy_policies` row + positive `budgets` cap) = intake-package
 completeness. `can_go_live_autonomously` stays false (A5/Appendix-B is separate); migration `0020`
-expands the `intake_categories` CHECK to 22 categories; `ruleset_version="slice20.v1"`. In progress.**
+expands the `intake_categories` CHECK to 22 categories; `ruleset_version="slice20.v1"` — merged via PR #29 (commit `74f45ce`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
