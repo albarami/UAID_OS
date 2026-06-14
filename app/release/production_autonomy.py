@@ -1,29 +1,31 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + Slice 22, spec §5.1 + Appendix B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + Slice 22 + Slice 23, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
 (default ``{}``, serialized on every gate):
 
 - **Only gate #1 (R5 intake complete)** can ``pass`` today — and only when readiness is ``R5``.
-- The five partial-context gates (#2, #7, #8, #9, #12) return ``insufficient_evidence``: the system
-  has a *primitive* (an environment declaration; **the Slice-22 risk-acceptance store, gate #7**; AC
-  provenance; a cost stop-decision; the A5 policy enum + approval engine) but **no production-autonomy
-  evidence**, so they never pass. Gate #7 is ``insufficient_evidence:no_open_issue_store`` with
-  ``context.active_risk_acceptance_count`` — the count is context only and never authorizes go-live.
-- The seven sourceless gates (#3, #4, #5, #6, #10, #11, #13) return
-  ``no_evidence_source:<subsystem>`` — they await Phase 3/5/6 evidence subsystems.
+- The **seven** partial-context gates (#2, #5, #6, #7, #8, #9, #12) return ``insufficient_evidence``:
+  the system has a *primitive* (env declaration; **Slice-23 security findings store, #5**;
+  **Slice-23 shortcut findings store, #6**; **Slice-22 risk-acceptance store, #7**; AC provenance;
+  cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
+  they never pass. #5/#6 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
+  can't prove absence of findings without authoritative scan coverage); #7 is
+  ``insufficient_evidence:no_open_issue_store``. Their counts are context only and never authorize.
+- The **five** sourceless gates (#3, #4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
+  they await Phase 3/5/6 evidence subsystems.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
 ``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
 request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice22.v1``.
+production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice23.v1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-A5_RULESET_VERSION = "slice22.v1"
+A5_RULESET_VERSION = "slice23.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -98,6 +100,10 @@ def evaluate_production_autonomy(
     environments_declared: bool = False,
     generated_ac_provenance_ok: bool = False,
     active_risk_acceptance_count: int = 0,
+    open_security_finding_count: int = 0,
+    open_unaccepted_critical_security_finding_count: int = 0,
+    open_shortcut_finding_count: int = 0,
+    open_unaccepted_critical_shortcut_finding_count: int = 0,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -137,14 +143,34 @@ def evaluate_production_autonomy(
         {"active_risk_acceptance_count": active_risk_acceptance_count},
     )
 
+    # Slice 23: the security/shortcut finding STORES now exist, but authoritative scan coverage does
+    # not — an empty store can't prove "no findings exist". Gates #5/#6 move from no_evidence_source
+    # to insufficient_evidence; the counts are context only and never flip the status.
+    gate5 = _insufficient(
+        5, "no_unaccepted_critical_security_findings", "no_finding_provenance_or_scan_source",
+        {
+            "open_security_finding_count": open_security_finding_count,
+            "open_unaccepted_critical_security_finding_count":
+                open_unaccepted_critical_security_finding_count,
+        },
+    )
+    gate6 = _insufficient(
+        6, "no_unaccepted_critical_shortcut_findings", "no_finding_provenance_or_scan_source",
+        {
+            "open_shortcut_finding_count": open_shortcut_finding_count,
+            "open_unaccepted_critical_shortcut_finding_count":
+                open_unaccepted_critical_shortcut_finding_count,
+        },
+    )
+
     # Gates with no evidence source at all (await Phase 3/5/6 subsystems).
     gates = [
         gate1,
         gate2,
         _no_source(3, "branch_protection_and_required_checks_active", "ci_branch_protection"),
         _no_source(4, "all_critical_test_oracles_pass", "test_oracle_execution"),
-        _no_source(5, "no_unaccepted_critical_security_findings", "security_findings"),
-        _no_source(6, "no_unaccepted_critical_shortcut_findings", "shortcut_findings"),
+        gate5,
+        gate6,
         gate7,
         gate8,
         gate9,
