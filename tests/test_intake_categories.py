@@ -1,13 +1,14 @@
 """Slice 15 — intake category modeling (R3–R5 readiness foundation) tests.
 
-Docker-free: the three constants partition the §4.2 universe; declarable/secret/source
-validators; provenance XOR fail-closed; and a readiness INTERACTION check — Slices 16 and 18
-now consume these declared categories, so spine coverage WITHOUT any declared category still
-stays R2, the cap is now R4, and the R3-consumed (technical trio + environments) and
-R4-consumed (the two "tools" categories) drop out of NOT_ASSESSED_CATEGORIES.
-DB-backed (`db`): declare (doc/origin-backed) + audit safety (no summary/data/locator),
-accepted-doc pinning, uniqueness, revise + immutability guard, no-DELETE, RLS, catalog.
-This slice models INPUTS ONLY — it stores no secret values; Slices 16/18 read them.
+Docker-free: the three constants partition the §4.2 universe (3/22/2 after Slice 20);
+declarable/secret/source validators; provenance XOR fail-closed; and a readiness INTERACTION
+check — Slices 16/18/20 now consume these declared categories, so spine coverage WITHOUT any
+declared category still stays R2, the cap is now R5, and at R5 every category is consumed so
+NOT_ASSESSED_CATEGORIES is empty.
+DB-backed (`db`): declare (doc/origin-backed, incl. the two Slice-20 presence-only categories) +
+audit safety (no summary/data/locator), accepted-doc pinning, uniqueness, revise + immutability
+guard, no-DELETE, RLS, catalog; the DB CHECK accepts the 22-set and still rejects non-declarable.
+This slice models INPUTS ONLY — it stores no secret values; Slices 16/18/20 read them.
 """
 
 import uuid
@@ -41,7 +42,8 @@ def test_constants_partition_the_universe():
     gated = set(GATED_ENGINE_CATEGORIES)
     spine = set(SPINE_CATEGORIES)
     assert len(universe) == 27
-    assert len(decl) == 20 and len(gated) == 4 and len(spine) == 3
+    # Slice 20: human_approval_policy + production_authority became presence-only declarable.
+    assert len(decl) == 22 and len(gated) == 2 and len(spine) == 3
     # pairwise disjoint
     assert decl.isdisjoint(gated) and decl.isdisjoint(spine) and gated.isdisjoint(spine)
     # exact cover
@@ -49,8 +51,8 @@ def test_constants_partition_the_universe():
     # key anchors
     assert "architecture_and_technology_constraints" in decl  # architecture + stack
     assert "secrets_and_credentials_manifest" in decl
-    assert "production_authority" in gated
-    assert {"autonomy_policy", "human_approval_policy", "cost_and_resource_policy"} <= gated
+    assert {"human_approval_policy", "production_authority"} <= decl  # now declarable (Slice 20)
+    assert gated == {"autonomy_policy", "cost_and_resource_policy"}  # engine-read only
     assert spine == {"functional_requirements", "acceptance_criteria", "test_oracles"}
 
 
@@ -60,7 +62,8 @@ def test_constants_partition_the_universe():
 def test_validate_declarable_category():
     for c in DECLARABLE_INTAKE_CATEGORIES:
         validate_declarable_category(c)  # no raise
-    for bad in ("autonomy_policy", "production_authority", "functional_requirements", "bogus"):
+    # autonomy_policy + cost_and_resource_policy remain engine-read (not declarable); spine + bogus rejected.
+    for bad in ("autonomy_policy", "cost_and_resource_policy", "functional_requirements", "bogus"):
         with pytest.raises(InvalidCategory):
             validate_declarable_category(bad)
 
@@ -117,15 +120,15 @@ def test_non_secret_data_rejects_obvious_secret_keys():
     )
 
 
-# --- Docker-free: readiness interaction (Slices 16 + 18 supersede the Slice-15 R2 guards) ---
-# Slice 15 pinned the auditor at R2 / a 22-tuple to prove it didn't touch readiness.
-# Slice 16 lifts the cap to R3 (consuming the technical trio + environments) and Slice 18
-# lifts it to R4 (consuming the two "tools" categories), so those guards are replaced here with
-# the current contract: spine coverage WITHOUT any declared categories still stays R2, but the
-# cap is now R4 and the R3/R4-consumed categories are no longer in NOT_ASSESSED_CATEGORIES.
+# --- Docker-free: readiness interaction (Slices 16 + 18 + 20 supersede the Slice-15 R2 guards) ---
+# Slice 15 pinned the auditor at R2 / a 22-tuple to prove it didn't touch readiness. Slice 16 lifts
+# to R3 (technical trio + environments), Slice 18 to R4 (the two "tools" categories), and Slice 20
+# to R5 (all remaining declarable categories + the two engine gates). The current contract: spine
+# coverage WITHOUT any declared categories still stays R2; the cap is now R5; and at R5 the entire
+# §4.2 universe is consumed, so NOT_ASSESSED_CATEGORIES is empty.
 
 
-def test_readiness_without_declared_categories_stays_r2_cap_now_r4():
+def test_readiness_without_declared_categories_stays_r2_cap_now_r5():
     req = ArtifactView(id=uuid.uuid4(), kind="requirement", ref="REQ-1", title="r")
     ac = ArtifactView(
         id=uuid.uuid4(), kind="acceptance_criterion", ref="AC-1", title="a", parent_id=req.id
@@ -135,22 +138,23 @@ def test_readiness_without_declared_categories_stays_r2_cap_now_r4():
     )
     rep = evaluate_readiness("p", [req, ac, oracle], production_authority_decision="needs_approval")
     assert rep.readiness_level == "R2"  # no declared categories -> R2 base only
-    assert rep.readiness_cap == "R4"  # Slice 18: cap is now R4
+    assert rep.readiness_cap == "R5"  # Slice 20: cap is now R5
     assert rep.can_build_to_staging is False
     assert rep.can_go_live_autonomously is False
 
 
-def test_r3_r4_consumed_categories_no_longer_not_assessed():
-    # The categories now consumed (R3 trio + environments + R4 tools) must NOT appear in the
-    # not-assessed list; the derived list is 18 items (27 universe - 3 spine - 6 consumed).
-    assert len(NOT_ASSESSED_CATEGORIES) == 18
+def test_r5_consumes_entire_universe_so_not_assessed_is_empty():
+    # At R5 every §4.2 category is consumed by a rule (spine ladder + R3 + R4 + R5 + engine gates),
+    # so the not-assessed list is empty.
+    assert NOT_ASSESSED_CATEGORIES == ()
     for consumed in (
         "architecture_and_technology_constraints",
-        "data_model_and_contracts",
-        "user_journeys_and_workflows",
         "environments_and_deployment_targets",
         "integrations_and_external_systems",
         "tool_access_manifest",
+        "human_approval_policy",
+        "production_authority",
+        "go_live_checklist",
     ):
         assert consumed not in NOT_ASSESSED_CATEGORIES
 
@@ -255,6 +259,37 @@ async def test_declare_origin_backed(cat_ctx):
         )
         assert rec.origin == "human_decision"
         assert rec.source_document_id is None
+
+
+@pytest.mark.parametrize("category", ["human_approval_policy", "production_authority"])
+@pytest.mark.db
+async def test_slice20_new_declarable_categories_persist(cat_ctx, category):
+    # Slice 20: human_approval_policy + production_authority are now declarable (app + DB CHECK).
+    t1, p1 = cat_ctx["t1"], cat_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        rec = await IntakeCategoryRepository(session, ctx).declare(
+            project_id=p1, category=category, origin="human_decision", actor="planner",
+        )
+        assert rec.category == category and rec.status == "declared"
+
+
+@pytest.mark.db
+async def test_slice20_non_declarable_category_still_rejected_at_db(cat_ctx, admin_engine):
+    # autonomy_policy / cost_and_resource_policy stay engine-read: the DB CHECK must still reject them.
+    t1, p1 = cat_ctx["t1"], cat_ctx["p1"]
+    with pytest.raises(Exception) as ei:
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO intake_categories (tenant_id, project_id, category, status, origin) "
+                    "VALUES (:t,:p,'autonomy_policy','declared','x')"
+                ),
+                {"t": str(t1), "p": str(p1)},
+            )
+    assert "ck_intake_categories_category_valid" in str(ei.value) or "check constraint" in str(
+        ei.value
+    ).lower()
 
 
 @pytest.mark.db

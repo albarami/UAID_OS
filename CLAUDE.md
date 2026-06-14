@@ -36,6 +36,11 @@ monotonic; `ruleset_version="slice18.v1"`; no migration — merged via PR #25 (c
 snapshot list (newest-first) via `repo.history`; empty/cross-tenant/nonexistent return `200` + `[]`;
 read-only, no pagination, no migration/LLM (closes the Slice 17 D-17-2 history deferral) — merged
 via PR #27 (commit `0b40c91`).**
+**Slice 20 lifts the readiness auditor cap R4→R5: R5 = R4 base + ALL declarable categories declared
+(incl. the two new presence-only declarable gates `human_approval_policy` + `production_authority`)
++ the two engine gates (valid `autonomy_policies` row + positive `budgets` cap) = intake-package
+completeness. `can_go_live_autonomously` stays false (A5/Appendix-B is separate); migration `0020`
+expands the `intake_categories` CHECK to 22 categories; `ruleset_version="slice20.v1"`. In progress.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -69,13 +74,14 @@ proposals into canonical spine artifacts via `add_artifact` — promotion-time e
 re-verification + §16.5 assumption gating + idempotent append-only link (Phase 2,
 Slice 14b)**, **and a declarable intake-category model — the §4.2 categories
 recorded as provenance-backed, secret-safe declarations (R3–R5 readiness *foundation*, inputs
-only) (Phase 2, Slice 15)**, **and the Slice 16 R3 + Slice 18 R4 readiness rules that consume those
-declarations (R2 → R3 on the declared §4.3 technical trio; R3 → R4 on the two declared §4.3
-"tools" categories + zero spine gaps; staging = R3-or-R4 AND environments declared) — capping
-the auditor at R4**.
+only) (Phase 2, Slice 15)**, **and the Slice 16 R3 + Slice 18 R4 + Slice 20 R5 readiness rules that
+consume those declarations (R2 → R3 on the declared §4.3 technical trio; R3 → R4 on the two declared
+§4.3 "tools" categories + zero spine gaps; R4 → R5 on all declarable categories declared + the
+autonomy & cost engine gates; staging = R3/R4/R5 AND environments declared; go-live stays false even
+at R5) — capping the auditor at R5**.
 The rest of the engine described in the spec
-(**semantic** contradiction analysis, **R5 readiness rules** + the gated
-autonomy/approval/cost/production-authority engines, agent factory,
+(**semantic** contradiction analysis, **A5 / Appendix-B production autonomy** (the go-live authority
+gate) + the gated autonomy/approval/cost/production-authority **engines** themselves, agent factory,
 maker-checker-verifier, evidence packs, etc.) is **not** implemented. Do not assume any
 spec capability exists unless it is listed under "What exists" below.
 
@@ -266,42 +272,49 @@ the admin `app` role only.
   no build-readiness auditor (Slice 12), no gap/contradiction detector (Slice 13), no artifact
   generation, no API exposure.**
 - `app/intake/readiness.py` + `app/repositories/readiness.py` — deterministic build-readiness
-  auditor (Phase 2, Slice 12 base + **Slice 16 R3 rules** + **Slice 18 R4 rules**, §4.3/§4.4/§4.5).
+  auditor (Phase 2, Slice 12 base + **Slice 16 R3** + **Slice 18 R4** + **Slice 20 R5**, §4.3/§4.4/§4.5).
   `readiness.py` (pure, **no LLM**): `evaluate_readiness` reads a snapshot of spine artifacts **plus
   the Slice‑15 declared intake categories** (`CategoryDeclarationView(category, status)`) and emits the
-  §4.5 report, **fail-closed and capped at R4**. Ladder: R0 = no requirements; R1 = no valid
+  §4.5 report, **fail-closed and capped at R5**. Ladder: R0 = no requirements; R1 = no valid
   requirement→acceptance chain; R2 = ≥1 valid chain; **R3 = R2 base PLUS the three §4.3 technical
   categories declared** (`architecture_and_technology_constraints`, `data_model_and_contracts`,
   `user_journeys_and_workflows`); **R4 = R3 base PLUS the two §4.3 "tools" categories declared
-  (`integrations_and_external_systems`, `tool_access_manifest`) PLUS "tests available" = zero
-  `spine_gaps` (full requirement→AC→oracle coverage)** — secrets (17) excluded as an R5 concern.
-  Category rules check the presence of a provenance-backed declaration, not content quality. R5 requires
-  gated-engine completeness + environments/secrets/authority/approvals/go-live gates and is **out of
-  scope**. **Parent-kind validation does not trust the DB FK alone** — an acceptance criterion counts
-  only if its parent is a `requirement`, an oracle only if its parent is that `acceptance_criterion`;
-  orphan/wrong-kind links become `spine_gaps` and never raise the level. **`can_build_to_staging` is
-  true at R3 *or R4* AND when `environments_and_deployment_targets` is declared** (D‑3b, monotonic per
-  D‑R4‑3); **`can_go_live_autonomously` is always false** (capped < R5; gated categories unevaluated) —
-  both with exact recorded reasons (R4-without-env uses `r4_but_environments…_not_declared`). The
-  `report` carries the §4.5 keys + deterministic extensions (`readiness_cap`, `readiness_cap_reason`,
-  `not_assessed_categories` [**18 categories**], `spine_gaps`, **`missing_r3_categories`**,
-  **`missing_r4_categories`**, **`missing_r4_test_coverage`** [blocking spine_gaps dicts],
-  `production_authority_decision`, `ruleset_version="slice18.v1"`); `missing_for_go_live` also lists
-  `r3_category_not_declared:<category>` and `r4_category_not_declared:<category>`. `ReadinessRepository`
+  (`integrations_and_external_systems`, `tool_access_manifest`) PLUS zero `spine_gaps`** (secrets
+  excluded as an R5 concern); **R5 = R4 base PLUS ALL declarable categories declared (incl. the two
+  presence-only gates `human_approval_policy` + `production_authority`, reference-only secrets) PLUS
+  the two engine gates — a present+valid `autonomy_policies` row and a `budgets` row with
+  `max_total_cost_usd > 0`** (intake-package completeness). Category rules check the presence of a
+  provenance-backed declaration, not content quality. **Parent-kind validation does not trust the DB
+  FK alone** — an acceptance criterion counts only if its parent is a `requirement`, an oracle only if
+  its parent is that `acceptance_criterion`; orphan/wrong-kind links become `spine_gaps` and never
+  raise the level. **`can_build_to_staging` is true at R3/R4/R5 AND when
+  `environments_and_deployment_targets` is declared** (monotonic); **`can_go_live_autonomously` is
+  ALWAYS false — even at R5** — because go-live needs A5/Appendix-B authority (not evaluated) and
+  `production_authority` is presence-only, never an authorization. The `report` carries the §4.5 keys
+  + deterministic extensions (`readiness_cap`, `readiness_cap_reason`, `not_assessed_categories`
+  [**empty at R5** — the whole universe is assessed], `spine_gaps`, **`missing_r3_categories`**,
+  **`missing_r4_categories`**, **`missing_r4_test_coverage`**, **`missing_r5_categories`**,
+  **`missing_r5_gates`** [`autonomy_policy_absent_or_invalid` / `cost_budget_absent_or_zero`],
+  `production_authority_decision`, `ruleset_version="slice20.v1"`); `missing_for_go_live` also lists
+  `r3_/r4_/r5_category_not_declared:<category>` and `r5_gate_incomplete:<gate>`. `ReadinessRepository`
   (`evaluate`/`evaluate_and_record`/`latest`/`history`) reads the Slice‑15 declarations (D‑6: a
   doc-backed declaration counts only if its source document is still `accepted` — drops a
   later-quarantined source; same-project is enforced upstream by the `intake_categories` FK, with
-  a defense-in-depth check in the repo),
+  a defense-in-depth check in the repo), computes the **R5 engine gates** (autonomy: row exists AND
+  `validate_overrides` passes — validity, not mere existence, NOT inferred from `decision_for`; cost:
+  budget with positive cap),
   wires the **Slice‑3** autonomy policy via `decision_for(project_id, "deploy_production")` as
   **transparent context only** (mandatory-approval ⇒ `needs_approval`/`deny`, never authorization;
   never makes go-live true), and audits **safe metadata only — no assumption titles / report body**.
   `app/models/readiness_report.py` (`ReadinessReportRecord`, table `readiness_reports`): **tenant-owned,
-  RLS, append-only**; `readiness_level` CHECK allows R0..R5 (forward-compat); the code now emits
-  R0/R1/R2/R3/R4; `created_at` uses `clock_timestamp()` so same-transaction snapshots order
+  RLS, append-only**; `readiness_level` CHECK allows R0..R5; the code now emits
+  R0/R1/R2/R3/R4/R5; `created_at` uses `clock_timestamp()` so same-transaction snapshots order
   deterministically (`latest`/`history` order `created_at DESC, id DESC`). The latest snapshot is
-  read-only exposed at `GET /api/projects/{id}/readiness` (Slice 17). **Skeleton: deterministic
-  only — no LLM, no evidence pack, no new artifact kinds; R5 + gated-category completion out of
-  scope (no migration — `readiness_level` already allowed R0..R5).**
+  read-only exposed at `GET /api/projects/{id}/readiness` (Slice 17) + `…/readiness/history`
+  (Slice 19). **Skeleton: deterministic only — no LLM, no evidence pack, no new artifact kinds;
+  A5 / Appendix-B production autonomy (the go-live authority gate) is out of scope — go-live stays
+  false even at R5. Slice 20 adds migration `0020` (the `intake_categories` CHECK now allows 22
+  categories); no new table/engine.**
 - `app/intake/findings.py` + `app/repositories/findings.py` — deterministic gap & structural
   contradiction detector (Phase 2, Slice 13, §4.4/§14.4/§16.5). `findings.py` (pure, **no LLM**,
   **no semantic analysis**): `StructuralArtifactView` carries **only** structural fields
@@ -364,9 +377,10 @@ the admin `app` role only.
   — declarable intake-category model (Phase 2, Slice 15, §4.2/§4.3/Appendix A). `categories.py` (pure):
   partitions the **authoritative §4.2 26-file universe** (+ Appendix‑A `production_authority`) into three
   disjoint sets — `SPINE_CATEGORIES` (3, already `intake_artifacts` kinds), `GATED_ENGINE_CATEGORIES`
-  (4: `autonomy_policy`/`human_approval_policy`/`cost_and_resource_policy`/`production_authority` —
-  evaluated later from Slices 3/4/7 + the policy matrix, **not** declarable and **not** verified-complete),
-  `DECLARABLE_INTAKE_CATEGORIES` (20). File 14 `architecture_and_technology_constraints` = architecture +
+  (**2** after Slice 20: `autonomy_policy`/`cost_and_resource_policy` — engine-read from Slices 3/7 for
+  the R5 gates, **not** declarable), `DECLARABLE_INTAKE_CATEGORIES` (**22** — Slice 20 made
+  `human_approval_policy` + `production_authority` declarable as presence-only, non-authorizing).
+  File 14 `architecture_and_technology_constraints` = architecture +
   stack. Validators: declarable-only category; non-secret `data` (secrets = reference-only
   `{manager, reference_name}`, inline values rejected); **source XOR** (document+locator+no-origin vs
   origin-only), fail-closed. `IntakeCategoryRepository` (`declare`/`revise`/`list_categories`/`get_category`)
@@ -376,11 +390,10 @@ the admin `app` role only.
   category)`; source-XOR + bounds CHECKs; guard trigger (accepted-source-doc + immutable
   `id`/`tenant_id`/`project_id`/`category`/`created_at`); **no DELETE/TRUNCATE**; `data` JSONB;
   SELECT/INSERT/UPDATE grants. **Skeleton: inputs only — Slice 15 itself adds no readiness computation.
-  The rules that consume these declarations landed later: Slice 16 consumes the three R3 technical
-  categories (+ the environments staging gate); Slice 18 consumes the two R4 "tools" categories
-  (`integrations_and_external_systems`, `tool_access_manifest`). No HTTP endpoint, no LLM, no secret
-  values, no new spine kinds; gated categories + R5/gated-engine completeness remain deferred to a
-  later engine-reading readiness slice.**
+  The rules that consume these declarations landed later: Slice 16 (R3 technical trio + environments
+  staging gate), Slice 18 (the two R4 "tools" categories), Slice 20 (all remaining declarable categories
+  for R5, including the two presence-only gates, + the autonomy/cost engine gates). No HTTP endpoint, no
+  LLM, no secret values, no new spine kinds; A5/Appendix-B production autonomy remains deferred.**
 - `migrations/` — Alembic (async `env.py`; URL = `ALEMBIC_DATABASE_URL` → `admin_database_url`,
   **admin only — never `uaid_app`**). `0001` (spine); `0002` (ENABLE+FORCE RLS on
   `projects`/`project_runs`, deny-by-default `tenant_isolation` policy, grants to `uaid_app`);
@@ -444,7 +457,10 @@ the admin `app` role only.
   additive `extraction_proposals` `UNIQUE(id, project_id, tenant_id)` + **tenant-owned, append-only**
   `extraction_promotions` [composite FKs → `extraction_proposals` and `intake_artifacts`;
   `UNIQUE(tenant_id, extraction_proposal_id)` promote-once; ENABLE+FORCE RLS + `tenant_isolation`;
-  SELECT/INSERT only + UPDATE/DELETE/TRUNCATE block triggers]).
+  SELECT/INSERT only + UPDATE/DELETE/TRUNCATE block triggers]); `0020_r5_declarable_categories.py`
+  (Slice 20: drops+recreates the `ck_intake_categories_category_valid` CHECK to allow the 22-category
+  set — adds `human_approval_policy` + `production_authority`; no new table/column/grant/trigger;
+  downgrade restores the 20-set).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -473,7 +489,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 160 passing (Docker-free); `make test-db` → 243 passing (DB-backed: tenancy,
+  **`make test` → 173 passing (Docker-free); `make test-db` → 250 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -483,11 +499,13 @@ the admin `app` role only.
   latest+history coexistence**], and the intake spine [Sanad fail-closed source-count via the
   deferrable constraint, document composite-FK cross-project/cross-tenant rejection,
   accepted-document-only trigger, append-only, the §4.4 classification CHECK, RLS + cross-tenant],
-  the readiness auditor [R0–R4 ladder, R3 = declared §4.3 technical trio, **R4 = declared §4.3 tools
-  pair + zero spine gaps** (Slice 18), staging = R3-or-R4 AND environments declared (monotonic),
-  always-false go-live, D-6 stale-source exclusion (quarantined source drops R3→R2 and, for R4 tools,
-  R4→R3; same-project pinning enforced upstream by the intake-category DB FK),
-  deploy_production wiring, deterministic latest/history, RLS, append-only], and the
+  the readiness auditor [R0–R5 ladder, R3 = declared §4.3 technical trio, **R4 = declared §4.3 tools
+  pair + zero spine gaps** (Slice 18), **R5 = all declarable categories declared + the autonomy &
+  cost engine gates** (Slice 20; repo reads real `autonomy_policies`/`budgets` rows — present+valid
+  autonomy [invalid overrides ⇒ fail], positive budget), staging = R3/R4/R5 AND environments declared
+  (monotonic), always-false go-live (even at R5 — A5/Appendix-B separate), D-6 stale-source exclusion
+  (quarantined source drops R3→R2 and, for R4 tools, R4→R3; same-project pinning enforced upstream by
+  the intake-category DB FK), deploy_production wiring, deterministic latest/history, RLS, append-only], and the
   gap/contradiction detector [taxonomy incl. generic
   C_SELF_PARENT, content-safe refs-only report + counts-only audit, RLS, append-only, count CHECKs],
   and the LLM extractor [FakeLLMClient only — no network; projected-cost preflight gating
@@ -497,8 +515,9 @@ the admin `app` role only.
   promotion [eligibility + idempotency, promotion-time evidence re-verification, test_oracle/non-AC-parent
   refusal, parent validation, §16.5 assumption gating incl. approval-engine, approval-request idempotency
   + payload/audit safety, RLS, append-only], and intake category modeling [universe partition
-  3/20/4, declarable/secret/source-XOR validators, readiness interaction (no declared categories ⇒ R2,
-  cap now R3, R3-consumed categories drop from not-assessed), accepted-doc
+  3/22/2 (Slice 20: human_approval_policy + production_authority now declarable; DB CHECK accepts
+  them, non-declarable still rejected), declarable/secret/source-XOR validators, readiness interaction
+  (no declared categories ⇒ R2, cap now R5, every category consumed ⇒ not-assessed empty), accepted-doc
   pinning, immutable keys, no-DELETE/TRUNCATE, RLS, catalog]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
@@ -533,8 +552,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 160 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 243 passing
+make test                                  # Docker-free tests (no services) — 173 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 250 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
