@@ -8,8 +8,12 @@ satisfied" with ``can_go_live_autonomously`` hard-false. Run inside ``tenant_sco
 Inputs read for the gates:
 - gate #1: the **current** readiness level via ``ReadinessRepository.evaluate`` (no persisted
   snapshot required);
-- partial-context booleans (recorded, never gate-passing): an ``autonomy_policies`` row exists, a
-  ``budgets`` row exists, and the ``environments_and_deployment_targets`` category is declared.
+- partial-context signals (recorded, never gate-passing): an ``autonomy_policies`` row exists, a
+  ``budgets`` row exists, the ``environments_and_deployment_targets`` category is declared, and
+  (gate #7, Slice 22) ``RiskAcceptanceRepository.count_active_nonblocking`` — the active
+  risk-acceptance count, surfaced as ``context.active_risk_acceptance_count``. Gate #7 stays
+  ``insufficient_evidence:no_open_issue_store`` regardless (no issue store yet); nothing here
+  authorizes go-live.
 """
 
 import uuid
@@ -24,6 +28,7 @@ from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.cost import BudgetRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
+from app.repositories.risk_acceptance import RiskAcceptanceRepository
 from app.tenancy import TenantContext
 
 _ENV_CATEGORY = "environments_and_deployment_targets"
@@ -51,10 +56,14 @@ class ProductionAutonomyRepository:
         environments_declared = any(
             c.category == _ENV_CATEGORY and c.status == "declared" for c in categories
         )
+        active_risk_acceptance_count = await RiskAcceptanceRepository(
+            self.session, self.context
+        ).count_active_nonblocking(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
             autonomy_policy_present=autonomy is not None,
             cost_policy_present=budget is not None,
             environments_declared=environments_declared,
+            active_risk_acceptance_count=active_risk_acceptance_count,
         )

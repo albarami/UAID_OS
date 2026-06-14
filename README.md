@@ -406,26 +406,51 @@ auditor is now **capped at R5** (A5/Appendix-B production autonomy still out of 
   spine kinds; the R3/R4/R5 rules consuming these declarations live in Slices 16/18/20, and A5/Appendix-B
   production autonomy remains deferred (go-live stays false even at R5).**
 
-## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slice 21, §5.1 / Appendix B)
+## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slice 21 + Slice 22, §5.1 / App. B)
 `app/release/production_autonomy.py` + `app/repositories/production_autonomy.py` add a **pure,
 deterministic, fail-closed** evaluator that scores the **13 Appendix-B A5 gates** and emits a
 `production_autonomy` report (separate from the R5 readiness report). It is **non-authorizing**: it
 never deploys, never approves, and **never sets `can_go_live_autonomously` true**.
 - Each gate has `status ∈ {passed, insufficient_evidence, no_evidence_source}` (subsystem detail in
-  `reason`). **Only gate #1 (R5 intake complete) can pass** (when readiness is R5). Gates #2/#8/#9/#12
-  have partial *context* primitives only and return `insufficient_evidence` (they never pass); the
-  other eight return `no_evidence_source:<subsystem>` and await Phase 3/5/6 evidence subsystems
-  (CI/branch-protection, test-oracle execution, security findings, shortcut findings, risk-acceptance
-  records, rollback verification, monitoring, emergency stop).
+  `reason`; every gate also carries a `context` dict, default `{}`). **Only gate #1 (R5 intake
+  complete) can pass** (when readiness is R5). Gates #2/#7/#8/#9/#12 have partial *context* primitives
+  only and return `insufficient_evidence` (they never pass) — **#7 (risk-acceptance) is
+  `insufficient_evidence:no_open_issue_store` with `context.active_risk_acceptance_count`** since
+  Slice 22 added the store but no open-issue store exists; the other seven return
+  `no_evidence_source:<subsystem>` and await Phase 3/5/6 evidence subsystems (CI/branch-protection,
+  test-oracle execution, security findings, shortcut findings, rollback verification, monitoring,
+  emergency stop).
 - `a5_satisfied` (all 13 passed) is impossible this slice; `can_go_live_autonomously` is **hard-false
   always** — go-live additionally needs a request-authenticated, verified A5 pre-approval that does
   not exist yet. `deploy_production` stays mandatory-approval / never auto-ALLOW.
 - **Compute-on-read, no persistence, no migration:** `ProductionAutonomyRepository.evaluate` reads
-  current state (readiness level + autonomy/budget/category context) via tenant-scoped repos inside
-  `tenant_scope`/RLS and runs the pure engine — it writes nothing. Read-only at
+  current state (readiness level + autonomy/budget/category/risk-acceptance context) via tenant-scoped
+  repos inside `tenant_scope`/RLS and runs the pure engine — it writes nothing. Read-only at
   `GET /api/projects/{id}/production_autonomy`; cross-tenant/nonexistent yields a generic
-  not-satisfied report (no leak). `ruleset_version = "slice21.v1"`.
-- **Out of scope:** any real evidence subsystem, request-auth, persistence/history, LLM, actual deploy.
+  not-satisfied report (no leak). `ruleset_version = "slice22.v1"`.
+- **Out of scope:** any real evidence subsystem (beyond the risk-acceptance store), request-auth,
+  persistence/history, LLM, actual deploy.
+
+## Risk-acceptance records — deterministic, tenant-owned store (Slice 22, §24.1 / §27.10)
+`app/release/risk_acceptance.py` + `app/repositories/risk_acceptance.py` add the first real A5
+evidence source: a signed acceptance of a known, **non-blocking** open issue so a release may proceed
+(§24.1). Fail-closed and **non-authorizing** — it never enables go-live.
+- **Validation:** required §27.10/§24.1 fields (incl. `expiry_date` — no indefinite waiver);
+  `accepted_by` non-empty; `approval_authority_source == "approval_matrix"`; severity enum.
+- **Hard refusals (§24.1):** `critical_security_blocker`, `fake_done_finding`,
+  `missing_production_rollback`, `missing_regulated_or_safety_authority` are **rejected at store time
+  and never counted** — the spec's human-authority override needs verified authority + an
+  autonomy-override path that do not exist yet, so they are blocked outright.
+- **Unverified signer:** `approver_provenance = "caller_supplied_unverified"` — these are not verified
+  human signatures until request-auth exists.
+- **Lifecycle:** one-way `active → expired | revoked | superseded`; expiry computed on demand; expired
+  never counts. `risk_acceptance_records` (RLS; **no DELETE**; guard trigger so only `status`/
+  `updated_at` are mutable) + append-only `risk_acceptance_events` (migration `0021`). Audit records
+  safe metadata only (ids/severity/status — never reason/business-impact/evidence prose).
+- **A5 hook:** feeds gate #7 (`context.active_risk_acceptance_count`) but the gate stays
+  `insufficient_evidence:no_open_issue_store` — it can never pass without an issue/findings store.
+- **Out of scope:** issue/release entities, request-auth/verified signature, evidence-pack, go-live,
+  LLM, and any HTTP API (no operator endpoint this slice).
 
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
