@@ -41,6 +41,12 @@ via PR #27 (commit `0b40c91`).**
 + the two engine gates (valid `autonomy_policies` row + positive `budgets` cap) = intake-package
 completeness. `can_go_live_autonomously` stays false (A5/Appendix-B is separate); migration `0020`
 expands the `intake_categories` CHECK to 22 categories; `ruleset_version="slice20.v1"` — merged via PR #29 (commit `74f45ce`).**
+**Slice 21 adds a fail-closed, NON-AUTHORIZING A5 production-autonomy evaluator skeleton
+(`app/release/production_autonomy.py`) + read-only `GET /api/projects/{id}/production_autonomy`:
+scores the 13 Appendix-B gates — only gate #1 (R5 intake) can pass; #2/#8/#9/#12 are
+`insufficient_evidence` (partial context only); the other 8 are `no_evidence_source:<subsystem>`.
+`a5_satisfied` and `can_go_live_autonomously` are ALWAYS false; compute-on-read (no table, no
+migration, no persistence); `ruleset_version="slice21.v1"`. In progress.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -111,14 +117,17 @@ the admin `app` role only.
   row) on a **plain pre-tenant session**, returns `TenantContext`; missing/malformed/unknown/
   revoked ⇒ **401, no fallback tenant**. `dashboard.py`: GET-only, project-scoped endpoints
   (`/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` + the Slice 19
-  `readiness/history` & `findings/history`) that open `tenant_scope`
+  `readiness/history` & `findings/history` + the Slice 21 `production_autonomy`) that open `tenant_scope`
   and read via existing repos — a cross-tenant `project_id` yields nothing (RLS). **Slice 17** added
   `readiness`/`findings`: each returns the **latest persisted snapshot** via `repo.latest`
   (read-only SELECT) or `null` — never-evaluated, cross-tenant, and nonexistent `project_id` are
   indistinguishable (`200` + `null`, no existence oracle); a GET never computes or persists.
   **Slice 19** added `…/readiness/history` & `…/findings/history`: the full snapshot list
   (newest-first, same per-element shape) via `repo.history`; empty/cross-tenant/nonexistent all
-  return `200` + `[]` (no leak, no pagination this slice). `app/repositories/api_keys.py`:
+  return `200` + `[]` (no leak, no pagination this slice). **Slice 21** added `…/production_autonomy`:
+  the fail-closed A5 report computed on read (no persistence); always `a5_satisfied:false` +
+  `can_go_live_autonomously:false`; cross-tenant/nonexistent yield a generic not-satisfied report
+  (no leak). `app/repositories/api_keys.py`:
   `TenantApiKeyRepository` (admin `issue`/`revoke`; runtime `resolve`); raw key generated with
   `secrets.token_urlsafe(32)`, **only the `sha256:` hash stored**, raw returned once. **D4 hardening
   (migration 0013):** `resolve` calls the **`SECURITY DEFINER`** function `resolve_tenant_api_key(hash)`
@@ -333,7 +342,23 @@ the admin `app` role only.
   `intake_findings_reports`): **tenant-owned, RLS, append-only**; `gap_count`/`contradiction_count`
   `CHECK >= 0`; `created_at` `clock_timestamp()`. The findings detector is kept **separate** from
   `readiness.py` (no consolidation). **Skeleton: descriptive only — no readiness claims, no semantic contradiction
-  analysis, no LLM, no evidence pack, no new artifact kinds, no HTTP/API endpoint.**
+  analysis, no LLM, no evidence pack, no new artifact kinds.** Latest + history snapshots are read-only
+  exposed at `GET /api/projects/{id}/findings` + `…/findings/history` (Slices 17/19).
+- `app/release/production_autonomy.py` + `app/repositories/production_autonomy.py` — **fail-closed,
+  non-authorizing A5 production-autonomy evaluator skeleton** (Phase ahead, Slice 21, spec §5.1 +
+  Appendix B). `production_autonomy.py` (pure, no I/O, no LLM): `evaluate_production_autonomy` scores
+  the **13 Appendix-B gates** with status ∈ `{passed, insufficient_evidence, no_evidence_source}`
+  (subsystem detail in `reason`). **Only gate #1 (R5 intake) can pass**; #2/#8/#9/#12 are
+  `insufficient_evidence` (partial *context* primitives — env declaration, AC provenance, cost
+  stop-decision, A5 policy enum + approval engine — that never pass a gate); the other 8 are
+  `no_evidence_source:<subsystem>` (await Phase 3/5/6). `a5_satisfied` (all-13-passed) and
+  **`can_go_live_autonomously` are ALWAYS false** — go-live also needs a request-authenticated A5
+  pre-approval (not implemented); this module never authorizes production. `ProductionAutonomyRepository`
+  (`evaluate`, **compute-on-read, no persistence, no table/migration**) reads current state via the
+  readiness/autonomy/budget/category repos inside `tenant_scope`/RLS; cross-tenant/nonexistent yields a
+  generic not-satisfied report (no leak). Read-only exposed at `GET /api/projects/{id}/production_autonomy`
+  (Slice 21). **Skeleton: scores gate structure only — builds no evidence subsystem (CI/test-exec/
+  findings/rollback/monitoring/emergency-stop), no go-live, no LLM, no migration.**
 - `app/llm/` + `app/intake/extraction.py` + `app/repositories/extraction.py` — LLM-assisted
   extractor (Phase 2, Slice 14a, §2.1/§2.2/§2.4/§16.3/§16.5/§19). **The first real LLM integration;
   the model produces only inert proposals that a human must approve — it never writes authoritative
@@ -489,7 +514,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 173 passing (Docker-free); `make test-db` → 250 passing (DB-backed: tenancy,
+  **`make test` → 196 passing (Docker-free); `make test-db` → 257 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -552,8 +577,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 173 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 250 passing
+make test                                  # Docker-free tests (no services) — 196 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 257 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -563,7 +588,7 @@ make dev                                   # run API at http://localhost:8000
 then runs `-m db` with the runtime `uaid_app` connection. Migrations never run as
 `uaid_app`. Endpoints: `/health/live`, `/health/ready`, `/demo`, and the read-only
 `/api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}` plus
-`…/{readiness,findings}/history` (require `Authorization: Bearer <key>`).
+`…/{readiness,findings}/history` and `…/production_autonomy` (require `Authorization: Bearer <key>`).
 
 ## Conventions to uphold (from the spec — non-negotiable, including in our own code)
 - **No fake done.** No placeholders/stubs/hardcoded outputs presented as real. Prefer
