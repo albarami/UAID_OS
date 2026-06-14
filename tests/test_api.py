@@ -629,3 +629,56 @@ async def test_latest_and_history_coexist(api_ctx):
         )
     assert latest.status_code == 200 and latest.json()["readiness"] is not None
     assert history.status_code == 200 and len(history.json()["readiness_history"]) == 1
+
+
+# --- DB-backed: Slice 21 — A5 production-autonomy endpoint ---------------------
+
+
+@pytest.mark.db
+async def test_production_autonomy_endpoint_returns_report(api_ctx):
+    pa = api_ctx["pa"]  # empty project ⇒ readiness R0 ⇒ generic not-satisfied report (never null)
+    async with _client() as client:
+        r = await client.get(
+            f"/api/projects/{pa}/production_autonomy", headers=_auth(api_ctx["key_a"])
+        )
+    assert r.status_code == 200
+    body = r.json()["production_autonomy"]
+    assert body is not None
+    assert body["a5_satisfied"] is False
+    assert body["can_go_live_autonomously"] is False
+    assert len(body["gates"]) == 13
+    assert body["ruleset_version"] == "slice21.v1"
+
+
+@pytest.mark.db
+async def test_production_autonomy_auth_deny_by_default(api_ctx):
+    path = f"/api/projects/{api_ctx['pa']}/production_autonomy"
+    async with _client() as client:
+        assert (await client.get(path)).status_code == 401
+        assert (await client.get(path, headers={"Authorization": "Basic x"})).status_code == 401
+        assert (await client.get(path, headers=_auth("uaidk_bogus"))).status_code == 401
+        assert (await client.get(path, headers=_auth(api_ctx["key_revoked"]))).status_code == 401
+        assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
+
+
+@pytest.mark.db
+async def test_production_autonomy_cross_tenant_no_leak(api_ctx):
+    # key A on tenant B's project ⇒ 200 with a generic not-satisfied report (no B data, gate #1 not passed).
+    pb = api_ctx["pb"]
+    async with _client() as client:
+        r = await client.get(
+            f"/api/projects/{pb}/production_autonomy", headers=_auth(api_ctx["key_a"])
+        )
+    assert r.status_code == 200
+    body = r.json()["production_autonomy"]
+    assert body["a5_satisfied"] is False
+    gate1 = next(g for g in body["gates"] if g["number"] == 1)
+    assert gate1["status"] != "passed"
+
+
+@pytest.mark.db
+async def test_production_autonomy_read_only(api_ctx):
+    path = f"/api/projects/{api_ctx['pa']}/production_autonomy"
+    async with _client() as client:
+        assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
+        assert (await client.post(path, headers=_auth(api_ctx["key_a"]))).status_code == 405
