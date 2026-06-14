@@ -231,7 +231,7 @@ artifact title/body/data**. `documents` gains an additive `UNIQUE(id, project_id
 the composite-FK target. **Slice 11 is deterministic only — no LLM/classifier/extractor, no
 build-readiness auditor, no gap/contradiction detector, no artifact generation, and no API exposure.**
 
-## Build-readiness auditor (Phase 2, Slice 12 base + Slice 16 R3 + Slice 18 R4 rules — §4.3 / §4.4 / §4.5)
+## Build-readiness auditor (Phase 2, Slice 12 base + Slice 16 R3 + Slice 18 R4 + Slice 20 R5 — §4.3 / §4.4 / §4.5)
 `app/intake/readiness.py` + `app/repositories/readiness.py` add a **deterministic (no-LLM),
 fail-closed** auditor that reads the Slice‑11 intake spine **plus the Slice‑15 declared intake
 categories** and emits the **§4.5 intake validation report**, persisted as an **immutable
@@ -248,37 +248,48 @@ tenant-owned snapshot** (`readiness_reports`).
   `integrations_and_external_systems` and `tool_access_manifest` — **declared**, **plus** "tests
   available" = **zero `spine_gaps`** (every requirement has a valid acceptance criterion, every valid
   acceptance criterion has a valid test oracle, no invalid parent chains). Secrets
-  (`secrets_and_credentials_manifest`) are **excluded** — an R5 concern, keeping the R4/R5 boundary
-  crisp. The auditor is now **capped at R4**: R5 requires gated-engine completeness plus
-  environments/secrets/authority/approvals/go-live gates that are **not yet evaluated**.
+  (`secrets_and_credentials_manifest`) are **excluded** at R4 — an R5 concern, keeping the R4/R5
+  boundary crisp.
+- **R5 (Slice 20).** The R4 base **plus** **all** declarable §4.2 categories declared (including the
+  reference-only `secrets_and_credentials_manifest` and the two Slice‑20 presence-only gates
+  `human_approval_policy` + `production_authority`), **plus** the two **engine gates**: a present and
+  valid autonomy policy (`autonomy_policies` row whose overrides validate — validity, not mere
+  existence, and **not** inferred from `decision_for("deploy_production")`) and a positive cost budget
+  (`budgets.max_total_cost_usd > 0`). This is **intake-package completeness**. The auditor is now
+  **capped at R5**; production autonomy (**A5 / Appendix B** — the go-live authority gate) is separate
+  and **not** evaluated, so `can_go_live_autonomously` stays **false even at R5** and the
+  `production_authority` declaration is presence-only, never an authorization.
 - **Parent-kind validation does not trust the DB FK alone:** an acceptance criterion counts only
   if its parent **is a requirement**, an oracle only if its parent **is that acceptance criterion**;
   orphan/wrong-kind links become `spine_gaps` and never satisfy coverage.
-- **`can_build_to_staging`** is true at **R3 or R4 AND** when `environments_and_deployment_targets`
-  is declared (the D‑3b staging facet, extended to R4 monotonically per D‑R4‑3), with an exact
-  recorded reason (R4-without-env uses its own `r4_but_environments…_not_declared` reason).
-  **`can_go_live_autonomously` is always false** (capped below R5; gated categories unevaluated),
-  with recorded reasons. The auditor wires the Slice‑3 autonomy policy via
-  `decision_for(project_id, "deploy_production")` purely as transparent context
-  (`production_authority_decision`) — `deploy_production` is mandatory-approval, so it returns
-  `needs_approval`/`deny`, **never** authorization, and can never make go-live true.
-- A doc-backed category declaration counts toward R3/R4 only if its source document is still
+- **`can_build_to_staging`** is true at **R3/R4/R5 AND** when `environments_and_deployment_targets`
+  is declared (the D‑3b staging facet, extended monotonically), with an exact recorded reason.
+  **`can_go_live_autonomously` is always false — even at R5** — because go-live needs A5/Appendix-B
+  authority (not evaluated) and `production_authority` is presence-only, never an authorization. The
+  auditor wires the Slice‑3 autonomy policy via `decision_for(project_id, "deploy_production")` purely
+  as transparent context (`production_authority_decision`) — mandatory-approval, so it returns
+  `needs_approval`/`deny`, **never** authorization, and never gates R5 or go-live.
+- A doc-backed category declaration counts toward R3/R4/R5 only if its source document is still
   `accepted` (the D‑6 fail-closed exclusion of a later-quarantined source — applied generically to
   every declared category, so a quarantined R4-tool source drops R4→R3). Same-project pinning is
   enforced upstream at declaration time by the `intake_categories` composite FK; the auditor's
   same-project check is defense-in-depth.
+- **R5 engine gates** are read from real engine state: autonomy = an `autonomy_policies` row exists
+  **and** its overrides validate (validity, not mere existence); cost = a `budgets` row with
+  `max_total_cost_usd > 0`. Either gate failing keeps the project at R4.
 - The `report` JSON carries the §4.5 keys plus deterministic extensions (`readiness_cap`,
-  `readiness_cap_reason`, `not_assessed_categories` [18 categories], `spine_gaps`,
-  `missing_r3_categories`, `missing_r4_categories`, `missing_r4_test_coverage` [blocking
-  `spine_gaps` dicts], `production_authority_decision`, `ruleset_version` = `slice18.v1`);
-  `missing_for_go_live` additionally lists `r3_category_not_declared:<category>` and
-  `r4_category_not_declared:<category>` entries. The audit log records **safe metadata only** (no
-  assumption titles / report body). `readiness_reports` is tenant-owned, RLS ENABLE+FORCE,
-  **append-only** (`SELECT, INSERT` only; UPDATE/DELETE/TRUNCATE blocked); `created_at` uses
-  `clock_timestamp()` so same-transaction snapshots order deterministically.
-  **Still deterministic only — no LLM, no evidence pack, no new artifact kinds; R5 and
-  gated-category completion are out of scope.** The latest snapshot is read-only exposed over HTTP
-  at `GET /api/projects/{id}/readiness` (Slice 17 — read-only, no compute/persist on GET).
+  `readiness_cap_reason`, `not_assessed_categories` [**empty at R5** — whole universe assessed],
+  `spine_gaps`, `missing_r3_categories`, `missing_r4_categories`, `missing_r4_test_coverage`,
+  `missing_r5_categories`, `missing_r5_gates` [`autonomy_policy_absent_or_invalid` /
+  `cost_budget_absent_or_zero`], `production_authority_decision`, `ruleset_version` = `slice20.v1`);
+  `missing_for_go_live` additionally lists `r3_/r4_/r5_category_not_declared:<category>` and
+  `r5_gate_incomplete:<gate>` entries. The audit log records **safe metadata only** (no assumption
+  titles / report body). `readiness_reports` is tenant-owned, RLS ENABLE+FORCE, **append-only**
+  (`SELECT, INSERT` only; UPDATE/DELETE/TRUNCATE blocked); `created_at` uses `clock_timestamp()` so
+  same-transaction snapshots order deterministically. **Still deterministic only — no LLM, no
+  evidence pack, no new artifact kinds; A5/Appendix-B production autonomy is out of scope (go-live
+  stays false).** The latest snapshot is read-only exposed over HTTP at
+  `GET /api/projects/{id}/readiness` + `…/readiness/history` (Slices 17/19).
 
 ## Gap & contradiction detector (Phase 2, Slice 13 — §4.4 / §14.4 / §16.5)
 `app/intake/findings.py` + `app/repositories/findings.py` add a **deterministic (no-LLM, no
@@ -369,14 +380,15 @@ readiness auditor consumes for R3+. **Slice 15 added these inputs only;** the ru
 landed later (see the build-readiness auditor above): **Slice 16 R3** consumes the three §4.3
 technical categories (raising R2 → R3) and the `environments_and_deployment_targets` staging gate;
 **Slice 18 R4** consumes the two §4.3 "tools" categories (`integrations_and_external_systems`,
-`tool_access_manifest`) alongside zero-spine-gap test coverage (raising R3 → R4). The auditor is
-now **capped at R4** (R5 + gated-engine completeness still out of scope).
+`tool_access_manifest`) alongside zero-spine-gap test coverage (raising R3 → R4); **Slice 20 R5**
+consumes all remaining declarable categories + the autonomy/cost engine gates (raising R4 → R5). The
+auditor is now **capped at R5** (A5/Appendix-B production autonomy still out of scope).
 - **Authoritative universe** = the §4.2 26-file intake package (+ the Appendix‑A "production authority"
   condition), partitioned into three disjoint sets: **SPINE** (3 — already `intake_artifacts` kinds),
-  **GATED_ENGINE** (4 — `autonomy_policy`/`human_approval_policy`/`cost_and_resource_policy`/
-  `production_authority`, evaluated **later** from the Slice‑3/4/7 engines and the policy matrix; **not**
-  declarable here and **not** treated as verified-complete), and **DECLARABLE** (20). §4.2 file 14
-  `architecture_and_technology_constraints` is the single architecture+stack category.
+  **GATED_ENGINE** (**2** — `autonomy_policy`/`cost_and_resource_policy`, engine-read from the
+  Slice‑3/7 tables for the R5 gates; **not** declarable here), and **DECLARABLE** (**22** — Slice 20
+  made `human_approval_policy` + `production_authority` declarable as presence-only, non-authorizing).
+  §4.2 file 14 `architecture_and_technology_constraints` is the single architecture+stack category.
 - **`intake_categories`** (tenant-owned): one declaration per `(tenant, project, category)`; **exactly
   one source** — a document (accepted, same project, + `locator`) **XOR** a bounded `origin` label
   (CHECK + validator, fail-closed); `data` JSONB holds **non-secret** structured metadata only — the
@@ -386,8 +398,8 @@ now **capped at R4** (R5 + gated-engine completeness still out of scope).
   `{SELECT, INSERT, UPDATE}`. Audit carries **safe metadata only** (`has_source_document`/`has_origin`
   booleans — never the document UUID, locator, summary, data, or secret references). **Slice 15 itself
   makes no R3/R4/R5 claim, adds no HTTP endpoint, uses no LLM, stores no secret values, and adds no new
-  spine kinds; the R3/R4 rules consuming these declarations live in Slices 16/18, and gated-category
-  completeness remains deferred to a later engine-reading readiness slice (R5).**
+  spine kinds; the R3/R4/R5 rules consuming these declarations live in Slices 16/18/20, and A5/Appendix-B
+  production autonomy remains deferred (go-live stays false even at R5).**
 
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
