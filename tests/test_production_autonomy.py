@@ -1,10 +1,12 @@
-"""A5 production-autonomy evaluator skeleton tests (Slice 21, Appendix B).
+"""A5 production-autonomy evaluator skeleton tests (Slice 21 + Slice 22, Appendix B).
 
-Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass today; the four
-partial-context gates (#2/#8/#9/#12) return ``insufficient_evidence`` and the eight sourceless gates
-return ``no_evidence_source:<subsystem>``. ``a5_satisfied`` and ``can_go_live_autonomously`` are
-always false. Docker-free for the pure engine; ``db`` for the repository (compute-on-read, no
-persistence, no migration).
+Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass today; the five
+partial-context gates (#2/#7/#8/#9/#12) return ``insufficient_evidence`` and the seven sourceless
+gates return ``no_evidence_source:<subsystem>``. Gate #7 (Slice 22) is
+``insufficient_evidence:no_open_issue_store`` with ``context.active_risk_acceptance_count``;
+``ruleset_version`` is ``slice22.v1``. ``a5_satisfied`` and ``can_go_live_autonomously`` are always
+false. Docker-free for the pure engine; ``db`` for the repository (compute-on-read, no persistence,
+no migration).
 """
 
 import uuid
@@ -18,8 +20,10 @@ from app.release.production_autonomy import (
     evaluate_production_autonomy,
 )
 
-PARTIAL_GATES = {2, 8, 9, 12}
-SOURCELESS_GATES = {3, 4, 5, 6, 7, 10, 11, 13}
+# Slice 22: gate #7 (risk-acceptance) moved from no_evidence_source to insufficient_evidence
+# (the store now exists, but the open-issue store does not).
+PARTIAL_GATES = {2, 7, 8, 9, 12}
+SOURCELESS_GATES = {3, 4, 5, 6, 10, 11, 13}
 
 
 def _eval(readiness_level="R5", **ctx):
@@ -95,13 +99,33 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice21.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice22.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
         "insufficient_evidence",
         "no_evidence_source",
     }
+    # Slice 22: every gate entry serializes a `context` dict (gates without context ⇒ {}).
+    assert all("context" in g and isinstance(g["context"], dict) for g in d["gates"])
+
+
+def test_gate7_is_insufficient_evidence_no_open_issue_store():
+    g7 = _gate(_eval(readiness_level="R5"), 7)
+    assert g7["gate"] == "approved_risk_acceptance_records"
+    assert g7["status"] == "insufficient_evidence"
+    assert g7["reason"] == "no_open_issue_store"
+    assert "active_risk_acceptance_count" in g7["context"]
+
+
+def test_gate7_context_carries_active_count():
+    rep = evaluate_production_autonomy(
+        "p", readiness_level="R5", active_risk_acceptance_count=3
+    )
+    g7 = _gate(rep, 7)
+    assert g7["context"]["active_risk_acceptance_count"] == 3
+    assert g7["status"] == "insufficient_evidence"  # count is context only, never passes
+    assert rep.to_dict()["a5_satisfied"] is False
 
 
 def test_fail_closed_defaults():
@@ -243,3 +267,33 @@ async def test_db_evaluate_is_read_only(pa_ctx, admin_engine):
         await ProductionAutonomyRepository(session, ctx).evaluate(p1)
     # compute-on-read: no persisted snapshot written anywhere
     assert await _readiness_count() == before
+
+
+@pytest.mark.db
+async def test_db_gate7_reads_active_risk_acceptance_count(pa_ctx):
+    # The A5 repo wires RiskAcceptanceRepository.count_active_nonblocking into gate #7 context;
+    # gate #7 stays insufficient_evidence (never passes) regardless of the count.
+    from datetime import date
+
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.risk_acceptance import RiskAcceptanceRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pa_ctx["t1"], pa_ctx["p1"]
+    ctx = TenantContext(t1)
+    payload = {
+        "release_id": "REL-1", "issue_id": "I1", "severity": "low",
+        "reason_for_acceptance": "r", "business_impact": "b",
+        "rollback_or_mitigation_plan": "rb", "required_follow_up_ticket": "T-1",
+        "expiry_date": date(2099, 1, 1), "owner": "o", "approver": "a",
+        "accepted_by": ["o", "a"], "approval_authority_source": "approval_matrix",
+    }
+    async with tenant_scope(ctx) as session:
+        await RiskAcceptanceRepository(session, ctx).create(
+            project_id=p1, payload=payload, actor="planner"
+        )
+        rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
+    g7 = _gate(rep, 7)
+    assert g7["status"] == "insufficient_evidence" and g7["reason"] == "no_open_issue_store"
+    assert g7["context"]["active_risk_acceptance_count"] == 1
+    assert rep.to_dict()["a5_satisfied"] is False

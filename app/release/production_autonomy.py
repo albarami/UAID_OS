@@ -1,26 +1,29 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21, spec §5.1 + Appendix B) — pure, no I/O, no LLM.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + Slice 22, spec §5.1 + Appendix B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
-and non-authorizing**:
+and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
+(default ``{}``, serialized on every gate):
 
 - **Only gate #1 (R5 intake complete)** can ``pass`` today — and only when readiness is ``R5``.
-- The four partial-context gates (#2, #8, #9, #12) return ``insufficient_evidence``: the system has a
-  *primitive* (an environment declaration, AC provenance, a cost stop-decision, the A5 policy enum +
-  approval engine) but **no production-autonomy evidence**, so they never pass.
-- The eight sourceless gates (#3, #4, #5, #6, #7, #10, #11, #13) return
+- The five partial-context gates (#2, #7, #8, #9, #12) return ``insufficient_evidence``: the system
+  has a *primitive* (an environment declaration; **the Slice-22 risk-acceptance store, gate #7**; AC
+  provenance; a cost stop-decision; the A5 policy enum + approval engine) but **no production-autonomy
+  evidence**, so they never pass. Gate #7 is ``insufficient_evidence:no_open_issue_store`` with
+  ``context.active_risk_acceptance_count`` — the count is context only and never authorizes go-live.
+- The seven sourceless gates (#3, #4, #5, #6, #10, #11, #13) return
   ``no_evidence_source:<subsystem>`` — they await Phase 3/5/6 evidence subsystems.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
 ``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
 request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly.
+production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice22.v1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-A5_RULESET_VERSION = "slice21.v1"
+A5_RULESET_VERSION = "slice22.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -39,9 +42,17 @@ class GateResult:
     gate: str
     status: str
     reason: str
+    # Slice 22: optional per-gate context (e.g. counts). Always serialized ({} when none).
+    context: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {"number": self.number, "gate": self.gate, "status": self.status, "reason": self.reason}
+        return {
+            "number": self.number,
+            "gate": self.gate,
+            "status": self.status,
+            "reason": self.reason,
+            "context": dict(self.context),
+        }
 
 
 @dataclass
@@ -74,8 +85,8 @@ def _no_source(number: int, gate: str, subsystem: str) -> GateResult:
     return GateResult(number, gate, STATUS_NO_SOURCE, f"{STATUS_NO_SOURCE}:{subsystem}")
 
 
-def _insufficient(number: int, gate: str, reason: str) -> GateResult:
-    return GateResult(number, gate, STATUS_INSUFFICIENT, reason)
+def _insufficient(number: int, gate: str, reason: str, context: dict | None = None) -> GateResult:
+    return GateResult(number, gate, STATUS_INSUFFICIENT, reason, context or {})
 
 
 def evaluate_production_autonomy(
@@ -86,6 +97,7 @@ def evaluate_production_autonomy(
     cost_policy_present: bool = False,
     environments_declared: bool = False,
     generated_ac_provenance_ok: bool = False,
+    active_risk_acceptance_count: int = 0,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -117,6 +129,13 @@ def evaluate_production_autonomy(
         "a5_policy_primitive_but_no_preapproved_release" if autonomy_policy_present
         else "no_a5_preapproved_release",
     )
+    # Slice 22: the risk-acceptance STORE now exists, but the open-issue store does not — so gate #7
+    # can never pass (we cannot enumerate "all open issues"). It moves from no_evidence_source to
+    # insufficient_evidence; the active-record count is context only and never flips the status.
+    gate7 = _insufficient(
+        7, "approved_risk_acceptance_records", "no_open_issue_store",
+        {"active_risk_acceptance_count": active_risk_acceptance_count},
+    )
 
     # Gates with no evidence source at all (await Phase 3/5/6 subsystems).
     gates = [
@@ -126,7 +145,7 @@ def evaluate_production_autonomy(
         _no_source(4, "all_critical_test_oracles_pass", "test_oracle_execution"),
         _no_source(5, "no_unaccepted_critical_security_findings", "security_findings"),
         _no_source(6, "no_unaccepted_critical_shortcut_findings", "shortcut_findings"),
-        _no_source(7, "approved_risk_acceptance_records", "risk_acceptance_records"),
+        gate7,
         gate8,
         gate9,
         _no_source(10, "rollback_verified", "rollback_verification"),
