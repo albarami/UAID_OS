@@ -1,19 +1,19 @@
-"""Deterministic build-readiness auditor (Slice 12 base; Slice 16 R3 rules; Slice 18 R4 rules)
+"""Deterministic build-readiness auditor (Slice 12 base; Slice 16 R3; Slice 18 R4; Slice 20 R5)
 tests (§4.3/§4.4/§4.5).
 
-Docker-free: the R0/R1/R2 spine ladder, the **R3 rule** (R2 base + the three declared
-§4.3 technical categories), the **R4 rule** (R3 base + the two declared §4.3 "tools" categories
-[`integrations_and_external_systems`, `tool_access_manifest`] + zero spine gaps), **capped at R4**,
-parent-kind validation (orphan/wrong-kind links never satisfy coverage), the monotonic staging
-facet (`R3 or R4 AND environments_and_deployment_targets` declared, with an R4-specific no-env
-reason) and always-false go-live with recorded reasons, §4.4 assumption bucketing, and the report
-keys (`missing_r3_categories`, `missing_r4_categories`, `missing_r4_test_coverage`,
-`r3_category_not_declared:<category>`, `r4_category_not_declared:<category>`).
-DB-backed (`db`): evaluate_and_record persistence + audit safety, latest/history,
-the D-6 stale-source exclusion (a quarantined source document drops R3→R2, and for the R4 tool
-categories R4→R3; same-project pinning is enforced upstream by the intake-category repo + composite
-DB FK — see test_intake_categories.py), RLS deny-by-default + cross-tenant, append-only enforcement,
-grants/catalog.
+Docker-free: the R0/R1/R2 spine ladder, the **R3 rule** (R2 base + the three declared §4.3 technical
+categories), the **R4 rule** (R3 base + the two declared §4.3 "tools" categories + zero spine gaps),
+the **R5 rule** (R4 base + ALL declarable categories declared + the autonomy & cost engine gates),
+**capped at R5**, parent-kind validation (orphan/wrong-kind links never satisfy coverage), the
+monotonic staging facet (`R3/R4/R5 AND environments_and_deployment_targets` declared) and
+always-false go-live (even at R5 — A5/Appendix-B not evaluated) with recorded reasons, §4.4
+assumption bucketing, and the report keys (`missing_r3_categories`, `missing_r4_categories`,
+`missing_r4_test_coverage`, `missing_r5_categories`, `missing_r5_gates`, the
+`r{3,4,5}_category_not_declared:<category>` / `r5_gate_incomplete:<gate>` entries).
+DB-backed (`db`): evaluate_and_record persistence + audit safety, latest/history, the D-6
+stale-source exclusion (quarantined source drops R3→R2 and R4→R3), the R5 engine gates read from
+real `autonomy_policies` / `budgets` rows (present+valid autonomy, positive budget; invalid overrides
+fail), RLS deny-by-default + cross-tenant, append-only enforcement, grants/catalog.
 """
 
 import uuid
@@ -22,6 +22,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
+from app.intake.categories import DECLARABLE_INTAKE_CATEGORIES
 from app.intake.compiler import SourceInput
 from app.intake.readiness import (
     NOT_ASSESSED_CATEGORIES,
@@ -32,6 +33,7 @@ from app.intake.readiness import (
     evaluate_readiness,
 )
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.cost import BudgetRepository
 from app.repositories.intake import IntakeRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
@@ -84,13 +86,13 @@ def test_r2_with_one_valid_chain():
 
 
 def test_full_coverage_without_categories_returns_r2():
-    # Spine coverage alone (no declared categories) stays R2; the cap is now R4.
+    # Spine coverage alone (no declared categories) stays R2; the cap is now R5.
     req = _av("requirement", "REQ-1")
     ac = _av("acceptance_criterion", "AC-1", parent=req)
     oracle = _av("test_oracle", "OR-1", parent=ac)
     rep = evaluate_readiness("p", [req, ac, oracle], production_authority_decision="needs_approval")
     assert rep.readiness_level == "R2"
-    assert rep.readiness_cap == "R4"
+    assert rep.readiness_cap == "R5"
     assert rep.to_dict()["readiness_cap_reason"]
 
 
@@ -111,8 +113,12 @@ def test_can_go_live_false_with_reasons_even_if_policy_allows():
     rep = evaluate_readiness("p", [req, ac, oracle], production_authority_decision="allow")
     assert rep.can_go_live_autonomously is False
     reasons = rep.to_dict()["can_go_live_autonomously_reasons"]
-    assert any("R5" in r for r in reasons)
-    assert any("gated" in r for r in reasons)
+    # Slice 20: go-live now blocked by A5/Appendix-B not being evaluated, and production_authority
+    # being presence-only — NOT by "capped below R5" (R5 is now reachable).
+    joined = " ".join(reasons).lower()
+    assert "a5" in joined and "appendix" in joined
+    assert "authorization" in joined  # production_authority is presence-only, not authorization
+    assert not any("capped_below_r5" in r.lower() for r in reasons)
     assert rep.to_dict()["production_authority_decision"] == "allow"
 
 
@@ -187,12 +193,14 @@ def test_report_has_all_required_keys():
         "missing_r3_categories",
         "missing_r4_categories",
         "missing_r4_test_coverage",
+        "missing_r5_categories",
+        "missing_r5_gates",
         "production_authority_decision",
         "ruleset_version",
     ):
         assert key in d, key
     assert d["ruleset_version"] == RULESET_VERSION
-    assert RULESET_VERSION == "slice18.v1"
+    assert RULESET_VERSION == "slice20.v1"
 
 
 # --- Docker-free: Slice 16 R3 rules -------------------------------------------
@@ -235,15 +243,16 @@ def test_below_r2_base_never_reaches_r3_even_if_categories_declared():
     assert rep.readiness_level == "R1"
 
 
-def test_all_declarable_categories_with_full_chain_reaches_r4_never_r5():
+def test_all_declarable_categories_full_chain_but_no_engine_gates_stays_r4():
     from app.intake.categories import DECLARABLE_INTAKE_CATEGORIES
 
-    # full spine chain (no gaps) + every declarable category ⇒ R4, capped (never R5).
+    # full spine chain + every declarable category, but the R5 engine gates default False ⇒ R4
+    # (declarations alone do not reach R5 — the autonomy + cost gates are required).
     decls = tuple(_decl(c) for c in DECLARABLE_INTAKE_CATEGORIES)
     rep = evaluate_readiness(
         "p", _full_chain(), production_authority_decision="allow", declarations=decls
     )
-    assert rep.readiness_level == "R4"  # capped at R4, never R5
+    assert rep.readiness_level == "R4"
     assert rep.can_go_live_autonomously is False
 
 
@@ -296,42 +305,16 @@ def test_r2_semantics_unchanged_without_declarations():
 
 
 def test_not_assessed_categories_golden_and_consistent():
-    # Slice 18 moved the two R4 tool categories (integrations, tool_access) into "consumed".
-    assert NOT_ASSESSED_CATEGORIES == (
-        "project_manifest",
-        "product_brief",
-        "business_objectives",
-        "scope_and_boundaries",
-        "users_roles_permissions",
-        "non_functional_requirements",
-        "domain_pack",
-        "existing_assets_and_repositories",
-        "security_privacy_compliance",
-        "secrets_and_credentials_manifest",
-        "autonomy_policy",
-        "human_approval_policy",
-        "cost_and_resource_policy",
-        "operations_observability_support",
-        "go_live_checklist",
-        "risk_register_and_assurance_requirements",
-        "prior_decisions_and_architecture_log",
-        "production_authority",
-    )
-    # single-source-of-truth consistency with the Slice-15 universe
+    # Slice 20: the R5 rule consumes every remaining category (declarable + the two engine gates),
+    # so the not-assessed list is now empty — the whole §4.2 universe is assessed at R5.
+    assert NOT_ASSESSED_CATEGORIES == ()
+    # single-source-of-truth consistency with the Slice-15 universe: consumed == universe.
     from app.intake.categories import CANONICAL_READINESS_CATEGORY_UNIVERSE
 
-    consumed = {
-        "functional_requirements",
-        "acceptance_criteria",
-        "test_oracles",
-        "user_journeys_and_workflows",
-        "data_model_and_contracts",
-        "architecture_and_technology_constraints",
-        "environments_and_deployment_targets",
-        "integrations_and_external_systems",
-        "tool_access_manifest",
-    }
-    assert set(NOT_ASSESSED_CATEGORIES) == set(CANONICAL_READINESS_CATEGORY_UNIVERSE) - consumed
+    assert set(NOT_ASSESSED_CATEGORIES) == set(CANONICAL_READINESS_CATEGORY_UNIVERSE) - set(
+        CANONICAL_READINESS_CATEGORY_UNIVERSE
+    )
+    assert NOT_ASSESSED_CATEGORIES == ()  # explicit: nothing left unassessed at R5
 
 
 # --- Docker-free: Slice 18 R4 rules -------------------------------------------
@@ -426,19 +409,110 @@ def test_r4_go_live_always_false():
     assert rep.can_go_live_autonomously is False
 
 
-def test_readiness_cap_is_r4():
+def test_readiness_cap_is_r5():
     rep = evaluate_readiness(
         "p", _full_chain(), production_authority_decision="deny", declarations=_r4_decls()
     )
-    assert rep.readiness_cap == "R4"
+    assert rep.readiness_cap == "R5"
     d = rep.to_dict()
-    assert d["ruleset_version"] == "slice18.v1"
+    assert d["ruleset_version"] == "slice20.v1"
     assert "R5" in d["readiness_cap_reason"]
 
 
 def test_not_assessed_excludes_r4_tool_categories():
     for cat in _R4_TOOLS:
         assert cat not in NOT_ASSESSED_CATEGORIES
+
+
+# --- Docker-free: Slice 20 R5 rules -------------------------------------------
+
+
+def _r5_decls(*, omit=()):
+    """Declare every declarable §4.2 category (R5 requires the full declarable set)."""
+    return tuple(_decl(c) for c in DECLARABLE_INTAKE_CATEGORIES if c not in omit)
+
+
+def _eval_r5(
+    *,
+    declarations=None,
+    autonomy_policy_present=True,
+    cost_policy_ok=True,
+    production_authority_decision="needs_approval",
+):
+    """Evaluate with the R5-reaching defaults (full declarable set + both engine gates true)."""
+    return evaluate_readiness(
+        "p",
+        _full_chain(),
+        production_authority_decision=production_authority_decision,
+        declarations=_r5_decls() if declarations is None else declarations,
+        autonomy_policy_present=autonomy_policy_present,
+        cost_policy_ok=cost_policy_ok,
+    )
+
+
+def test_r5_when_all_gates_present():
+    rep = _eval_r5()
+    assert rep.readiness_level == "R5"
+    d = rep.to_dict()
+    assert d["missing_r5_categories"] == []
+    assert d["missing_r5_gates"] == []
+
+
+@pytest.mark.parametrize("omit", DECLARABLE_INTAKE_CATEGORIES)
+def test_r5_missing_each_declarable_category_blocks_r5(omit):
+    # Omitting ANY declarable category must prevent R5 (and report it missing). The resulting
+    # level varies — omitting an R3/R4 prerequisite drops below R4 — so we assert "not R5",
+    # not a fixed level. This covers the full declarable set, not a sample.
+    rep = _eval_r5(declarations=_r5_decls(omit=(omit,)))
+    assert rep.readiness_level != "R5"
+    assert omit in rep.to_dict()["missing_r5_categories"]
+
+
+def test_r5_missing_human_approval_policy_declaration_no_r5():
+    rep = _eval_r5(declarations=_r5_decls(omit=("human_approval_policy",)))
+    assert rep.readiness_level == "R4"
+    assert "human_approval_policy" in rep.to_dict()["missing_r5_categories"]
+
+
+def test_r5_missing_production_authority_declaration_no_r5():
+    rep = _eval_r5(declarations=_r5_decls(omit=("production_authority",)))
+    assert rep.readiness_level == "R4"
+    assert "production_authority" in rep.to_dict()["missing_r5_categories"]
+
+
+def test_r5_autonomy_gate_absent_no_r5():
+    rep = _eval_r5(autonomy_policy_present=False)
+    assert rep.readiness_level == "R4"
+    assert "autonomy_policy_absent_or_invalid" in rep.to_dict()["missing_r5_gates"]
+
+
+def test_r5_cost_gate_absent_no_r5():
+    rep = _eval_r5(cost_policy_ok=False)
+    assert rep.readiness_level == "R4"
+    assert "cost_budget_absent_or_zero" in rep.to_dict()["missing_r5_gates"]
+
+
+def test_r5_reached_go_live_still_false():
+    rep = _eval_r5(production_authority_decision="allow")
+    assert rep.readiness_level == "R5"
+    assert rep.can_go_live_autonomously is False
+    joined = " ".join(rep.to_dict()["can_go_live_autonomously_reasons"]).lower()
+    assert "a5" in joined and "appendix" in joined  # blocked by A5/Appendix-B, not "capped below R5"
+
+
+def test_r5_gates_default_fail_closed():
+    # The pure engine's gate inputs default to False ⇒ callers that don't pass them can't reach R5.
+    rep = evaluate_readiness(
+        "p",
+        _full_chain(),
+        production_authority_decision="needs_approval",
+        declarations=_r5_decls(),
+    )
+    assert rep.readiness_level == "R4"
+    assert set(rep.to_dict()["missing_r5_gates"]) == {
+        "autonomy_policy_absent_or_invalid",
+        "cost_budget_absent_or_zero",
+    }
 
 
 # --- DB-backed fixtures -------------------------------------------------------
@@ -646,6 +720,98 @@ async def test_db_r4_persists_and_d6_excludes_stale_tool_declaration(rd_ctx, adm
         rep = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
         assert rep.readiness_level == "R3"
         assert set(rep.to_dict()["missing_r4_categories"]) == set(_R4_TOOLS)
+
+
+# --- DB-backed: Slice 20 R5 end-to-end (repo reads autonomy_policies + budgets) -----
+
+
+async def _declare_all_r5_categories(ctx, project_id, doc_id):
+    """Declare every declarable §4.2 category (doc-backed) — the full R5 category set."""
+    from app.intake.categories import DECLARABLE_INTAKE_CATEGORIES
+
+    await _declare_r3_categories(
+        ctx, project_id, doc_id, categories=DECLARABLE_INTAKE_CATEGORIES
+    )
+
+
+async def _set_engine_gates(ctx, project_id, *, autonomy=True, budget=True):
+    async with tenant_scope(ctx) as session:
+        if autonomy:
+            await AutonomyPolicyRepository(session, ctx).upsert(
+                project_id=project_id, autonomy_level=2, actor="admin"
+            )
+        if budget:
+            await BudgetRepository(session, ctx).upsert(
+                project_id=project_id, max_total_cost_usd="100", actor="admin"
+            )
+
+
+@pytest.mark.db
+async def test_db_r5_persists_when_all_categories_and_engine_gates_present(rd_ctx):
+    t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
+    ctx = TenantContext(t1)
+    await _seed_full_chain(ctx, p1, d1)
+    await _declare_all_r5_categories(ctx, p1, d1)
+    await _set_engine_gates(ctx, p1, autonomy=True, budget=True)
+    async with tenant_scope(ctx) as session:
+        report, row = await ReadinessRepository(session, ctx).evaluate_and_record(
+            project_id=p1, actor="auditor"
+        )
+        assert report.readiness_level == "R5"
+        assert row.readiness_level == "R5"  # 0015 CHECK allows R5
+        assert report.can_go_live_autonomously is False
+        d = report.to_dict()
+        assert d["missing_r5_categories"] == [] and d["missing_r5_gates"] == []
+
+
+@pytest.mark.db
+async def test_db_r5_missing_autonomy_row_no_r5(rd_ctx):
+    t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
+    ctx = TenantContext(t1)
+    await _seed_full_chain(ctx, p1, d1)
+    await _declare_all_r5_categories(ctx, p1, d1)
+    await _set_engine_gates(ctx, p1, autonomy=False, budget=True)  # no autonomy row
+    async with tenant_scope(ctx) as session:
+        report = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        assert report.readiness_level == "R4"
+        assert "autonomy_policy_absent_or_invalid" in report.to_dict()["missing_r5_gates"]
+
+
+@pytest.mark.db
+async def test_db_r5_invalid_autonomy_overrides_no_r5(rd_ctx, admin_engine):
+    # An autonomy row exists but with invalid persisted overrides (validate_overrides raises),
+    # so the gate is validity — not mere row existence.
+    t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
+    ctx = TenantContext(t1)
+    await _seed_full_chain(ctx, p1, d1)
+    await _declare_all_r5_categories(ctx, p1, d1)
+    await _set_engine_gates(ctx, p1, autonomy=False, budget=True)
+    # inject an invalid-overrides autonomy row directly (bypasses upsert validation)
+    async with admin_engine.begin() as c:
+        await c.execute(
+            text(
+                "INSERT INTO autonomy_policies (tenant_id, project_id, autonomy_level, overrides) "
+                "VALUES (:t,:p,2,'{\"bogus_action\": \"ALLOW\"}'::jsonb)"
+            ),
+            {"t": str(t1), "p": str(p1)},
+        )
+    async with tenant_scope(ctx) as session:
+        report = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        assert report.readiness_level == "R4"
+        assert "autonomy_policy_absent_or_invalid" in report.to_dict()["missing_r5_gates"]
+
+
+@pytest.mark.db
+async def test_db_r5_missing_or_zero_budget_no_r5(rd_ctx):
+    t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
+    ctx = TenantContext(t1)
+    await _seed_full_chain(ctx, p1, d1)
+    await _declare_all_r5_categories(ctx, p1, d1)
+    await _set_engine_gates(ctx, p1, autonomy=True, budget=False)  # no budget
+    async with tenant_scope(ctx) as session:
+        report = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        assert report.readiness_level == "R4"
+        assert "cost_budget_absent_or_zero" in report.to_dict()["missing_r5_gates"]
 
 
 # --- DB-backed: persistence + audit safety ------------------------------------

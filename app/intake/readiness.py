@@ -14,16 +14,20 @@ Readiness ladder:
   (``integrations_and_external_systems``, ``tool_access_manifest``) PLUS "tests available" =
   zero spine gaps (every requirement has a valid acceptance criterion, every valid acceptance
   criterion has a valid test oracle, no invalid parent chains).** Secrets are excluded (R5).
-  The auditor is **capped at R4**: R5 requires gated autonomy/approval/cost/production-authority
-  completeness + environments/secrets/authority/approvals/go-live gates, NOT yet evaluated.
+- **R5 (Slice 20): the R4 base PLUS ALL declarable §4.2 categories DECLARED (including the two
+  presence-only gates ``human_approval_policy`` + ``production_authority``, and reference-only
+  ``secrets_and_credentials_manifest``) PLUS the two engine gates — a present+valid autonomy
+  policy and a positive cost budget.** R5 = *intake-package completeness*; it is **capped at R5**.
+  Production autonomy (A5 / Appendix B) is a separate gate and is NOT evaluated here.
 - The category rules check the **presence of a provenance-backed declaration**, not content
   quality — "declared", not "verified".
 
-``can_build_to_staging`` is true at R3 **or R4** AND when ``environments_and_deployment_targets``
-is declared (monotonic, D-R4-3). ``can_go_live_autonomously`` is always false (capped below R5;
-gated categories unevaluated). Parent-kind validation does NOT trust the DB FK alone: an
-acceptance_criterion satisfies a requirement only if its parent IS a requirement; a test_oracle
-satisfies an acceptance criterion only if its parent IS that acceptance criterion.
+``can_build_to_staging`` is true at R3/R4/R5 AND when ``environments_and_deployment_targets``
+is declared (monotonic). ``can_go_live_autonomously`` is **always false** — even at R5 — because
+go-live needs A5/Appendix-B authority that this auditor does not evaluate; the production_authority
+declaration is presence-only, not an authorization. Parent-kind validation does NOT trust the DB FK
+alone: an acceptance_criterion satisfies a requirement only if its parent IS a requirement; a
+test_oracle satisfies an acceptance criterion only if its parent IS that acceptance criterion.
 """
 
 from __future__ import annotations
@@ -31,20 +35,28 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from app.intake.categories import CANONICAL_READINESS_CATEGORY_UNIVERSE, SPINE_CATEGORIES
-
-RULESET_VERSION = "slice18.v1"
-
-READINESS_CAP = "R4"
-READINESS_CAP_REASON = (
-    "slice_18_rules_consume_the_spine_ladder_the_R3_technical_trio_and_the_R4_tools_categories; "
-    "R5_requires_gated_engine_completeness_secrets_environments_authority_approvals_"
-    "and_go_live_gates_which_are_not_implemented"
+from app.intake.categories import (
+    CANONICAL_READINESS_CATEGORY_UNIVERSE,
+    DECLARABLE_INTAKE_CATEGORIES,
+    GATED_ENGINE_CATEGORIES,
+    SPINE_CATEGORIES,
 )
+
+RULESET_VERSION = "slice20.v1"
+
+READINESS_CAP = "R5"
+READINESS_CAP_REASON = (
+    "slice_20_reaches_R5_intake_completeness_when_all_declarable_categories_are_declared_and_the_"
+    "autonomy_and_cost_engine_gates_pass; production_autonomy_(A5/Appendix-B)_is_a_separate_gate_"
+    "and_can_go_live_autonomously_stays_false"
+)
+# Go-live (can_go_live_autonomously) is structurally false even at R5: it requires A5 /
+# Appendix-B production autonomy (branch protection, passing oracles, verified rollback,
+# pre-approved release, emergency stop), none of which this auditor evaluates. The
+# production_authority declaration is presence-only and is NOT a go-live authorization.
 NO_GO_LIVE_REASONS = (
-    "readiness_capped_below_R5",
-    "gated_engine_categories_not_evaluated:"
-    "autonomy_policy,human_approval_policy,cost_and_resource_policy,production_authority",
+    "a5_production_autonomy_appendix_b_checklist_not_evaluated",
+    "production_authority_declaration_is_presence_only_not_a_go_live_authorization",
 )
 # can_build_to_staging reasons (exact, stable strings). The staging-true reason is shared
 # by R3+env and R4+env (D-R4-3 monotonic). R3-without-env keeps its original reason; R4
@@ -67,6 +79,13 @@ R4_TOOL_CATEGORIES = (
     "tool_access_manifest",
 )
 STAGING_ENVIRONMENT_CATEGORY = "environments_and_deployment_targets"
+
+# §4.3 R5 = intake-package completeness: ALL declarable categories declared (includes the two
+# Slice-20 presence-only gates human_approval_policy + production_authority) PLUS the two
+# engine gates (autonomy policy present+valid, positive cost budget). Secrets are reference-only.
+R5_DECLARABLE_CATEGORIES = DECLARABLE_INTAKE_CATEGORIES
+R5_GATE_AUTONOMY_ABSENT = "autonomy_policy_absent_or_invalid"
+R5_GATE_COST_ABSENT = "cost_budget_absent_or_zero"
 
 # Canonical §4.2 file order (00..25) + the Appendix-A production_authority condition last.
 # This is the ordering source for not_assessed_categories; a test asserts its set equals
@@ -100,15 +119,15 @@ _CANONICAL_FILE_ORDER = (
     "prior_decisions_and_architecture_log",      # 25
     "production_authority",                      # Appendix A condition
 )
-# Categories now consumed by a rule: spine (ladder) + R3 trio + the staging environment gate
-# + the R4 tools categories.
+# Categories consumed by a rule. With the Slice-20 R5 rule, this is the WHOLE universe:
+# spine (ladder) + every declarable category (R3 trio, R4 tools, environments, and all the
+# rest at R5) + the two engine-gate categories (autonomy_policy, cost_and_resource_policy).
 _CONSUMED_CATEGORIES = (
     frozenset(SPINE_CATEGORIES)
-    | set(R3_TECHNICAL_CATEGORIES)
-    | {STAGING_ENVIRONMENT_CATEGORY}
-    | set(R4_TOOL_CATEGORIES)
+    | set(DECLARABLE_INTAKE_CATEGORIES)
+    | set(GATED_ENGINE_CATEGORIES)
 )
-# Deterministic: §4.2 file order minus everything a rule consumes (18 items).
+# Deterministic: §4.2 file order minus everything a rule consumes — empty at R5 (all assessed).
 NOT_ASSESSED_CATEGORIES = tuple(
     c for c in _CANONICAL_FILE_ORDER if c not in _CONSUMED_CATEGORIES
 )
@@ -151,6 +170,9 @@ class ReadinessReport:
     missing_r4_categories: list[str] = field(default_factory=list)
     # Structured spine_gaps dicts (kind/ref/summary) that block R4; empty ⇒ test coverage complete.
     missing_r4_test_coverage: list[dict] = field(default_factory=list)
+    # R5: declarable categories not yet declared, and the engine gates that did not pass.
+    missing_r5_categories: list[str] = field(default_factory=list)
+    missing_r5_gates: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -164,6 +186,8 @@ class ReadinessReport:
             "missing_for_go_live": [g["summary"] for g in self.spine_gaps]
             + [f"r3_category_not_declared:{c}" for c in self.missing_r3_categories]
             + [f"r4_category_not_declared:{c}" for c in self.missing_r4_categories]
+            + [f"r5_category_not_declared:{c}" for c in self.missing_r5_categories]
+            + [f"r5_gate_incomplete:{g}" for g in self.missing_r5_gates]
             + list(NOT_ASSESSED_CATEGORIES),
             "safe_assumptions": self.safe_assumptions,
             "blocked_assumptions": self.blocked_assumptions,
@@ -177,6 +201,8 @@ class ReadinessReport:
             "missing_r3_categories": self.missing_r3_categories,
             "missing_r4_categories": self.missing_r4_categories,
             "missing_r4_test_coverage": self.missing_r4_test_coverage,
+            "missing_r5_categories": self.missing_r5_categories,
+            "missing_r5_gates": self.missing_r5_gates,
             "production_authority_decision": self.production_authority_decision,
             "ruleset_version": RULESET_VERSION,
         }
@@ -192,11 +218,17 @@ def evaluate_readiness(
     *,
     production_authority_decision: str,
     declarations: tuple[CategoryDeclarationView, ...] = (),
+    autonomy_policy_present: bool = False,
+    cost_policy_ok: bool = False,
 ) -> ReadinessReport:
     """Deterministic, fail-closed readiness evaluation over the spine + declared categories.
 
     ``declarations`` defaults to empty, so callers that pass no categories get the exact
     R0/R1/R2 ladder semantics (R3 is unreachable without declared technical categories).
+
+    ``autonomy_policy_present`` / ``cost_policy_ok`` are the R5 engine gates, computed by the
+    repository from the autonomy_policies / budgets tables. They **default to False** so any
+    caller that does not supply them cannot reach R5 (fail-closed). They never affect go-live.
     """
     by_id = {a.id: a for a in artifacts}
     requirements = [a for a in artifacts if a.kind == "requirement"]
@@ -265,11 +297,23 @@ def evaluate_readiness(
     if level == "R3" and not missing_r4 and not missing_r4_test_coverage:
         level = "R4"
 
-    # Staging facet (D-3b, extended to R4 — D-R4-3 monotonic): R3/R4 AND environments declared.
-    if level in ("R3", "R4") and STAGING_ENVIRONMENT_CATEGORY in declared:
+    # Slice 20 — R5 (intake completeness): R4 base + ALL declarable categories declared + both
+    # engine gates pass. Fail-closed; never flips go-live (A5/Appendix-B is a separate gate).
+    missing_r5 = [c for c in R5_DECLARABLE_CATEGORIES if c not in declared]
+    missing_r5_gates: list[str] = []
+    if not autonomy_policy_present:
+        missing_r5_gates.append(R5_GATE_AUTONOMY_ABSENT)
+    if not cost_policy_ok:
+        missing_r5_gates.append(R5_GATE_COST_ABSENT)
+    if level == "R4" and not missing_r5 and not missing_r5_gates:
+        level = "R5"
+
+    # Staging facet (D-3b; extended to R4/R5 — monotonic): R3/R4/R5 AND environments declared.
+    # (R5 always has environments declared, so it takes the staging-true branch.)
+    if level in ("R3", "R4", "R5") and STAGING_ENVIRONMENT_CATEGORY in declared:
         can_build_to_staging = True
         staging_reason = STAGING_TRUE_REASON
-    elif level == "R4":
+    elif level in ("R4", "R5"):
         can_build_to_staging = False
         staging_reason = STAGING_R4_NO_ENV_REASON
     elif level == "R3":
@@ -295,7 +339,7 @@ def evaluate_readiness(
         project_id=str(project_id),
         readiness_level=level,
         can_build_to_staging=can_build_to_staging,
-        can_go_live_autonomously=False,  # always false: capped < R5; gated categories unevaluated
+        can_go_live_autonomously=False,  # always false: A5/Appendix-B production autonomy not evaluated here
         production_authority_decision=production_authority_decision,
         can_build_to_staging_reason=staging_reason,
         spine_gaps=spine_gaps,
@@ -304,6 +348,8 @@ def evaluate_readiness(
         missing_r3_categories=missing_r3,
         missing_r4_categories=missing_r4,
         missing_r4_test_coverage=missing_r4_test_coverage,
+        missing_r5_categories=missing_r5,
+        missing_r5_gates=missing_r5_gates,
     )
 
 

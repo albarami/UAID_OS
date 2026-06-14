@@ -24,7 +24,9 @@ from app.intake.readiness import (
     evaluate_readiness,
 )
 from app.models.readiness_report import ReadinessReportRecord
+from app.policy.matrix import PolicyOverrideError, validate_overrides
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.cost import BudgetRepository
 from app.repositories.documents import DocumentRepository
 from app.repositories.intake import IntakeRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
@@ -49,18 +51,40 @@ class ReadinessRepository(TenantScopedRepository):
             )
             for a in artifacts
         ]
+        autonomy_repo = AutonomyPolicyRepository(self.session, self.context)
         # Transparency only — deploy_production is mandatory-approval, never ALLOW,
         # and can never make can_go_live_autonomously true (handled in the engine).
-        decision = await AutonomyPolicyRepository(self.session, self.context).decision_for(
-            project_id, "deploy_production"
-        )
+        decision = await autonomy_repo.decision_for(project_id, "deploy_production")
         declarations = await self._category_declarations(project_id)
+        autonomy_policy_present, cost_policy_ok = await self._r5_engine_gates(
+            project_id, autonomy_repo
+        )
         return evaluate_readiness(
             project_id,
             views,
             production_authority_decision=decision.value,
             declarations=declarations,
+            autonomy_policy_present=autonomy_policy_present,
+            cost_policy_ok=cost_policy_ok,
         )
+
+    async def _r5_engine_gates(
+        self, project_id: uuid.UUID, autonomy_repo: AutonomyPolicyRepository
+    ) -> tuple[bool, bool]:
+        """The two R5 engine gates (fail-closed). Autonomy: a project policy row exists AND its
+        persisted overrides validate (validity, not mere existence — D-R5-3); NOT inferred from
+        ``decision_for``. Cost: a budget exists with ``max_total_cost_usd > 0`` (D-R5-4)."""
+        autonomy_policy_present = False
+        policy = await autonomy_repo.get_for_project(project_id)
+        if policy is not None:
+            try:
+                validate_overrides(policy.overrides)
+                autonomy_policy_present = True
+            except PolicyOverrideError:
+                autonomy_policy_present = False  # present but invalid ⇒ gate fails
+        budget = await BudgetRepository(self.session, self.context).get(project_id)
+        cost_policy_ok = budget is not None and budget.max_total_cost_usd > 0
+        return autonomy_policy_present, cost_policy_ok
 
     async def _category_declarations(
         self, project_id: uuid.UUID

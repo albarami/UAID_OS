@@ -4,12 +4,14 @@ Anchors the readiness/go-live category universe to the **authoritative §4.2 26-
 intake package** (file stems) plus the Appendix-A "production authority is explicit"
 condition, and partitions it into three disjoint sets:
 
-- ``SPINE_CATEGORIES`` — already modeled as ``intake_artifacts`` kinds (Slice 11).
-- ``GATED_ENGINE_CATEGORIES`` — evaluated later from policy/approval/budget/authority
-  engine state (Slices 3/4/7 + the policy matrix); **not** self-declarable here and
-  **not** treated as verified-complete.
-- ``DECLARABLE_INTAKE_CATEGORIES`` — the categories this slice's ``intake_categories``
-  table may declare from documents / human-provided evidence.
+- ``SPINE_CATEGORIES`` (3) — already modeled as ``intake_artifacts`` kinds (Slice 11).
+- ``GATED_ENGINE_CATEGORIES`` (2 — ``autonomy_policy``, ``cost_and_resource_policy``) —
+  read from their engine state (Slice-3 ``autonomy_policies`` / Slice-7 ``budgets``) for the
+  R5 gates; **not** self-declarable here.
+- ``DECLARABLE_INTAKE_CATEGORIES`` (22) — the categories the ``intake_categories`` table may
+  declare from documents / human-provided evidence. Slice 20 made ``human_approval_policy`` and
+  ``production_authority`` declarable as **presence-only, non-authorizing** signals (they never
+  authorize go-live).
 
 This module models INPUTS ONLY. It does not compute or claim R3/R4/R5, and it never
 stores secret values — the ``secrets_and_credentials_manifest`` category accepts
@@ -27,11 +29,13 @@ SPINE_CATEGORIES = (
     "test_oracles",  # 09 -> kind=test_oracle
 )
 
+# Engine-read only (NOT declarable): evaluated from their engine state for R5 — autonomy
+# from the Slice-3 autonomy_policies table, cost from the Slice-7 budgets table. Slice 20
+# moved human_approval_policy + production_authority OUT of this set into declarable
+# (presence-only, non-authorizing — they never authorize go-live).
 GATED_ENGINE_CATEGORIES = (
-    "autonomy_policy",  # 19 -> Slice 3 autonomy_policies (not verified-complete)
-    "human_approval_policy",  # 20 -> Slice 4 approvals (not verified-complete)
-    "cost_and_resource_policy",  # 21 -> Slice 7 budgets (NOT verified human approvals)
-    "production_authority",  # Appendix A condition -> policy matrix + approval (deferred)
+    "autonomy_policy",  # 19 -> Slice 3 autonomy_policies (presence + valid overrides at R5)
+    "cost_and_resource_policy",  # 21 -> Slice 7 budgets (positive cap at R5)
 )
 
 DECLARABLE_INTAKE_CATEGORIES = (
@@ -51,10 +55,12 @@ DECLARABLE_INTAKE_CATEGORIES = (
     "environments_and_deployment_targets",  # 16
     "secrets_and_credentials_manifest",  # 17 (reference-only)
     "tool_access_manifest",  # 18 (declared; access-approval gated later)
+    "human_approval_policy",  # 20 (Slice 20: presence-only declaration, non-authorizing)
     "operations_observability_support",  # 22
     "go_live_checklist",  # 23 (declared; go-live gate gated later)
     "risk_register_and_assurance_requirements",  # 24
     "prior_decisions_and_architecture_log",  # 25
+    "production_authority",  # Appendix A (Slice 20: presence-only declaration, NOT authorization)
 )
 
 # Full universe = 26 §4.2 file categories + the Appendix-A production_authority condition.
