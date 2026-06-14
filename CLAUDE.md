@@ -46,7 +46,7 @@ expands the `intake_categories` CHECK to 22 categories; `ruleset_version="slice2
 scores the 13 Appendix-B gates — only gate #1 (R5 intake) can pass; #2/#8/#9/#12 are
 `insufficient_evidence` (partial context only); the other 8 are `no_evidence_source:<subsystem>`.
 `a5_satisfied` and `can_go_live_autonomously` are ALWAYS false; compute-on-read (no table, no
-migration, no persistence); `ruleset_version="slice21.v1"`. In progress.**
+migration, no persistence); `ruleset_version="slice21.v1"` — merged via PR #31 (commit `7ad1b45`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
