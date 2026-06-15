@@ -1,4 +1,4 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24, spec §5.1 + App. B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
@@ -10,24 +10,25 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   **Slice-23 shortcut findings store, #6**; **Slice-22 risk-acceptance store, #7**; AC provenance;
   cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
   they never pass. #5/#6 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
-  can't prove absence of findings without authoritative scan coverage); #7 (**Slice-24 open-issue
-  store**) is ``insufficient_evidence:no_issue_provenance_or_release_binding`` (a store can't prove
-  issue completeness or which issues belong to this release). Their counts are context only and
-  never authorize.
+  can't prove absence of findings without authoritative scan coverage); #7 (**Slice-24 open-issue +
+  Slice-25 release-binding stores**) is ``insufficient_evidence`` — its reason narrows from
+  ``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a FROZEN release
+  candidate exists (the release-binding half is satisfied), but issue provenance/completeness still
+  does not exist, so it never passes. Their counts are context only and never authorize.
 - The **five** sourceless gates (#3, #4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
   they await Phase 3/5/6 evidence subsystems.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
 ``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
 request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice24.v1``.
+production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice25.v1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-A5_RULESET_VERSION = "slice24.v1"
+A5_RULESET_VERSION = "slice25.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -105,6 +106,12 @@ def evaluate_production_autonomy(
     open_issue_count: int = 0,
     open_blocking_issue_count: int = 0,
     open_unaccepted_blocking_issue_count: int = 0,
+    frozen_release_candidate_count: int = 0,
+    latest_frozen_release_candidate_id: str | None = None,
+    latest_frozen_release_ref: str | None = None,
+    bound_open_issue_count: int = 0,
+    bound_open_blocking_issue_count: int = 0,
+    bound_open_unaccepted_blocking_issue_count: int = 0,
     open_security_finding_count: int = 0,
     open_unaccepted_critical_security_finding_count: int = 0,
     open_shortcut_finding_count: int = 0,
@@ -148,19 +155,31 @@ def evaluate_production_autonomy(
         if autonomy_policy_present
         else "no_a5_preapproved_release",
     )
-    # Slice 24: the open-issue STORE now exists, but it cannot prove issue *completeness* (no
-    # reviewer/CI/verifier provenance) or *release binding* (no release entity) — so gate #7 can
-    # never pass. It moves from no_open_issue_store to no_issue_provenance_or_release_binding; the
-    # counts are context only and never flip the status.
+    # Slice 24 added the open-issue store; Slice 25 adds the release-binding store. When a FROZEN
+    # release candidate exists, the *release-binding* half is satisfied, so the reason narrows from
+    # no_issue_provenance_or_release_binding → no_issue_provenance. The *issue-provenance* half
+    # (reviewer/CI/verifier completeness) still does not exist, so gate #7 NEVER passes — the counts
+    # are context only and never flip the status.
+    gate7_reason = (
+        "no_issue_provenance"
+        if frozen_release_candidate_count > 0
+        else "no_issue_provenance_or_release_binding"
+    )
     gate7 = _insufficient(
         7,
         "approved_risk_acceptance_records",
-        "no_issue_provenance_or_release_binding",
+        gate7_reason,
         {
             "active_risk_acceptance_count": active_risk_acceptance_count,
             "open_issue_count": open_issue_count,
             "open_blocking_issue_count": open_blocking_issue_count,
             "open_unaccepted_blocking_issue_count": open_unaccepted_blocking_issue_count,
+            "frozen_release_candidate_count": frozen_release_candidate_count,
+            "latest_frozen_release_candidate_id": latest_frozen_release_candidate_id,
+            "latest_frozen_release_ref": latest_frozen_release_ref,
+            "bound_open_issue_count": bound_open_issue_count,
+            "bound_open_blocking_issue_count": bound_open_blocking_issue_count,
+            "bound_open_unaccepted_blocking_issue_count": bound_open_unaccepted_blocking_issue_count,
         },
     )
 

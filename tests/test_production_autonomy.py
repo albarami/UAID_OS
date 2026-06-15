@@ -4,8 +4,9 @@ Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass 
 partial-context gates (#2/#5/#6/#7/#8/#9/#12) return ``insufficient_evidence`` and the **five**
 sourceless gates (#3/#4/#10/#11/#13) return ``no_evidence_source:<subsystem>``. Gates #5/#6 (Slice 23)
 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` with open/critical finding-count
-context; gate #7 (Slice 22 + 24) is ``insufficient_evidence:no_issue_provenance_or_release_binding``
-with risk-acceptance + open-issue count context; ``ruleset_version`` is ``slice24.v1``.
+context; gate #7 (Slice 22 + 24 + 25) is ``insufficient_evidence`` — reason narrows from
+``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a frozen release candidate
+exists; ``ruleset_version`` is ``slice25.v1``.
 ``a5_satisfied`` and ``can_go_live_autonomously`` are always false. Docker-free for the pure engine;
 ``db`` for the repository (compute-on-read, no persistence; the open-issue store adds migration
 ``0023``).
@@ -103,7 +104,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice24.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice25.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
@@ -114,18 +115,31 @@ def test_report_keys_and_ruleset():
     assert all("context" in g and isinstance(g["context"], dict) for g in d["gates"])
 
 
-def test_gate7_is_insufficient_evidence_no_issue_provenance():
-    g7 = _gate(_eval(readiness_level="R5"), 7)
-    assert g7["gate"] == "approved_risk_acceptance_records"
-    assert g7["status"] == "insufficient_evidence"
-    assert g7["reason"] == "no_issue_provenance_or_release_binding"
+def test_gate7_reason_depends_on_frozen_release():
+    # no frozen release ⇒ full reason; ≥1 frozen release ⇒ narrowed reason (still insufficient).
+    g7_none = _gate(_eval(readiness_level="R5"), 7)
+    assert g7_none["gate"] == "approved_risk_acceptance_records"
+    assert g7_none["status"] == "insufficient_evidence"
+    assert g7_none["reason"] == "no_issue_provenance_or_release_binding"
+    g7_frozen = _gate(
+        evaluate_production_autonomy("p", readiness_level="R5", frozen_release_candidate_count=1),
+        7,
+    )
+    assert g7_frozen["status"] == "insufficient_evidence"  # never passes
+    assert g7_frozen["reason"] == "no_issue_provenance"
     for k in (
         "active_risk_acceptance_count",
         "open_issue_count",
         "open_blocking_issue_count",
         "open_unaccepted_blocking_issue_count",
+        "frozen_release_candidate_count",
+        "latest_frozen_release_candidate_id",
+        "latest_frozen_release_ref",
+        "bound_open_issue_count",
+        "bound_open_blocking_issue_count",
+        "bound_open_unaccepted_blocking_issue_count",
     ):
-        assert k in g7["context"]
+        assert k in g7_none["context"]
 
 
 def test_gate7_context_carries_issue_counts():
@@ -142,6 +156,26 @@ def test_gate7_context_carries_issue_counts():
     assert g7["context"]["open_issue_count"] == 4
     assert g7["context"]["open_blocking_issue_count"] == 2
     assert g7["context"]["open_unaccepted_blocking_issue_count"] == 2
+
+
+def test_gate7_context_carries_release_binding_keys():
+    rep = evaluate_production_autonomy(
+        "p",
+        readiness_level="R5",
+        frozen_release_candidate_count=2,
+        latest_frozen_release_candidate_id="rc-1",
+        latest_frozen_release_ref="REL-9",
+        bound_open_issue_count=5,
+        bound_open_blocking_issue_count=3,
+        bound_open_unaccepted_blocking_issue_count=3,
+    )
+    g7 = _gate(rep, 7)
+    assert g7["reason"] == "no_issue_provenance"  # frozen release present
+    assert g7["context"]["frozen_release_candidate_count"] == 2
+    assert g7["context"]["latest_frozen_release_ref"] == "REL-9"
+    assert g7["context"]["bound_open_blocking_issue_count"] == 3
+    assert g7["status"] == "insufficient_evidence"
+    assert rep.to_dict()["a5_satisfied"] is False
     assert g7["status"] == "insufficient_evidence"  # counts are context only, never passes
     assert rep.to_dict()["a5_satisfied"] is False
 
@@ -479,4 +513,44 @@ async def test_db_gate7_reads_issue_counts(pa_ctx):
     assert g7["context"]["open_unaccepted_blocking_issue_count"] == 1
     assert g7["status"] == "insufficient_evidence"
     assert g7["reason"] == "no_issue_provenance_or_release_binding"
+    assert rep.to_dict()["a5_satisfied"] is False
+
+
+@pytest.mark.db
+async def test_db_gate7_narrows_with_frozen_release_candidate(pa_ctx):
+    # A frozen release candidate (with a bound issue) supplies the release-binding half: gate #7
+    # reason narrows to no_issue_provenance and surfaces bound-issue context, but never passes.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.release_candidates import ReleaseCandidateRepository
+    from app.repositories.release_issues import ReleaseIssueRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pa_ctx["t1"], pa_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        issue = await ReleaseIssueRepository(session, ctx).create(
+            project_id=p1,
+            payload={
+                "issue_category": "deployment",
+                "severity": "high",
+                "blocking": True,
+                "summary": "s",
+                "detail": "d",
+                "source": "manual",
+            },
+            actor="a",
+        )
+        rc_repo = ReleaseCandidateRepository(session, ctx)
+        rc = await rc_repo.create(project_id=p1, payload={"release_ref": "REL-A"}, actor="rm")
+        await rc_repo.bind_issue(candidate_id=rc.id, release_issue_id=issue.id, actor="rm")
+        await rc_repo.freeze(candidate_id=rc.id, actor="rm")
+        rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
+    g7 = _gate(rep, 7)
+    assert g7["status"] == "insufficient_evidence"
+    assert g7["reason"] == "no_issue_provenance"
+    assert g7["context"]["frozen_release_candidate_count"] == 1
+    assert g7["context"]["latest_frozen_release_candidate_id"] == str(rc.id)
+    assert g7["context"]["latest_frozen_release_ref"] == "REL-A"
+    assert g7["context"]["bound_open_issue_count"] == 1
+    assert g7["context"]["bound_open_blocking_issue_count"] == 1
     assert rep.to_dict()["a5_satisfied"] is False

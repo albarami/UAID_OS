@@ -51,8 +51,12 @@ def test_title_must_be_str_if_present():
 
 
 def test_lifecycle_transitions():
-    for ok in (("draft", "frozen"), ("draft", "canceled"), ("frozen", "superseded"),
-               ("frozen", "canceled")):
+    for ok in (
+        ("draft", "frozen"),
+        ("draft", "canceled"),
+        ("frozen", "superseded"),
+        ("frozen", "canceled"),
+    ):
         validate_transition(*ok)
     for bad in (
         ("draft", "superseded"),
@@ -84,19 +88,25 @@ async def rc_ctx(admin_engine):
     sfx = uuid.uuid4().hex[:8]
     async with admin_engine.begin() as c:
         org = await _scalar(
-            c, "INSERT INTO organizations (name, slug) VALUES ('RcOrg',:s) RETURNING id",
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('RcOrg',:s) RETURNING id",
             s=f"rc-org-{sfx}",
         )
         out = {"sfx": sfx}
         for label in ("t1", "t2"):
             out[label] = await _scalar(
-                c, "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
-                o=org, n=label, s=f"rc-{label}-{sfx}",
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"rc-{label}-{sfx}",
             )
         for proj, tn in (("p1", "t1"), ("p1b", "t1"), ("px", "t2")):
             out[proj] = await _scalar(
-                c, "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
-                t=out[tn], s=f"rc-{proj}-{sfx}",
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"rc-{proj}-{sfx}",
             )
     return out
 
@@ -111,8 +121,12 @@ async def _make_issue(session, ctx, project_id, **over):
     from app.repositories.release_issues import ReleaseIssueRepository
 
     payload = {
-        "issue_category": "deployment", "severity": "high", "blocking": True,
-        "summary": "blocker", "detail": "d", "source": "manual",
+        "issue_category": "deployment",
+        "severity": "high",
+        "blocking": True,
+        "summary": "blocker",
+        "detail": "d",
+        "source": "manual",
     }
     payload.update(over)
     return await ReleaseIssueRepository(session, ctx).create(
@@ -137,7 +151,10 @@ async def test_create_freeze_and_audit_safe(rc_ctx, admin_engine):
         rcid = rc.id
         assert rc.status == "draft" and rc.frozen_at is None
         frozen = await _repo(session, ctx).freeze(candidate_id=rcid, actor="rm")
-        assert frozen.status == "frozen" and frozen.frozen_at is not None
+        assert frozen.status == "frozen"
+        # frozen_at is a DB-computed (clock_timestamp) column — re-fetch async to materialize it
+        refetched = await _repo(session, ctx).get(rcid)
+        assert refetched.frozen_at is not None
     async with admin_engine.connect() as c:
         actor, payload = (
             await c.execute(
@@ -260,7 +277,13 @@ async def test_guard_rejects_bad_status_insert(rc_ctx, rls_engine):
     t1, p1 = rc_ctx["t1"], rc_ctx["p1"]
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1, _RC_INSERT, t=str(t1), p=str(p1), ref="X", status="frozen",
+            rls_engine,
+            t1,
+            _RC_INSERT,
+            t=str(t1),
+            p=str(p1),
+            ref="X",
+            status="frozen",
             frozen_at=None,
         )
 
@@ -270,10 +293,12 @@ async def test_guard_rejects_frozen_at_on_insert(rc_ctx, rls_engine):
     t1, p1 = rc_ctx["t1"], rc_ctx["p1"]
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1,
+            rls_engine,
+            t1,
             "INSERT INTO release_candidates (tenant_id, project_id, release_ref, status, frozen_at) "
             "VALUES (:t,:p,'X','draft',clock_timestamp())",
-            t=str(t1), p=str(p1),
+            t=str(t1),
+            p=str(p1),
         )
 
 
@@ -284,12 +309,16 @@ async def test_guard_rejects_updated_at_only_update(rc_ctx, rls_engine):
     t1, p1 = rc_ctx["t1"], rc_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        rc = await _repo(session, ctx).create(project_id=p1, payload={"release_ref": "U"}, actor="a")
+        rc = await _repo(session, ctx).create(
+            project_id=p1, payload={"release_ref": "U"}, actor="a"
+        )
         rcid = rc.id
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1,
-            "UPDATE release_candidates SET updated_at=clock_timestamp() WHERE id=:i", i=str(rcid),
+            rls_engine,
+            t1,
+            "UPDATE release_candidates SET updated_at=clock_timestamp() WHERE id=:i",
+            i=str(rcid),
         )
 
 
@@ -300,7 +329,9 @@ async def test_guard_rejects_freeze_without_frozen_at(rc_ctx, rls_engine):
     t1, p1 = rc_ctx["t1"], rc_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        rc = await _repo(session, ctx).create(project_id=p1, payload={"release_ref": "F0"}, actor="a")
+        rc = await _repo(session, ctx).create(
+            project_id=p1, payload={"release_ref": "F0"}, actor="a"
+        )
         rcid = rc.id
     with pytest.raises(Exception):
         await _direct_sql(
@@ -321,8 +352,11 @@ async def test_guard_rejects_terminal_retransition(rc_ctx, rls_engine):
         rcid = rc.id
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1, "UPDATE release_candidates SET status='frozen', "
-            "frozen_at=clock_timestamp() WHERE id=:i", i=str(rcid)
+            rls_engine,
+            t1,
+            "UPDATE release_candidates SET status='frozen', "
+            "frozen_at=clock_timestamp() WHERE id=:i",
+            i=str(rcid),
         )
 
 
@@ -340,11 +374,15 @@ async def test_guard_rejects_bind_when_not_draft(rc_ctx, rls_engine):
         rcid, iid = rc.id, i.id
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1,
+            rls_engine,
+            t1,
             "INSERT INTO release_candidate_issue_bindings "
             "(tenant_id, project_id, release_candidate_id, release_issue_id) "
             "VALUES (:t,:p,:rc,:iss)",
-            t=str(t1), p=str(p1), rc=str(rcid), iss=str(iid),
+            t=str(t1),
+            p=str(p1),
+            rc=str(rcid),
+            iss=str(iid),
         )
 
 
@@ -362,11 +400,15 @@ async def test_guard_rejects_bind_cross_project(rc_ctx, rls_engine):
         rcid, iid = rc.id, i_other.id
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1,
+            rls_engine,
+            t1,
             "INSERT INTO release_candidate_issue_bindings "
             "(tenant_id, project_id, release_candidate_id, release_issue_id) "
             "VALUES (:t,:p,:rc,:iss)",
-            t=str(t1), p=str(p1), rc=str(rcid), iss=str(iid),
+            t=str(t1),
+            p=str(p1),
+            rc=str(rcid),
+            iss=str(iid),
         )
 
 
@@ -384,11 +426,15 @@ async def test_guard_rejects_duplicate_binding(rc_ctx, rls_engine):
         rcid, iid = rc.id, i.id
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1,
+            rls_engine,
+            t1,
             "INSERT INTO release_candidate_issue_bindings "
             "(tenant_id, project_id, release_candidate_id, release_issue_id) "
             "VALUES (:t,:p,:rc,:iss)",
-            t=str(t1), p=str(p1), rc=str(rcid), iss=str(iid),
+            t=str(t1),
+            p=str(p1),
+            rc=str(rcid),
+            iss=str(iid),
         )
 
 
@@ -417,7 +463,9 @@ async def test_append_only_no_delete_no_truncate(rc_ctx, rls_engine):
             await _direct_sql(rls_engine, t1, verb, i=str(rcid))
     # statement-level TRUNCATE on all three
     for table in (
-        "release_candidates", "release_candidate_issue_bindings", "release_candidate_events",
+        "release_candidates",
+        "release_candidate_issue_bindings",
+        "release_candidate_events",
     ):
         with pytest.raises(Exception):
             await _direct_sql(rls_engine, t1, f"TRUNCATE {table}")
@@ -446,7 +494,9 @@ async def test_catalog_grants_rls_and_constraints(admin_engine):
             assert grants == expected, table
             rls = (
                 await c.execute(
-                    text("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname=:t"),
+                    text(
+                        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname=:t"
+                    ),
                     {"t": table},
                 )
             ).one()
