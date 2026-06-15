@@ -6,7 +6,7 @@ Create Date: 2026-06-15
 
 Slice 24 — open-issue / blocker store (§24.1/§24.2/Appendix B #7). Adds tenant-owned
 ``release_issues`` (RLS; SELECT/INSERT/UPDATE, no DELETE; category/severity/status CHECKs; a guard
-trigger enforcing INSERT invariants, the issue_category='other' rule, critical⇒blocking, NULL
+trigger enforcing INSERT invariants, the issue_category='other' rule, hard-blocker⇒blocking, NULL
 resolution/acceptance metadata on insert, per-transition column mutability, one-way lifecycle,
 hard-blocker-cannot-be-accepted, and accepted-requires-a-usable-risk-acceptance-record) +
 append-only ``release_issue_events`` (SELECT/INSERT only; UPDATE/DELETE/TRUNCATE blocked). Additive —
@@ -198,8 +198,10 @@ def upgrade() -> None:
                      OR NEW.detail IS NULL OR btrim(NEW.detail) = '') THEN
                     RAISE EXCEPTION 'release_issues: issue_category=other requires non-empty summary and detail';
                 END IF;
-                IF NEW.severity = 'critical' AND NEW.blocking IS NOT TRUE THEN
-                    RAISE EXCEPTION 'release_issues: critical issues must be blocking';
+                IF (NEW.severity = 'critical'
+                    OR NEW.blocking_category IN ({_sql_list(_HARD_REFUSALS)}))
+                AND NEW.blocking IS NOT TRUE THEN
+                    RAISE EXCEPTION 'release_issues: hard-blocker issues (critical or hard-refusal category) must be blocking';
                 END IF;
             ELSIF TG_OP = 'UPDATE' THEN
                 IF {immutable_checks} THEN

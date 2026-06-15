@@ -493,8 +493,10 @@ evidence source: a signed acceptance of a known, **non-blocking** open issue so 
   never counts. `risk_acceptance_records` (RLS; **no DELETE**; guard trigger so only `status`/
   `updated_at` are mutable) + append-only `risk_acceptance_events` (migration `0021`). Audit records
   safe metadata only (ids/severity/status — never reason/business-impact/evidence prose).
-- **A5 hook:** feeds gate #7 (`context.active_risk_acceptance_count`) but the gate stays
-  `insufficient_evidence:no_open_issue_store` — it can never pass without an issue/findings store.
+- **A5 hook:** originally fed gate #7 as `context.active_risk_acceptance_count`; after Slice 24 gate #7
+  combines risk-acceptance and open-issue counts but still stays
+  `insufficient_evidence:no_issue_provenance_or_release_binding` (a store can't prove issue
+  completeness or release binding).
 - **Out of scope:** issue/release entities, request-auth/verified signature, evidence-pack, go-live,
   LLM, and any HTTP API (no operator endpoint this slice).
 

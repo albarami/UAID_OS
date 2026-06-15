@@ -7,8 +7,9 @@ risk-acceptance ``issue_id`` a real referent. **Fail-closed and non-authorizing:
 
 - ``issue_category`` ∈ a coarse §24.1/Appendix-B gate-axis set; ``other`` is **not** a silent escape
   hatch — it requires non-empty ``summary`` + ``detail``.
-- ``severity ∈ {low, medium, high, critical}``. **``critical`` implies ``blocking``** — a critical
-  issue cannot be created non-blocking (it cannot masquerade its way past the gate).
+- ``severity ∈ {low, medium, high, critical}``. **Hard blockers (``critical`` OR a hard-refusal
+  ``blocking_category``) imply ``blocking``** — they cannot be created non-blocking (a hard blocker
+  cannot masquerade its way out of the open-blocking count and past the gate).
 - Lifecycle is one-way: ``open`` → ``resolved`` | ``accepted`` | ``superseded`` (no
   ``false_positive`` — an issue is an asserted blocker, not a detector signal).
 - A **hard blocker** (``severity == "critical"`` OR a ``blocking_category`` in the §24.1 hard-refusal
@@ -82,9 +83,16 @@ def validate_new_issue(record: dict) -> None:
         _empty(record.get("summary")) or _empty(record.get("detail"))
     ):
         raise InvalidIssue("issue_category='other' requires non-empty summary and detail")
-    # critical ⇒ blocking (fail-closed; also DB-guard-enforced).
-    if is_critical(record["severity"]) and record["blocking"] is not True:
-        raise InvalidIssue("critical issues must be blocking")
+    # hard blockers (critical OR a hard-refusal blocking_category) must be blocking — a hard blocker
+    # cannot masquerade as non-blocking and slip out of the open-blocking count (fail-closed; also
+    # DB-guard-enforced).
+    if (
+        is_hard_blocker(record["severity"], record.get("blocking_category"))
+        and record["blocking"] is not True
+    ):
+        raise InvalidIssue(
+            "hard-blocker issues (critical or hard-refusal category) must be blocking"
+        )
 
 
 def validate_transition(from_status: str, to_status: str) -> None:

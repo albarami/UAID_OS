@@ -4,7 +4,7 @@
 persists an ``open`` issue + a ``created`` event. ``resolve``/``supersede`` set the resolution
 metadata; ``accept`` links a usable risk-acceptance record (refused for hard blockers). Every
 transition writes an append-only event + an audit entry with **safe metadata only**
-(ids/category/severity/blocking/status — never summary/detail/resolution/blocking_category prose).
+(ids/issue_category/severity/blocking/status — never summary/detail/resolution/blocking_category prose).
 The DB guard (migration ``0023``) is the authoritative backstop for all invariants. Issues never
 enable go-live. Run inside ``tenant_scope``; ``actor`` is an untrusted caller label.
 """

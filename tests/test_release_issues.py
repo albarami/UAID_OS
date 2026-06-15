@@ -96,6 +96,16 @@ def test_critical_implies_blocking():
         validate_new_issue(_valid(severity="critical", blocking=False))
 
 
+def test_hard_refusal_category_implies_blocking():
+    # a hard-refusal blocking_category cannot masquerade as non-blocking (would dodge the gate count)
+    for cat in HARD_REFUSAL_CATEGORIES:
+        validate_new_issue(_valid(severity="high", blocking_category=cat, blocking=True))  # ok
+        with pytest.raises(InvalidIssue):
+            validate_new_issue(_valid(severity="high", blocking_category=cat, blocking=False))
+    # a benign (non-hard-refusal) category may be non-blocking
+    validate_new_issue(_valid(severity="high", blocking_category="advisory", blocking=False))
+
+
 def test_blocking_must_be_bool():
     with pytest.raises(InvalidIssue):
         validate_new_issue(_valid(blocking="yes"))
@@ -355,9 +365,9 @@ async def test_rls_deny_by_default_and_cross_tenant(ri_ctx, rls_engine):
 
 _RAW_INSERT = (
     "INSERT INTO release_issues "
-    "(tenant_id, project_id, issue_category, severity, blocking, summary, detail, source, status, "
-    " resolution_note, risk_acceptance_record_id) "
-    "VALUES (:t,:p,:cat,:sev,:blocking,:summary,:detail,'manual',:status,:rnote,:raid)"
+    "(tenant_id, project_id, issue_category, severity, blocking, blocking_category, summary, detail, "
+    " source, status, resolution_note, risk_acceptance_record_id) "
+    "VALUES (:t,:p,:cat,:sev,:blocking,:bcat,:summary,:detail,'manual',:status,:rnote,:raid)"
 )
 
 
@@ -368,6 +378,7 @@ async def _raw_insert(rls_engine, t1, p1, **over):
         "cat": "security",
         "sev": "high",
         "blocking": True,
+        "bcat": None,
         "summary": "s",
         "detail": "d",
         "status": "open",
@@ -410,6 +421,15 @@ async def test_guard_rejects_critical_nonblocking_insert(ri_ctx, rls_engine):
     t1, p1 = ri_ctx["t1"], ri_ctx["p1"]
     with pytest.raises(Exception):
         await _raw_insert(rls_engine, t1, p1, sev="critical", blocking=False)
+
+
+@pytest.mark.db
+async def test_guard_rejects_hard_refusal_category_nonblocking_insert(ri_ctx, rls_engine):
+    # a hard-refusal blocking_category ⇒ blocking enforced at the DB layer (cannot dodge the count)
+    t1, p1 = ri_ctx["t1"], ri_ctx["p1"]
+    for cat in HARD_REFUSAL_CATEGORIES:
+        with pytest.raises(Exception):
+            await _raw_insert(rls_engine, t1, p1, sev="high", blocking=False, bcat=cat)
 
 
 async def _direct_sql(rls_engine, t1, sql, **params):
@@ -476,6 +496,26 @@ async def test_guard_rejects_critical_accept_via_direct_sql(ri_ctx, rls_engine):
         await _direct_sql(
             rls_engine, t1, "UPDATE release_issues SET status='accepted' WHERE id=:i", i=str(iid)
         )
+
+
+@pytest.mark.db
+async def test_guard_rejects_hard_refusal_accept_via_direct_sql(ri_ctx, rls_engine):
+    # The DB guard (not just the repo) refuses accepting a non-critical hard-refusal-category issue,
+    # even with an otherwise-usable risk-acceptance record.
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = ri_ctx["t1"], ri_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        i = await _repo(session, ctx).create(
+            project_id=p1,
+            payload=_valid(severity="high", blocking_category="critical_security_blocker"),
+            actor="a",
+        )
+        rec = await _make_ra_record(session, ctx, p1, i.id)
+        iid, rid = i.id, rec.id
+    with pytest.raises(Exception):
+        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rid), iid=str(iid))
 
 
 @pytest.mark.db
@@ -578,6 +618,20 @@ async def test_append_only_and_no_delete(ri_ctx, rls_engine):
                         text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
                     )
                     await conn.execute(text(verb), {"i": str(iid)})
+
+
+@pytest.mark.db
+async def test_truncate_refused_both_tables(ri_ctx, rls_engine):
+    # Runtime SQL (uaid_app) cannot TRUNCATE either table (REVOKE + BEFORE TRUNCATE trigger).
+    t1 = ri_ctx["t1"]
+    for stmt in ("TRUNCATE release_issues", "TRUNCATE release_issue_events"):
+        with pytest.raises(Exception):
+            async with rls_engine.connect() as conn:
+                async with conn.begin():
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+                    )
+                    await conn.execute(text(stmt))
 
 
 @pytest.mark.db

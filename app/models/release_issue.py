@@ -2,8 +2,8 @@
 
 Tenant-owned + RLS; **no DELETE**. A DB guard (migration ``0023``) enforces the lifecycle:
 created ``open``; one-way ``open`` → ``resolved``|``accepted``|``superseded``; **critical (and any
-hard-refusal ``blocking_category``) issues can never be accepted**; ``critical`` implies
-``blocking``; ``accepted`` requires a usable risk-acceptance record (active + non-expired +
+hard-refusal ``blocking_category``) issues can never be accepted and must be ``blocking``**;
+``accepted`` requires a usable risk-acceptance record (active + non-expired +
 non-blocking + same tenant/project + ``issue_id == issue.id``). Per transition only the relevant
 lifecycle fields are mutable; all identity/prose/source fields are immutable after create.
 ``source``/``source_provenance`` are UNVERIFIED — not authoritative issue provenance. These issues
