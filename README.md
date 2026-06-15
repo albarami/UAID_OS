@@ -417,19 +417,21 @@ never deploys, never approves, and **never sets `can_go_live_autonomously` true*
   primitives only and return `insufficient_evidence` (they never pass) — **#5/#6 (security/shortcut
   findings) are `insufficient_evidence:no_finding_provenance_or_scan_source`** with open/critical
   finding-count context (Slice 23 added the stores but there's no authoritative scan coverage);
-  **#7 (risk-acceptance) is `insufficient_evidence:no_open_issue_store`** (Slice 22); the other five
+  **#7 (risk-acceptance) is `insufficient_evidence:no_issue_provenance_or_release_binding`** with
+  open-issue counts + `active_risk_acceptance_count` context (Slice 24 added the open-issue store but
+  there's no issue provenance/release binding); the other five
   (#3/#4/#10/#11/#13) return `no_evidence_source:<subsystem>` and await Phase 3/5/6 subsystems
   (CI/branch-protection, test-oracle execution, rollback verification, monitoring, emergency stop).
 - `a5_satisfied` (all 13 passed) is impossible this slice; `can_go_live_autonomously` is **hard-false
   always** — go-live additionally needs a request-authenticated, verified A5 pre-approval that does
   not exist yet. `deploy_production` stays mandatory-approval / never auto-ALLOW.
 - **Compute-on-read, no persistence, no migration:** `ProductionAutonomyRepository.evaluate` reads
-  current state (readiness + autonomy/budget/category/risk-acceptance/release-findings context) via
-  tenant-scoped repos inside `tenant_scope`/RLS and runs the pure engine — it writes nothing.
-  Read-only at `GET /api/projects/{id}/production_autonomy`; cross-tenant/nonexistent yields a generic
-  not-satisfied report (no leak). `ruleset_version = "slice23.v1"`.
-- **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings *stores*
-  (no scanner/detector execution), request-auth, persistence/history, LLM, actual deploy.
+  current state (readiness + autonomy/budget/category/risk-acceptance/release-findings/release-issue
+  context) via tenant-scoped repos inside `tenant_scope`/RLS and runs the pure engine — it writes
+  nothing. Read-only at `GET /api/projects/{id}/production_autonomy`; cross-tenant/nonexistent yields a
+  generic not-satisfied report (no leak). `ruleset_version = "slice24.v1"`.
+- **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings + issue *stores*
+  (no scanner/detector/reviewer execution), request-auth, persistence/history, LLM, actual deploy.
 
 ## Release findings (security / shortcut) — deterministic, tenant-owned store (Slice 23, §13.4 / §916-920)
 `app/release/findings.py` + `app/repositories/release_findings.py` add the A5 gate-#5/#6 evidence
@@ -450,6 +452,31 @@ source: `security` and `shortcut`/fake-done findings. Fail-closed and **non-auth
 - **Out of scope:** scanner/security-reviewer/shortcut-detector execution, issue/release entities,
   evidence pack, go-live, request-auth, LLM, HTTP API.
 
+## Open issues / blockers — deterministic, tenant-owned store (Slice 24, §24.1 / §24.2 / Appendix B #7)
+`app/release/issues.py` + `app/repositories/release_issues.py` add the A5 gate-#7 evidence source: a
+general release-blocker ledger that also gives the Slice-22 risk-acceptance `issue_id` a real referent.
+Fail-closed and **non-authorizing**.
+- **Taxonomy:** `issue_category` ∈ a 10-value §24.1/Appendix-B gate-axis set
+  (`security`/`shortcut`/`test_or_acceptance`/`cost`/`deployment`/`rollback`/`monitoring`/`evidence`/
+  `approval`/`other`); `other` requires non-empty `summary`+`detail`. `blocking` is a separate boolean
+  axis; **`critical` implies `blocking`** (a critical issue can't be created non-blocking — refused at
+  the pure validator and the DB-guard INSERT).
+- **Lifecycle (DB-guarded):** one-way `open → resolved | accepted | superseded` (no `false_positive`);
+  **hard blockers (critical OR a hard-refusal `blocking_category`) can never be `accepted`**;
+  `accepted` always requires a **usable** `risk_acceptance_records` link (active + non-expired +
+  non-blocking + same tenant/project + `issue_id == issue.id`). The DB guard enforces INSERT
+  invariants, per-transition column mutability, and these rules even against direct SQL.
+- **Persistence:** `release_issues` (RLS; **no DELETE**) + append-only `release_issue_events`
+  (migration `0023`). `source`/`source_provenance` are UNVERIFIED. Audit = safe metadata only
+  (ids/issue_category/severity/blocking/status — never summary/detail/resolution/blocking_category prose).
+- **A5 hook:** feeds gate #7 counts (`open_issue_count`/`open_blocking_issue_count`/
+  `open_unaccepted_blocking_issue_count` + `active_risk_acceptance_count`), but it stays
+  `insufficient_evidence:no_issue_provenance_or_release_binding` — a store can't prove issue
+  completeness (no reviewer/CI/verifier provenance) or which issues belong to this release.
+- **Out of scope:** issue provenance/detection, the findings→issue bridge, issue/release entities,
+  evidence pack, go-live, request-auth, LLM, HTTP API. (`open` ⟹ not accepted, so
+  `open_unaccepted_blocking` equals `open_blocking` this slice.)
+
 ## Risk-acceptance records — deterministic, tenant-owned store (Slice 22, §24.1 / §27.10)
 `app/release/risk_acceptance.py` + `app/repositories/risk_acceptance.py` add the first real A5
 evidence source: a signed acceptance of a known, **non-blocking** open issue so a release may proceed
@@ -466,8 +493,10 @@ evidence source: a signed acceptance of a known, **non-blocking** open issue so 
   never counts. `risk_acceptance_records` (RLS; **no DELETE**; guard trigger so only `status`/
   `updated_at` are mutable) + append-only `risk_acceptance_events` (migration `0021`). Audit records
   safe metadata only (ids/severity/status — never reason/business-impact/evidence prose).
-- **A5 hook:** feeds gate #7 (`context.active_risk_acceptance_count`) but the gate stays
-  `insufficient_evidence:no_open_issue_store` — it can never pass without an issue/findings store.
+- **A5 hook:** originally fed gate #7 as `context.active_risk_acceptance_count`; after Slice 24 gate #7
+  combines risk-acceptance and open-issue counts but still stays
+  `insufficient_evidence:no_issue_provenance_or_release_binding` (a store can't prove issue
+  completeness or release binding).
 - **Out of scope:** issue/release entities, request-auth/verified signature, evidence-pack, go-live,
   LLM, and any HTTP API (no operator endpoint this slice).
 
