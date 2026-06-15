@@ -78,7 +78,7 @@ A5 gate #7 (`production_autonomy` `ruleset_version` bumped to `slice24.v1`): gat
 `insufficient_evidence:no_open_issue_store` → `insufficient_evidence:no_issue_provenance_or_release_binding`
 with open-issue counts (`open_issue_count`/`open_blocking_issue_count`/
 `open_unaccepted_blocking_issue_count`) + `active_risk_acceptance_count` as context — never passes (no
-issue provenance/release binding); go-live stays false. In progress.**
+issue provenance/release binding); go-live stays false — merged via PR #37 (commit `7a2ae44`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
