@@ -417,21 +417,25 @@ never deploys, never approves, and **never sets `can_go_live_autonomously` true*
   primitives only and return `insufficient_evidence` (they never pass) — **#5/#6 (security/shortcut
   findings) are `insufficient_evidence:no_finding_provenance_or_scan_source`** with open/critical
   finding-count context (Slice 23 added the stores but there's no authoritative scan coverage);
-  **#7 (risk-acceptance) is `insufficient_evidence:no_issue_provenance_or_release_binding`** with
-  open-issue counts + `active_risk_acceptance_count` context (Slice 24 added the open-issue store but
-  there's no issue provenance/release binding); the other five
+  **#7 (risk-acceptance + open-issue + release-binding) is `insufficient_evidence`** — its reason
+  narrows from `no_issue_provenance_or_release_binding` to `no_issue_provenance` once a FROZEN release
+  candidate exists (Slice 25 supplies the release-binding half), with open-issue + frozen/bound-issue
+  counts as context, but issue provenance/completeness still does not exist so it never passes; the
+  other five
   (#3/#4/#10/#11/#13) return `no_evidence_source:<subsystem>` and await Phase 3/5/6 subsystems
   (CI/branch-protection, test-oracle execution, rollback verification, monitoring, emergency stop).
 - `a5_satisfied` (all 13 passed) is impossible this slice; `can_go_live_autonomously` is **hard-false
   always** — go-live additionally needs a request-authenticated, verified A5 pre-approval that does
   not exist yet. `deploy_production` stays mandatory-approval / never auto-ALLOW.
 - **Compute-on-read, no persistence, no migration:** `ProductionAutonomyRepository.evaluate` reads
-  current state (readiness + autonomy/budget/category/risk-acceptance/release-findings/release-issue
-  context) via tenant-scoped repos inside `tenant_scope`/RLS and runs the pure engine — it writes
-  nothing. Read-only at `GET /api/projects/{id}/production_autonomy`; cross-tenant/nonexistent yields a
-  generic not-satisfied report (no leak). `ruleset_version = "slice24.v1"`.
-- **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings + issue *stores*
-  (no scanner/detector/reviewer execution), request-auth, persistence/history, LLM, actual deploy.
+  current state (readiness + autonomy/budget/category/risk-acceptance/release-findings/release-issue/
+  release-candidate context) via tenant-scoped repos inside `tenant_scope`/RLS and runs the pure
+  engine — it writes nothing. Read-only at `GET /api/projects/{id}/production_autonomy`;
+  cross-tenant/nonexistent yields a generic not-satisfied report (no leak).
+  `ruleset_version = "slice25.v1"`.
+- **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings + issue +
+  release-candidate *stores* (no scanner/detector/reviewer execution, no issue provenance), request-auth,
+  persistence/history, LLM, actual deploy.
 
 ## Release findings (security / shortcut) — deterministic, tenant-owned store (Slice 23, §13.4 / §916-920)
 `app/release/findings.py` + `app/repositories/release_findings.py` add the A5 gate-#5/#6 evidence
@@ -476,6 +480,30 @@ Fail-closed and **non-authorizing**.
 - **Out of scope:** issue provenance/detection, the findings→issue bridge, issue/release entities,
   evidence pack, go-live, request-auth, LLM, HTTP API. (`open` ⟹ not accepted, so
   `open_unaccepted_blocking` equals `open_blocking` this slice.)
+
+## Release candidates / bindings — deterministic, tenant-owned store (Slice 25, §24.1 / §24.2 / Appendix B #7)
+`app/release/release_candidates.py` + `app/repositories/release_candidates.py` add the
+*release-binding* half of A5 gate #7: a release-candidate namespace + freeze-locked issue bindings that
+scope "remaining open issues **for this release**". It is the **future** referent for Slice-22
+`risk_acceptance_records.release_id` (**not yet FK'd/validated**). Fail-closed and **non-authorizing**.
+- **Identity + lifecycle (DB-guarded):** `release_candidates` carry `release_ref` (unique per
+  tenant/project), `status`, `frozen_at`; one-way `draft → frozen | canceled` and
+  `frozen → superseded | canceled`. `frozen_at` is set iff entering `frozen`; identity is immutable; a
+  same-status update changes nothing. **No approval/verdict/deploy/go-live state.**
+- **Bindings:** `release_candidate_issue_bindings` link a candidate to `release_issues` (the issues
+  **known** for this release — **not** a completeness claim). Append-only; a binding may be added
+  **only while the candidate is `draft`** (freeze locks the membership set); the issue must be the same
+  project; no unbind. **Option A FK shape** (additive — no `release_issues` mutation): candidate side
+  `(id, project_id, tenant_id)`, issue side `(id, tenant_id)`, a trigger verifies the project match.
+- **Persistence:** `release_candidates` (RLS; **no DELETE**) + append-only `release_candidate_events`
+  + append-only `release_candidate_issue_bindings` (migration `0024`). Audit = safe metadata only
+  (ids/release_ref/status — never `title`/prose).
+- **A5 hook:** gate #7's reason **narrows** to `no_issue_provenance` once a frozen candidate exists,
+  surfacing `frozen_release_candidate_count` + the latest-frozen id/`release_ref` + bound-issue counts
+  — but it stays `insufficient_evidence` and **never passes** (a store can't prove issue completeness).
+- **Out of scope:** release approval/verdict/deploy, request-auth, the `risk_acceptance_records.release_id`
+  FK, scanner/reviewer issue provenance, findings/risk-acceptance binding, evidence pack, go-live, LLM,
+  HTTP API. (`open` ⟹ not accepted, so `bound_open_unaccepted_blocking` equals `bound_open_blocking`.)
 
 ## Risk-acceptance records — deterministic, tenant-owned store (Slice 22, §24.1 / §27.10)
 `app/release/risk_acceptance.py` + `app/repositories/risk_acceptance.py` add the first real A5
