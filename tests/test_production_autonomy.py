@@ -1,12 +1,13 @@
-"""A5 production-autonomy evaluator skeleton tests (Slice 21 + Slice 22, Appendix B).
+"""A5 production-autonomy evaluator skeleton tests (Slice 21 + Slice 22 + Slice 23, Appendix B).
 
-Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass today; the five
-partial-context gates (#2/#7/#8/#9/#12) return ``insufficient_evidence`` and the seven sourceless
-gates return ``no_evidence_source:<subsystem>``. Gate #7 (Slice 22) is
-``insufficient_evidence:no_open_issue_store`` with ``context.active_risk_acceptance_count``;
-``ruleset_version`` is ``slice22.v1``. ``a5_satisfied`` and ``can_go_live_autonomously`` are always
-false. Docker-free for the pure engine; ``db`` for the repository (compute-on-read, no persistence,
-no migration).
+Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass today; the **seven**
+partial-context gates (#2/#5/#6/#7/#8/#9/#12) return ``insufficient_evidence`` and the **five**
+sourceless gates (#3/#4/#10/#11/#13) return ``no_evidence_source:<subsystem>``. Gates #5/#6 (Slice 23)
+are ``insufficient_evidence:no_finding_provenance_or_scan_source`` with open/critical finding-count
+context; gate #7 (Slice 22) is ``insufficient_evidence:no_open_issue_store`` with
+``context.active_risk_acceptance_count``; ``ruleset_version`` is ``slice23.v1``. ``a5_satisfied`` and
+``can_go_live_autonomously`` are always false. Docker-free for the pure engine; ``db`` for the
+repository (compute-on-read, no persistence; the release-findings store adds migration ``0022``).
 """
 
 import uuid
@@ -22,8 +23,10 @@ from app.release.production_autonomy import (
 
 # Slice 22: gate #7 (risk-acceptance) moved from no_evidence_source to insufficient_evidence
 # (the store now exists, but the open-issue store does not).
-PARTIAL_GATES = {2, 7, 8, 9, 12}
-SOURCELESS_GATES = {3, 4, 5, 6, 10, 11, 13}
+# Slice 23: gates #5/#6 (security/shortcut findings) moved from no_evidence_source to
+# insufficient_evidence (the stores now exist, but authoritative scan coverage does not).
+PARTIAL_GATES = {2, 5, 6, 7, 8, 9, 12}
+SOURCELESS_GATES = {3, 4, 10, 11, 13}
 
 
 def _eval(readiness_level="R5", **ctx):
@@ -99,7 +102,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice22.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice23.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
@@ -125,6 +128,39 @@ def test_gate7_context_carries_active_count():
     g7 = _gate(rep, 7)
     assert g7["context"]["active_risk_acceptance_count"] == 3
     assert g7["status"] == "insufficient_evidence"  # count is context only, never passes
+    assert rep.to_dict()["a5_satisfied"] is False
+
+
+def test_gates_5_6_are_insufficient_no_finding_provenance():
+    rep = _eval(readiness_level="R5")
+    for n, gate, count_keys in (
+        (5, "no_unaccepted_critical_security_findings",
+         ("open_security_finding_count", "open_unaccepted_critical_security_finding_count")),
+        (6, "no_unaccepted_critical_shortcut_findings",
+         ("open_shortcut_finding_count", "open_unaccepted_critical_shortcut_finding_count")),
+    ):
+        g = _gate(rep, n)
+        assert g["gate"] == gate
+        assert g["status"] == "insufficient_evidence"
+        assert g["reason"] == "no_finding_provenance_or_scan_source"
+        for k in count_keys:
+            assert k in g["context"]
+
+
+def test_gates_5_6_context_carries_counts_but_never_pass():
+    rep = evaluate_production_autonomy(
+        "p",
+        readiness_level="R5",
+        open_security_finding_count=2,
+        open_unaccepted_critical_security_finding_count=1,
+        open_shortcut_finding_count=3,
+        open_unaccepted_critical_shortcut_finding_count=0,
+    )
+    g5 = _gate(rep, 5)
+    g6 = _gate(rep, 6)
+    assert g5["context"]["open_unaccepted_critical_security_finding_count"] == 1
+    assert g6["context"]["open_shortcut_finding_count"] == 3
+    assert g5["status"] == "insufficient_evidence" and g6["status"] == "insufficient_evidence"
     assert rep.to_dict()["a5_satisfied"] is False
 
 
@@ -296,4 +332,38 @@ async def test_db_gate7_reads_active_risk_acceptance_count(pa_ctx):
     g7 = _gate(rep, 7)
     assert g7["status"] == "insufficient_evidence" and g7["reason"] == "no_open_issue_store"
     assert g7["context"]["active_risk_acceptance_count"] == 1
+    assert rep.to_dict()["a5_satisfied"] is False
+
+
+@pytest.mark.db
+async def test_db_gates_5_6_read_finding_counts(pa_ctx):
+    # The A5 repo wires ReleaseFindingRepository counts into gates #5/#6 context; both stay
+    # insufficient_evidence (never pass) regardless of the counts.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.release_findings import ReleaseFindingRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pa_ctx["t1"], pa_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = ReleaseFindingRepository(session, ctx)
+        await repo.create(
+            project_id=p1,
+            payload={"finding_type": "security", "category": "authz", "severity": "critical",
+                     "summary": "s", "detail": "d", "source": "manual"},
+            actor="a",
+        )
+        await repo.create(
+            project_id=p1,
+            payload={"finding_type": "shortcut", "category": "fake_integration", "severity": "high",
+                     "summary": "s", "detail": "d", "source": "manual"},
+            actor="a",
+        )
+        rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
+    g5, g6 = _gate(rep, 5), _gate(rep, 6)
+    assert g5["context"]["open_security_finding_count"] == 1
+    assert g5["context"]["open_unaccepted_critical_security_finding_count"] == 1
+    assert g6["context"]["open_shortcut_finding_count"] == 1
+    assert g6["context"]["open_unaccepted_critical_shortcut_finding_count"] == 0
+    assert g5["status"] == "insufficient_evidence" and g6["status"] == "insufficient_evidence"
     assert rep.to_dict()["a5_satisfied"] is False

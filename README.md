@@ -406,30 +406,49 @@ auditor is now **capped at R5** (A5/Appendix-B production autonomy still out of 
   spine kinds; the R3/R4/R5 rules consuming these declarations live in Slices 16/18/20, and A5/Appendix-B
   production autonomy remains deferred (go-live stays false even at R5).**
 
-## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slice 21 + Slice 22, §5.1 / App. B)
+## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23, §5.1 / App. B)
 `app/release/production_autonomy.py` + `app/repositories/production_autonomy.py` add a **pure,
 deterministic, fail-closed** evaluator that scores the **13 Appendix-B A5 gates** and emits a
 `production_autonomy` report (separate from the R5 readiness report). It is **non-authorizing**: it
 never deploys, never approves, and **never sets `can_go_live_autonomously` true**.
 - Each gate has `status ∈ {passed, insufficient_evidence, no_evidence_source}` (subsystem detail in
   `reason`; every gate also carries a `context` dict, default `{}`). **Only gate #1 (R5 intake
-  complete) can pass** (when readiness is R5). Gates #2/#7/#8/#9/#12 have partial *context* primitives
-  only and return `insufficient_evidence` (they never pass) — **#7 (risk-acceptance) is
-  `insufficient_evidence:no_open_issue_store` with `context.active_risk_acceptance_count`** since
-  Slice 22 added the store but no open-issue store exists; the other seven return
-  `no_evidence_source:<subsystem>` and await Phase 3/5/6 evidence subsystems (CI/branch-protection,
-  test-oracle execution, security findings, shortcut findings, rollback verification, monitoring,
-  emergency stop).
+  complete) can pass** (when readiness is R5). Gates **#2/#5/#6/#7/#8/#9/#12** have partial *context*
+  primitives only and return `insufficient_evidence` (they never pass) — **#5/#6 (security/shortcut
+  findings) are `insufficient_evidence:no_finding_provenance_or_scan_source`** with open/critical
+  finding-count context (Slice 23 added the stores but there's no authoritative scan coverage);
+  **#7 (risk-acceptance) is `insufficient_evidence:no_open_issue_store`** (Slice 22); the other five
+  (#3/#4/#10/#11/#13) return `no_evidence_source:<subsystem>` and await Phase 3/5/6 subsystems
+  (CI/branch-protection, test-oracle execution, rollback verification, monitoring, emergency stop).
 - `a5_satisfied` (all 13 passed) is impossible this slice; `can_go_live_autonomously` is **hard-false
   always** — go-live additionally needs a request-authenticated, verified A5 pre-approval that does
   not exist yet. `deploy_production` stays mandatory-approval / never auto-ALLOW.
 - **Compute-on-read, no persistence, no migration:** `ProductionAutonomyRepository.evaluate` reads
-  current state (readiness level + autonomy/budget/category/risk-acceptance context) via tenant-scoped
-  repos inside `tenant_scope`/RLS and runs the pure engine — it writes nothing. Read-only at
-  `GET /api/projects/{id}/production_autonomy`; cross-tenant/nonexistent yields a generic
-  not-satisfied report (no leak). `ruleset_version = "slice22.v1"`.
-- **Out of scope:** any real evidence subsystem (beyond the risk-acceptance store), request-auth,
-  persistence/history, LLM, actual deploy.
+  current state (readiness + autonomy/budget/category/risk-acceptance/release-findings context) via
+  tenant-scoped repos inside `tenant_scope`/RLS and runs the pure engine — it writes nothing.
+  Read-only at `GET /api/projects/{id}/production_autonomy`; cross-tenant/nonexistent yields a generic
+  not-satisfied report (no leak). `ruleset_version = "slice23.v1"`.
+- **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings *stores*
+  (no scanner/detector execution), request-auth, persistence/history, LLM, actual deploy.
+
+## Release findings (security / shortcut) — deterministic, tenant-owned store (Slice 23, §13.4 / §916-920)
+`app/release/findings.py` + `app/repositories/release_findings.py` add the A5 gate-#5/#6 evidence
+source: `security` and `shortcut`/fake-done findings. Fail-closed and **non-authorizing**.
+- **Taxonomy:** `finding_type ∈ {security, shortcut}`; `severity ∈ {low,medium,high,critical}`;
+  `category` validated per type (§916-920 security; §13.4 shortcut); `category="other"` requires
+  non-empty `summary`+`detail` (not a silent escape hatch).
+- **Lifecycle (DB-guarded):** one-way `open → resolved | false_positive | accepted | superseded`;
+  **critical findings can never be `accepted`** (must be resolved/false_positive — §24.1 hard
+  refusals); non-critical `accepted` requires a **usable** `risk_acceptance_records` link (active +
+  non-expired + non-blocking + same tenant/project + `issue_id == finding.id`). The DB guard enforces
+  INSERT invariants, per-transition column mutability, and these rules even against direct SQL.
+- **Persistence:** `release_findings` (RLS; **no DELETE**) + append-only `release_finding_events`
+  (migration `0022`). `source`/`source_provenance` are UNVERIFIED. Audit = safe metadata only
+  (ids/type/severity/status/category — never summary/detail/resolution prose).
+- **A5 hook:** feeds gates #5/#6 counts, but they stay `insufficient_evidence:no_finding_provenance_or_scan_source`
+  — a store can't prove absence of findings without authoritative scan coverage.
+- **Out of scope:** scanner/security-reviewer/shortcut-detector execution, issue/release entities,
+  evidence pack, go-live, request-auth, LLM, HTTP API.
 
 ## Risk-acceptance records — deterministic, tenant-owned store (Slice 22, §24.1 / §27.10)
 `app/release/risk_acceptance.py` + `app/repositories/risk_acceptance.py` add the first real A5

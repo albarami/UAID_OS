@@ -55,6 +55,15 @@ no DELETE, only `status`/`updated_at` mutable. Wires a CONSERVATIVE A5 gate-#7 h
 (`production_autonomy` `ruleset_version` bumped to `slice22.v1`, `GateResult.context` added): gate #7
 moves `no_evidence_source` → `insufficient_evidence:no_open_issue_store` with
 `context.active_risk_acceptance_count` — never passes (no issue store yet); go-live stays false — merged via PR #33 (commit `4ea38cc`).**
+**Slice 23 adds a deterministic, tenant-owned security/shortcut release-findings store
+(`release_findings` + append-only `release_finding_events`, migration `0022`, §13.4/§916-920) — the
+next real A5 evidence source: `finding_type ∈ {security,shortcut}`, §13.4/§920 categories, DB-guarded
+one-way lifecycle (open→resolved|false_positive|accepted|superseded), **critical findings can never
+be accepted**, non-critical acceptance requires a usable `risk_acceptance_records` link (active +
+non-expired + non-blocking + same tenant/project + `issue_id==finding.id`). Wires the conservative A5
+gates #5/#6 (`production_autonomy` `ruleset_version` bumped to `slice23.v1`): both move
+`no_evidence_source` → `insufficient_evidence:no_finding_provenance_or_scan_source` with open/critical
+finding counts as context — never pass (no scan coverage); go-live stays false. In progress.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -357,19 +366,39 @@ the admin `app` role only.
   Appendix B). `production_autonomy.py` (pure, no I/O, no LLM): `evaluate_production_autonomy` scores
   the **13 Appendix-B gates** with status ∈ `{passed, insufficient_evidence, no_evidence_source}`
   (subsystem detail in `reason`; every gate also carries a `context` dict, default `{}`, since
-  Slice 22). **Only gate #1 (R5 intake) can pass**; #2/#7/#8/#9/#12 are `insufficient_evidence`
-  (partial *context* primitives that never pass a gate — **#7 risk-acceptance is now
+  Slice 22). **Only gate #1 (R5 intake) can pass**; **#2/#5/#6/#7/#8/#9/#12** are
+  `insufficient_evidence` (partial *context* primitives that never pass a gate — **#5/#6
+  security/shortcut findings are `insufficient_evidence:no_finding_provenance_or_scan_source` with
+  open/critical-finding-count context** after Slice 23 added the stores; **#7 risk-acceptance is
   `insufficient_evidence:no_open_issue_store` with `context.active_risk_acceptance_count`** after
-  Slice 22 added the store); the other 7 are `no_evidence_source:<subsystem>` (await Phase 3/5/6).
-  `a5_satisfied` (all-13-passed) and **`can_go_live_autonomously` are ALWAYS false** — go-live also
-  needs a request-authenticated A5 pre-approval (not implemented); this module never authorizes
-  production. `ruleset_version` is `slice22.v1`. `ProductionAutonomyRepository`
+  Slice 22); the other **5** (#3/#4/#10/#11/#13) are `no_evidence_source:<subsystem>` (await
+  Phase 3/5/6). `a5_satisfied` (all-13-passed) and **`can_go_live_autonomously` are ALWAYS false** —
+  go-live also needs a request-authenticated A5 pre-approval (not implemented); this module never
+  authorizes production. `ruleset_version` is `slice23.v1`. `ProductionAutonomyRepository`
   (`evaluate`, **compute-on-read, no persistence, no table/migration**) reads current state via the
-  readiness/autonomy/budget/category/risk-acceptance repos inside `tenant_scope`/RLS;
+  readiness/autonomy/budget/category/risk-acceptance/release-findings repos inside `tenant_scope`/RLS;
   cross-tenant/nonexistent yields a generic not-satisfied report (no leak). Read-only exposed at
   `GET /api/projects/{id}/production_autonomy` (Slice 21). **Skeleton: scores gate structure only —
-  builds no evidence subsystem (CI/test-exec/findings/rollback/monitoring/emergency-stop), no go-live,
+  builds no evidence subsystem (CI/test-exec/rollback/monitoring/emergency-stop), no go-live,
   no LLM, no migration.**
+- `app/release/findings.py` + `app/models/release_finding.py` + `app/models/release_finding_event.py`
+  + `app/repositories/release_findings.py` — **deterministic, tenant-owned security/shortcut
+  release-findings store** (Slice 23, §13.4/§916-920/§24.1 — A5 gates #5/#6 evidence). `findings.py`
+  (pure): `FINDING_TYPES` (`security`/`shortcut`), `SEVERITIES`, `SECURITY_CATEGORIES` (§916-920),
+  `SHORTCUT_CATEGORIES` (§13.4), `validate_new_finding` (required fields, category-per-type, `other`
+  ⇒ non-empty summary+detail), `validate_transition` (one-way open→terminal), `is_critical`.
+  `ReleaseFindingRepository` (`create`/`resolve`/`mark_false_positive`/`supersede`/`accept`/`get`/
+  `count_open`/`count_open_unaccepted_critical`): create rejects invalid taxonomy; **accept is
+  non-critical only and requires a usable risk-acceptance record**; audits safe metadata only
+  (ids/type/severity/status/category — never summary/detail/resolution prose). `release_findings`
+  (tenant-owned, RLS ENABLE+FORCE; SELECT/INSERT/UPDATE, **no DELETE**; type/severity/status CHECKs;
+  **DB guard** = INSERT invariants [status=open, unverified provenance, NULL resolution/acceptance
+  metadata, category-per-type, `other` rule] + per-transition column mutability + one-way lifecycle +
+  **critical-cannot-be-accepted** + accepted-requires-usable-risk-acceptance-record) + append-only
+  `release_finding_events`. Migration `0022`. Feeds the conservative A5 gates #5/#6 (never pass).
+  **Skeleton: store + lifecycle only — no scanner/security-reviewer/shortcut-detector execution, no
+  issue/release entity, no evidence pack, no go-live, no LLM, no HTTP API; critical findings are hard
+  blockers (the §24.1 human-authority override is out of scope).**
 - `app/release/risk_acceptance.py` + `app/models/risk_acceptance_record.py` +
   `app/models/risk_acceptance_event.py` + `app/repositories/risk_acceptance.py` — **deterministic,
   tenant-owned go-live risk-acceptance store** (Slice 22, §24.1/§27.10 — the first real A5 evidence
@@ -518,7 +547,14 @@ the admin `app` role only.
   `risk_acceptance_records` [RLS ENABLE+FORCE + `tenant_isolation`; SELECT/INSERT/UPDATE, no DELETE;
   severity + status CHECKs; guard trigger so only `status`/`updated_at` are mutable; no DELETE/TRUNCATE]
   + append-only `risk_acceptance_events` [SELECT/INSERT only; UPDATE/DELETE/TRUNCATE block triggers;
-  composite FK pinning to the record's tenant]; no change to existing tables).
+  composite FK pinning to the record's tenant]; no change to existing tables); `0022_release_findings.py`
+  (Slice 23: **tenant-owned** `release_findings` [RLS ENABLE+FORCE; SELECT/INSERT/UPDATE, no DELETE;
+  type/severity/status CHECKs; nullable composite FK → `risk_acceptance_records`; guard trigger =
+  INSERT invariants (status=open, unverified provenance, NULL resolution/acceptance metadata,
+  category-per-type, `other`⇒summary+detail) + per-transition mutability + one-way lifecycle +
+  critical-cannot-be-accepted + accepted-requires-usable-risk-acceptance-record; no DELETE/TRUNCATE]
+  + append-only `release_finding_events` [SELECT/INSERT only; UPDATE/DELETE/TRUNCATE block triggers];
+  no change to existing tables).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -544,11 +580,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 219 passing (Docker-free); `make test-db` → 269 passing (DB-backed: tenancy,
+  **`make test` → 234 passing (Docker-free); `make test-db` → 288 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -578,11 +614,16 @@ the admin `app` role only.
   them, non-declarable still rejected), declarable/secret/source-XOR validators, readiness interaction
   (no declared categories ⇒ R2, cap now R5, every category consumed ⇒ not-assessed empty), accepted-doc
   pinning, immutable keys, no-DELETE/TRUNCATE, RLS, catalog], the A5 production-autonomy evaluator
-  [13 gates, only #1 passes, gate #7 now `insufficient_evidence:no_open_issue_store` with active count,
-  `slice22.v1`, go-live always false, compute-on-read no-writes, cross-tenant no-leak], and the
-  risk-acceptance store [required-field + hard-refusal + lifecycle validation, store-time hard-refusal
-  rejection, expire-on-demand, count-active-nonblocking, RLS + cross-tenant, append-only events +
-  record immutability guard, audit safe-metadata, catalog/grants]).
+  [13 gates, only #1 passes; gates #5/#6/#7 `insufficient_evidence` with context counts; `slice23.v1`;
+  gate-set `PARTIAL={2,5,6,7,8,9,12}`/`SOURCELESS={3,4,10,11,13}`; go-live always false; compute-on-read
+  no-writes; cross-tenant no-leak], the risk-acceptance store [required-field + hard-refusal + lifecycle
+  validation, store-time hard-refusal rejection, expire-on-demand, count-active-nonblocking, RLS +
+  cross-tenant, append-only events + record immutability guard, audit safe-metadata, catalog/grants],
+  and the release-findings store [taxonomy + category-per-type + `other` rule + lifecycle validation;
+  DB-guard refusals (bad-status insert, `other`-without-detail, resolution-metadata-on-insert,
+  critical-accept, terminal re-transition, accept-without-usable-record, cross-tenant accept);
+  resolve/false_positive/supersede/accept; count_open + count_open_unaccepted_critical; RLS +
+  cross-tenant; append-only events + immutability; audit safe-metadata; catalog/grants]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -616,8 +657,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 219 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 269 passing
+make test                                  # Docker-free tests (no services) — 234 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 288 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
