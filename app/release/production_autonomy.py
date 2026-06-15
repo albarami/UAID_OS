@@ -1,4 +1,4 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + Slice 22 + Slice 23, spec §5.1 + App. B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
@@ -10,22 +10,24 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   **Slice-23 shortcut findings store, #6**; **Slice-22 risk-acceptance store, #7**; AC provenance;
   cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
   they never pass. #5/#6 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
-  can't prove absence of findings without authoritative scan coverage); #7 is
-  ``insufficient_evidence:no_open_issue_store``. Their counts are context only and never authorize.
+  can't prove absence of findings without authoritative scan coverage); #7 (**Slice-24 open-issue
+  store**) is ``insufficient_evidence:no_issue_provenance_or_release_binding`` (a store can't prove
+  issue completeness or which issues belong to this release). Their counts are context only and
+  never authorize.
 - The **five** sourceless gates (#3, #4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
   they await Phase 3/5/6 evidence subsystems.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
 ``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
 request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice23.v1``.
+production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice24.v1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-A5_RULESET_VERSION = "slice23.v1"
+A5_RULESET_VERSION = "slice24.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -100,6 +102,9 @@ def evaluate_production_autonomy(
     environments_declared: bool = False,
     generated_ac_provenance_ok: bool = False,
     active_risk_acceptance_count: int = 0,
+    open_issue_count: int = 0,
+    open_blocking_issue_count: int = 0,
+    open_unaccepted_blocking_issue_count: int = 0,
     open_security_finding_count: int = 0,
     open_unaccepted_critical_security_finding_count: int = 0,
     open_shortcut_finding_count: int = 0,
@@ -116,50 +121,68 @@ def evaluate_production_autonomy(
 
     # Gates #2/#8/#9/#12 — partial *context* primitives exist, but no production-autonomy evidence.
     gate2 = _insufficient(
-        2, "production_deployment_target_available",
-        "environments_declared_but_no_live_target" if environments_declared
+        2,
+        "production_deployment_target_available",
+        "environments_declared_but_no_live_target"
+        if environments_declared
         else "no_environment_declaration_and_no_live_target",
     )
     gate8 = _insufficient(
-        8, "no_unapproved_generated_ac_in_critical_gates",
-        "ac_provenance_present_but_no_release_gate_binding" if generated_ac_provenance_ok
+        8,
+        "no_unapproved_generated_ac_in_critical_gates",
+        "ac_provenance_present_but_no_release_gate_binding"
+        if generated_ac_provenance_ok
         else "ac_provenance_context_only_no_release_gate_binding",
     )
     gate9 = _insufficient(
-        9, "cost_forecast_within_policy",
-        "cost_stop_decision_only_no_forecast" if cost_policy_present
+        9,
+        "cost_forecast_within_policy",
+        "cost_stop_decision_only_no_forecast"
+        if cost_policy_present
         else "no_cost_policy_and_no_forecast",
     )
     gate12 = _insufficient(
-        12, "production_deploy_preapproved_under_conditions",
-        "a5_policy_primitive_but_no_preapproved_release" if autonomy_policy_present
+        12,
+        "production_deploy_preapproved_under_conditions",
+        "a5_policy_primitive_but_no_preapproved_release"
+        if autonomy_policy_present
         else "no_a5_preapproved_release",
     )
-    # Slice 22: the risk-acceptance STORE now exists, but the open-issue store does not — so gate #7
-    # can never pass (we cannot enumerate "all open issues"). It moves from no_evidence_source to
-    # insufficient_evidence; the active-record count is context only and never flips the status.
+    # Slice 24: the open-issue STORE now exists, but it cannot prove issue *completeness* (no
+    # reviewer/CI/verifier provenance) or *release binding* (no release entity) — so gate #7 can
+    # never pass. It moves from no_open_issue_store to no_issue_provenance_or_release_binding; the
+    # counts are context only and never flip the status.
     gate7 = _insufficient(
-        7, "approved_risk_acceptance_records", "no_open_issue_store",
-        {"active_risk_acceptance_count": active_risk_acceptance_count},
+        7,
+        "approved_risk_acceptance_records",
+        "no_issue_provenance_or_release_binding",
+        {
+            "active_risk_acceptance_count": active_risk_acceptance_count,
+            "open_issue_count": open_issue_count,
+            "open_blocking_issue_count": open_blocking_issue_count,
+            "open_unaccepted_blocking_issue_count": open_unaccepted_blocking_issue_count,
+        },
     )
 
     # Slice 23: the security/shortcut finding STORES now exist, but authoritative scan coverage does
     # not — an empty store can't prove "no findings exist". Gates #5/#6 move from no_evidence_source
     # to insufficient_evidence; the counts are context only and never flip the status.
     gate5 = _insufficient(
-        5, "no_unaccepted_critical_security_findings", "no_finding_provenance_or_scan_source",
+        5,
+        "no_unaccepted_critical_security_findings",
+        "no_finding_provenance_or_scan_source",
         {
             "open_security_finding_count": open_security_finding_count,
-            "open_unaccepted_critical_security_finding_count":
-                open_unaccepted_critical_security_finding_count,
+            "open_unaccepted_critical_security_finding_count": open_unaccepted_critical_security_finding_count,
         },
     )
     gate6 = _insufficient(
-        6, "no_unaccepted_critical_shortcut_findings", "no_finding_provenance_or_scan_source",
+        6,
+        "no_unaccepted_critical_shortcut_findings",
+        "no_finding_provenance_or_scan_source",
         {
             "open_shortcut_finding_count": open_shortcut_finding_count,
-            "open_unaccepted_critical_shortcut_finding_count":
-                open_unaccepted_critical_shortcut_finding_count,
+            "open_unaccepted_critical_shortcut_finding_count": open_unaccepted_critical_shortcut_finding_count,
         },
     )
 

@@ -33,6 +33,8 @@ from app.models.project_run import ProjectRun
 from app.models.readiness_report import ReadinessReportRecord
 from app.models.release_finding import ReleaseFinding
 from app.models.release_finding_event import ReleaseFindingEvent
+from app.models.release_issue import ReleaseIssue
+from app.models.release_issue_event import ReleaseIssueEvent
 from app.models.risk_acceptance_event import RiskAcceptanceEvent
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.models.tenant import Tenant
@@ -71,5 +73,7 @@ __all__ = [
     "RiskAcceptanceEvent",
     "ReleaseFinding",
     "ReleaseFindingEvent",
+    "ReleaseIssue",
+    "ReleaseIssueEvent",
     "TenantApiKey",
 ]

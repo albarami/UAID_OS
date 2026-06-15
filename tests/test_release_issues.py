@@ -145,19 +145,25 @@ async def ri_ctx(admin_engine):
     sfx = uuid.uuid4().hex[:8]
     async with admin_engine.begin() as c:
         org = await _scalar(
-            c, "INSERT INTO organizations (name, slug) VALUES ('RiOrg',:s) RETURNING id",
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('RiOrg',:s) RETURNING id",
             s=f"ri-org-{sfx}",
         )
         out = {"sfx": sfx}
         for label in ("t1", "t2"):
             out[label] = await _scalar(
-                c, "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
-                o=org, n=label, s=f"ri-{label}-{sfx}",
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"ri-{label}-{sfx}",
             )
         for proj, tn in (("p1", "t1"), ("p1b", "t1"), ("px", "t2")):
             out[proj] = await _scalar(
-                c, "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
-                t=out[tn], s=f"ri-{proj}-{sfx}",
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"ri-{proj}-{sfx}",
             )
     return out
 
@@ -168,16 +174,23 @@ def _repo(session, ctx):
     return ReleaseIssueRepository(session, ctx)
 
 
-async def _make_ra_record(session, ctx, project_id, issue_id, **over):
-    """Create a risk-acceptance record whose issue_id references the issue."""
+async def _make_ra_record(session, ctx, project_id, ref_id, **over):
+    """Create a risk-acceptance record whose issue_id references the issue (``ref_id``)."""
     from app.repositories.risk_acceptance import RiskAcceptanceRepository
 
     payload = {
-        "release_id": "REL-1", "issue_id": str(issue_id), "severity": "high",
-        "reason_for_acceptance": "accepted risk", "business_impact": "minor",
-        "rollback_or_mitigation_plan": "documented", "required_follow_up_ticket": "T-1",
-        "expiry_date": date(2099, 1, 1), "owner": "po", "approver": "rm",
-        "accepted_by": ["po", "rm"], "approval_authority_source": "approval_matrix",
+        "release_id": "REL-1",
+        "issue_id": str(ref_id),
+        "severity": "high",
+        "reason_for_acceptance": "accepted risk",
+        "business_impact": "minor",
+        "rollback_or_mitigation_plan": "documented",
+        "required_follow_up_ticket": "T-1",
+        "expiry_date": date(2099, 1, 1),
+        "owner": "po",
+        "approver": "rm",
+        "accepted_by": ["po", "rm"],
+        "approval_authority_source": "approval_matrix",
     }
     payload.update(over)
     return await RiskAcceptanceRepository(session, ctx).create(
@@ -350,8 +363,16 @@ _RAW_INSERT = (
 
 async def _raw_insert(rls_engine, t1, p1, **over):
     params = {
-        "t": str(t1), "p": str(p1), "cat": "security", "sev": "high", "blocking": True,
-        "summary": "s", "detail": "d", "status": "open", "rnote": None, "raid": None,
+        "t": str(t1),
+        "p": str(p1),
+        "cat": "security",
+        "sev": "high",
+        "blocking": True,
+        "summary": "s",
+        "detail": "d",
+        "status": "open",
+        "rnote": None,
+        "raid": None,
     }
     params.update(over)
     async with rls_engine.connect() as conn:
@@ -416,8 +437,10 @@ async def test_guard_rejects_updated_at_only_update(ri_ctx, rls_engine):
         iid = i.id
     with pytest.raises(Exception):
         await _direct_sql(
-            rls_engine, t1,
-            "UPDATE release_issues SET updated_at=clock_timestamp() WHERE id=:i", i=str(iid),
+            rls_engine,
+            t1,
+            "UPDATE release_issues SET updated_at=clock_timestamp() WHERE id=:i",
+            i=str(iid),
         )
 
 
@@ -522,7 +545,9 @@ async def test_guard_rejects_cross_tenant_record_via_direct_sql(ri_ctx, rls_engi
 
     t1, t2, p1, px = ri_ctx["t1"], ri_ctx["t2"], ri_ctx["p1"], ri_ctx["px"]
     async with tenant_scope(TenantContext(t1)) as session:
-        i = await _repo(session, TenantContext(t1)).create(project_id=p1, payload=_valid(), actor="a")
+        i = await _repo(session, TenantContext(t1)).create(
+            project_id=p1, payload=_valid(), actor="a"
+        )
         iid = i.id
     async with tenant_scope(TenantContext(t2)) as session:
         rec = await _make_ra_record(session, TenantContext(t2), px, iid)
@@ -596,7 +621,9 @@ async def test_catalog_grants_and_rls(admin_engine):
             assert grants == expected, table
             rls = (
                 await c.execute(
-                    text("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname=:t"),
+                    text(
+                        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname=:t"
+                    ),
                     {"t": table},
                 )
             ).one()

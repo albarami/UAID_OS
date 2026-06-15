@@ -1,13 +1,14 @@
-"""A5 production-autonomy evaluator skeleton tests (Slice 21 + Slice 22 + Slice 23, Appendix B).
+"""A5 production-autonomy evaluator skeleton tests (Slice 21 + 22 + 23 + 24, Appendix B).
 
 Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass today; the **seven**
 partial-context gates (#2/#5/#6/#7/#8/#9/#12) return ``insufficient_evidence`` and the **five**
 sourceless gates (#3/#4/#10/#11/#13) return ``no_evidence_source:<subsystem>``. Gates #5/#6 (Slice 23)
 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` with open/critical finding-count
-context; gate #7 (Slice 22) is ``insufficient_evidence:no_open_issue_store`` with
-``context.active_risk_acceptance_count``; ``ruleset_version`` is ``slice23.v1``. ``a5_satisfied`` and
-``can_go_live_autonomously`` are always false. Docker-free for the pure engine; ``db`` for the
-repository (compute-on-read, no persistence; the release-findings store adds migration ``0022``).
+context; gate #7 (Slice 22 + 24) is ``insufficient_evidence:no_issue_provenance_or_release_binding``
+with risk-acceptance + open-issue count context; ``ruleset_version`` is ``slice24.v1``.
+``a5_satisfied`` and ``can_go_live_autonomously`` are always false. Docker-free for the pure engine;
+``db`` for the repository (compute-on-read, no persistence; the open-issue store adds migration
+``0023``).
 """
 
 import uuid
@@ -102,7 +103,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice23.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice24.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
@@ -113,31 +114,51 @@ def test_report_keys_and_ruleset():
     assert all("context" in g and isinstance(g["context"], dict) for g in d["gates"])
 
 
-def test_gate7_is_insufficient_evidence_no_open_issue_store():
+def test_gate7_is_insufficient_evidence_no_issue_provenance():
     g7 = _gate(_eval(readiness_level="R5"), 7)
     assert g7["gate"] == "approved_risk_acceptance_records"
     assert g7["status"] == "insufficient_evidence"
-    assert g7["reason"] == "no_open_issue_store"
-    assert "active_risk_acceptance_count" in g7["context"]
+    assert g7["reason"] == "no_issue_provenance_or_release_binding"
+    for k in (
+        "active_risk_acceptance_count",
+        "open_issue_count",
+        "open_blocking_issue_count",
+        "open_unaccepted_blocking_issue_count",
+    ):
+        assert k in g7["context"]
 
 
-def test_gate7_context_carries_active_count():
+def test_gate7_context_carries_issue_counts():
     rep = evaluate_production_autonomy(
-        "p", readiness_level="R5", active_risk_acceptance_count=3
+        "p",
+        readiness_level="R5",
+        active_risk_acceptance_count=3,
+        open_issue_count=4,
+        open_blocking_issue_count=2,
+        open_unaccepted_blocking_issue_count=2,
     )
     g7 = _gate(rep, 7)
     assert g7["context"]["active_risk_acceptance_count"] == 3
-    assert g7["status"] == "insufficient_evidence"  # count is context only, never passes
+    assert g7["context"]["open_issue_count"] == 4
+    assert g7["context"]["open_blocking_issue_count"] == 2
+    assert g7["context"]["open_unaccepted_blocking_issue_count"] == 2
+    assert g7["status"] == "insufficient_evidence"  # counts are context only, never passes
     assert rep.to_dict()["a5_satisfied"] is False
 
 
 def test_gates_5_6_are_insufficient_no_finding_provenance():
     rep = _eval(readiness_level="R5")
     for n, gate, count_keys in (
-        (5, "no_unaccepted_critical_security_findings",
-         ("open_security_finding_count", "open_unaccepted_critical_security_finding_count")),
-        (6, "no_unaccepted_critical_shortcut_findings",
-         ("open_shortcut_finding_count", "open_unaccepted_critical_shortcut_finding_count")),
+        (
+            5,
+            "no_unaccepted_critical_security_findings",
+            ("open_security_finding_count", "open_unaccepted_critical_security_finding_count"),
+        ),
+        (
+            6,
+            "no_unaccepted_critical_shortcut_findings",
+            ("open_shortcut_finding_count", "open_unaccepted_critical_shortcut_finding_count"),
+        ),
     ):
         g = _gate(rep, n)
         assert g["gate"] == gate
@@ -188,19 +209,25 @@ async def pa_ctx(admin_engine):
     sfx = uuid.uuid4().hex[:8]
     async with admin_engine.begin() as c:
         org = await _scalar(
-            c, "INSERT INTO organizations (name, slug) VALUES ('PaOrg',:s) RETURNING id",
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('PaOrg',:s) RETURNING id",
             s=f"pa-org-{sfx}",
         )
         out = {"sfx": sfx}
         for label in ("t1", "t2"):
             out[label] = await _scalar(
-                c, "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
-                o=org, n=label, s=f"pa-{label}-{sfx}",
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"pa-{label}-{sfx}",
             )
         for proj, tn in (("p1", "t1"), ("px", "t2")):
             out[proj] = await _scalar(
-                c, "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
-                t=out[tn], s=f"pa-{proj}-{sfx}",
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"pa-{proj}-{sfx}",
             )
             content = f"doc-{proj}-{sfx}"
             out[f"doc_{proj}"] = await _scalar(
@@ -208,7 +235,9 @@ async def pa_ctx(admin_engine):
                 "INSERT INTO documents (tenant_id, project_id, filename, content_type, source, "
                 "content, content_hash, size_bytes, status) "
                 "VALUES (:t,:p,'f.txt','text/plain','manual',:c,:h,:sz,'accepted') RETURNING id",
-                t=out[tn], p=out[proj], c=content,
+                t=out[tn],
+                p=out[proj],
+                c=content,
                 h="sha256:" + __import__("hashlib").sha256(content.encode()).hexdigest(),
                 sz=len(content),
             )
@@ -229,21 +258,39 @@ async def _seed_full_r5(ctx, project_id, doc_id):
     async with tenant_scope(ctx) as session:
         repo = IntakeRepository(session, ctx)
         req = await repo.add_artifact(
-            project_id=project_id, kind="requirement", ref="REQ-1", title="r", sources=src, actor="c"
+            project_id=project_id,
+            kind="requirement",
+            ref="REQ-1",
+            title="r",
+            sources=src,
+            actor="c",
         )
         ac = await repo.add_artifact(
-            project_id=project_id, kind="acceptance_criterion", ref="AC-1", title="a",
-            parent_id=req.id, sources=src, actor="c",
+            project_id=project_id,
+            kind="acceptance_criterion",
+            ref="AC-1",
+            title="a",
+            parent_id=req.id,
+            sources=src,
+            actor="c",
         )
         await repo.add_artifact(
-            project_id=project_id, kind="test_oracle", ref="OR-1", title="o",
-            parent_id=ac.id, sources=src, actor="c",
+            project_id=project_id,
+            kind="test_oracle",
+            ref="OR-1",
+            title="o",
+            parent_id=ac.id,
+            sources=src,
+            actor="c",
         )
         cats = IntakeCategoryRepository(session, ctx)
         for cat in DECLARABLE_INTAKE_CATEGORIES:
             await cats.declare(
-                project_id=project_id, category=cat, source_document_id=doc_id,
-                locator="§ ref", actor="planner",
+                project_id=project_id,
+                category=cat,
+                source_document_id=doc_id,
+                locator="§ ref",
+                actor="planner",
             )
         await AutonomyPolicyRepository(session, ctx).upsert(
             project_id=project_id, autonomy_level=2, actor="admin"
@@ -318,11 +365,18 @@ async def test_db_gate7_reads_active_risk_acceptance_count(pa_ctx):
     t1, p1 = pa_ctx["t1"], pa_ctx["p1"]
     ctx = TenantContext(t1)
     payload = {
-        "release_id": "REL-1", "issue_id": "I1", "severity": "low",
-        "reason_for_acceptance": "r", "business_impact": "b",
-        "rollback_or_mitigation_plan": "rb", "required_follow_up_ticket": "T-1",
-        "expiry_date": date(2099, 1, 1), "owner": "o", "approver": "a",
-        "accepted_by": ["o", "a"], "approval_authority_source": "approval_matrix",
+        "release_id": "REL-1",
+        "issue_id": "I1",
+        "severity": "low",
+        "reason_for_acceptance": "r",
+        "business_impact": "b",
+        "rollback_or_mitigation_plan": "rb",
+        "required_follow_up_ticket": "T-1",
+        "expiry_date": date(2099, 1, 1),
+        "owner": "o",
+        "approver": "a",
+        "accepted_by": ["o", "a"],
+        "approval_authority_source": "approval_matrix",
     }
     async with tenant_scope(ctx) as session:
         await RiskAcceptanceRepository(session, ctx).create(
@@ -330,7 +384,8 @@ async def test_db_gate7_reads_active_risk_acceptance_count(pa_ctx):
         )
         rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
     g7 = _gate(rep, 7)
-    assert g7["status"] == "insufficient_evidence" and g7["reason"] == "no_open_issue_store"
+    assert g7["status"] == "insufficient_evidence"
+    assert g7["reason"] == "no_issue_provenance_or_release_binding"
     assert g7["context"]["active_risk_acceptance_count"] == 1
     assert rep.to_dict()["a5_satisfied"] is False
 
@@ -349,14 +404,26 @@ async def test_db_gates_5_6_read_finding_counts(pa_ctx):
         repo = ReleaseFindingRepository(session, ctx)
         await repo.create(
             project_id=p1,
-            payload={"finding_type": "security", "category": "authz", "severity": "critical",
-                     "summary": "s", "detail": "d", "source": "manual"},
+            payload={
+                "finding_type": "security",
+                "category": "authz",
+                "severity": "critical",
+                "summary": "s",
+                "detail": "d",
+                "source": "manual",
+            },
             actor="a",
         )
         await repo.create(
             project_id=p1,
-            payload={"finding_type": "shortcut", "category": "fake_integration", "severity": "high",
-                     "summary": "s", "detail": "d", "source": "manual"},
+            payload={
+                "finding_type": "shortcut",
+                "category": "fake_integration",
+                "severity": "high",
+                "summary": "s",
+                "detail": "d",
+                "source": "manual",
+            },
             actor="a",
         )
         rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
@@ -366,4 +433,50 @@ async def test_db_gates_5_6_read_finding_counts(pa_ctx):
     assert g6["context"]["open_shortcut_finding_count"] == 1
     assert g6["context"]["open_unaccepted_critical_shortcut_finding_count"] == 0
     assert g5["status"] == "insufficient_evidence" and g6["status"] == "insufficient_evidence"
+    assert rep.to_dict()["a5_satisfied"] is False
+
+
+@pytest.mark.db
+async def test_db_gate7_reads_issue_counts(pa_ctx):
+    # The A5 repo wires ReleaseIssueRepository counts into gate #7 context; it stays
+    # insufficient_evidence (never passes) regardless of the counts.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.release_issues import ReleaseIssueRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pa_ctx["t1"], pa_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = ReleaseIssueRepository(session, ctx)
+        await repo.create(
+            project_id=p1,
+            payload={
+                "issue_category": "deployment",
+                "severity": "high",
+                "blocking": True,
+                "summary": "s",
+                "detail": "d",
+                "source": "manual",
+            },
+            actor="a",
+        )
+        await repo.create(
+            project_id=p1,
+            payload={
+                "issue_category": "evidence",
+                "severity": "low",
+                "blocking": False,
+                "summary": "s",
+                "detail": "d",
+                "source": "manual",
+            },
+            actor="a",
+        )
+        rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
+    g7 = _gate(rep, 7)
+    assert g7["context"]["open_issue_count"] == 2
+    assert g7["context"]["open_blocking_issue_count"] == 1
+    assert g7["context"]["open_unaccepted_blocking_issue_count"] == 1
+    assert g7["status"] == "insufficient_evidence"
+    assert g7["reason"] == "no_issue_provenance_or_release_binding"
     assert rep.to_dict()["a5_satisfied"] is False

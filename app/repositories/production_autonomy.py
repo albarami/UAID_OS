@@ -1,4 +1,4 @@
-"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23) — compute-on-read, no persist.
+"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23 + 24) — compute-on-read, no persist.
 
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
@@ -13,8 +13,10 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gates #5/#6 (Slice 23): ``ReleaseFindingRepository.count_open`` /
   ``count_open_unaccepted_critical`` for ``security`` and ``shortcut`` — surfaced as the four
   ``context`` counts; both stay ``insufficient_evidence:no_finding_provenance_or_scan_source``;
-- gate #7 (Slice 22): ``RiskAcceptanceRepository.count_active_nonblocking`` — surfaced as
-  ``context.active_risk_acceptance_count``; stays ``insufficient_evidence:no_open_issue_store``.
+- gate #7 (Slice 22 + 24): ``RiskAcceptanceRepository.count_active_nonblocking`` +
+  ``ReleaseIssueRepository.count_open`` / ``count_open_blocking`` /
+  ``count_open_unaccepted_blocking`` — surfaced as the four ``context`` counts; stays
+  ``insufficient_evidence:no_issue_provenance_or_release_binding``.
 Nothing here authorizes go-live.
 """
 
@@ -31,6 +33,7 @@ from app.repositories.cost import BudgetRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
 from app.repositories.release_findings import ReleaseFindingRepository
+from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
 from app.tenancy import TenantContext
 
@@ -62,6 +65,7 @@ class ProductionAutonomyRepository:
         active_risk_acceptance_count = await RiskAcceptanceRepository(
             self.session, self.context
         ).count_active_nonblocking(project_id)
+        issues = ReleaseIssueRepository(self.session, self.context)
         findings = ReleaseFindingRepository(self.session, self.context)
         return evaluate_production_autonomy(
             project_id,
@@ -70,6 +74,11 @@ class ProductionAutonomyRepository:
             cost_policy_present=budget is not None,
             environments_declared=environments_declared,
             active_risk_acceptance_count=active_risk_acceptance_count,
+            open_issue_count=await issues.count_open(project_id),
+            open_blocking_issue_count=await issues.count_open_blocking(project_id),
+            open_unaccepted_blocking_issue_count=(
+                await issues.count_open_unaccepted_blocking(project_id)
+            ),
             open_security_finding_count=await findings.count_open(project_id, "security"),
             open_unaccepted_critical_security_finding_count=(
                 await findings.count_open_unaccepted_critical(project_id, "security")
