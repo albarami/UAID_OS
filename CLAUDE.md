@@ -63,7 +63,7 @@ be accepted**, non-critical acceptance requires a usable `risk_acceptance_record
 non-expired + non-blocking + same tenant/project + `issue_id==finding.id`). Wires the conservative A5
 gates #5/#6 (`production_autonomy` `ruleset_version` bumped to `slice23.v1`): both move
 `no_evidence_source` → `insufficient_evidence:no_finding_provenance_or_scan_source` with open/critical
-finding counts as context — never pass (no scan coverage); go-live stays false. In progress.**
+finding counts as context — never pass (no scan coverage); go-live stays false — merged via PR #35 (commit `da7ac4e`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
