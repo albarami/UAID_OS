@@ -406,7 +406,7 @@ auditor is now **capped at R5** (A5/Appendix-B production autonomy still out of 
   spine kinds; the R3/R4/R5 rules consuming these declarations live in Slices 16/18/20, and A5/Appendix-B
   production autonomy remains deferred (go-live stays false even at R5).**
 
-## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23, §5.1 / App. B)
+## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23+24+25, §5.1 / App. B)
 `app/release/production_autonomy.py` + `app/repositories/production_autonomy.py` add a **pure,
 deterministic, fail-closed** evaluator that scores the **13 Appendix-B A5 gates** and emits a
 `production_autonomy` report (separate from the R5 readiness report). It is **non-authorizing**: it
@@ -473,10 +473,12 @@ Fail-closed and **non-authorizing**.
 - **Persistence:** `release_issues` (RLS; **no DELETE**) + append-only `release_issue_events`
   (migration `0023`). `source`/`source_provenance` are UNVERIFIED. Audit = safe metadata only
   (ids/issue_category/severity/blocking/status — never summary/detail/resolution/blocking_category prose).
-- **A5 hook:** feeds gate #7 counts (`open_issue_count`/`open_blocking_issue_count`/
-  `open_unaccepted_blocking_issue_count` + `active_risk_acceptance_count`), but it stays
-  `insufficient_evidence:no_issue_provenance_or_release_binding` — a store can't prove issue
-  completeness (no reviewer/CI/verifier provenance) or which issues belong to this release.
+- **A5 hook:** feeds gate #7's global open-issue counts (`open_issue_count`/`open_blocking_issue_count`/
+  `open_unaccepted_blocking_issue_count` + `active_risk_acceptance_count`). Gate #7 stays
+  `insufficient_evidence` and never passes — this store can't prove issue completeness (no
+  reviewer/CI/verifier provenance); the Slice-25 release-candidate store later supplies the
+  *release-binding* half (narrowing the reason to `no_issue_provenance` when a frozen candidate
+  exists), but neither store proves provenance/completeness.
 - **Out of scope:** issue provenance/detection, the findings→issue bridge, issue/release entities,
   evidence pack, go-live, request-auth, LLM, HTTP API. (`open` ⟹ not accepted, so
   `open_unaccepted_blocking` equals `open_blocking` this slice.)
@@ -521,10 +523,11 @@ evidence source: a signed acceptance of a known, **non-blocking** open issue so 
   never counts. `risk_acceptance_records` (RLS; **no DELETE**; guard trigger so only `status`/
   `updated_at` are mutable) + append-only `risk_acceptance_events` (migration `0021`). Audit records
   safe metadata only (ids/severity/status — never reason/business-impact/evidence prose).
-- **A5 hook:** originally fed gate #7 as `context.active_risk_acceptance_count`; after Slice 24 gate #7
-  combines risk-acceptance and open-issue counts but still stays
-  `insufficient_evidence:no_issue_provenance_or_release_binding` (a store can't prove issue
-  completeness or release binding).
+- **A5 hook:** originally fed gate #7 as `context.active_risk_acceptance_count`; gate #7 now combines
+  risk-acceptance + open-issue (Slice 24) + release-binding (Slice 25) counts. Its reason narrows from
+  `no_issue_provenance_or_release_binding` to `no_issue_provenance` once a frozen release candidate
+  exists (release binding now exists as a primitive), but it stays `insufficient_evidence` and never
+  passes — issue provenance/completeness still does not exist.
 - **Out of scope:** issue/release entities, request-auth/verified signature, evidence-pack, go-live,
   LLM, and any HTTP API (no operator endpoint this slice).
 

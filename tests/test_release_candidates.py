@@ -439,6 +439,76 @@ async def test_guard_rejects_duplicate_binding(rc_ctx, rls_engine):
 
 
 @pytest.mark.db
+async def test_guard_rejects_cross_tenant_binding(rc_ctx, rls_engine):
+    # An issue created under tenant B cannot be bound from tenant A: the composite FK
+    # (release_issue_id, tenant_id) → release_issues(id, tenant_id) has no matching row for (B-issue, A).
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, t2, p1, px = rc_ctx["t1"], rc_ctx["t2"], rc_ctx["p1"], rc_ctx["px"]
+    async with tenant_scope(TenantContext(t1)) as session:
+        rc = await _repo(session, TenantContext(t1)).create(
+            project_id=p1, payload={"release_ref": "XT"}, actor="a"
+        )
+        rcid = rc.id
+    async with tenant_scope(TenantContext(t2)) as session:
+        issue_b = await _make_issue(session, TenantContext(t2), px)
+        iss_b = issue_b.id
+    with pytest.raises(Exception):
+        await _direct_sql(
+            rls_engine,
+            t1,
+            "INSERT INTO release_candidate_issue_bindings "
+            "(tenant_id, project_id, release_candidate_id, release_issue_id) "
+            "VALUES (:t,:p,:rc,:iss)",
+            t=str(t1),
+            p=str(p1),
+            rc=str(rcid),
+            iss=str(iss_b),
+        )
+
+
+@pytest.mark.db
+async def test_lifecycle_events_recorded(rc_ctx):
+    # Repository operations record the expected event_type rows (created/issue_bound/frozen, and the
+    # terminal transitions) in the append-only release_candidate_events trail.
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = rc_ctx["t1"], rc_ctx["p1"]
+    ctx = TenantContext(t1)
+
+    async def _event_types(session, candidate_id):
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT event_type FROM release_candidate_events "
+                    "WHERE release_candidate_id=:c AND tenant_id=:t ORDER BY created_at, id"
+                ),
+                {"c": str(candidate_id), "t": str(t1)},
+            )
+        ).all()
+        return [r[0] for r in rows]
+
+    async with tenant_scope(ctx) as session:
+        repo = _repo(session, ctx)
+        # create → bind → frozen → supersede
+        rc = await repo.create(project_id=p1, payload={"release_ref": "EV-1"}, actor="a")
+        i = await _make_issue(session, ctx, p1)
+        await repo.bind_issue(candidate_id=rc.id, release_issue_id=i.id, actor="a")
+        await repo.freeze(candidate_id=rc.id, actor="a")
+        await repo.supersede(candidate_id=rc.id, actor="a")
+        assert await _event_types(session, rc.id) == [
+            "created",
+            "issue_bound",
+            "frozen",
+            "superseded",
+        ]
+        # a separate candidate exercising the cancel terminal
+        rc2 = await repo.create(project_id=p1, payload={"release_ref": "EV-2"}, actor="a")
+        await repo.cancel(candidate_id=rc2.id, actor="a")
+        assert await _event_types(session, rc2.id) == ["created", "canceled"]
+
+
+@pytest.mark.db
 async def test_append_only_no_delete_no_truncate(rc_ctx, rls_engine):
     from app.tenancy import TenantContext, tenant_scope
 
@@ -513,4 +583,8 @@ async def test_catalog_grants_rls_and_constraints(admin_engine):
                 )
             ).all()
         }
-        assert "uq_release_candidates_id_tenant" in cons
+        assert {
+            "uq_release_candidates_ref",
+            "uq_release_candidates_id_tenant",
+            "uq_release_candidates_id_proj_tenant",
+        } <= cons
