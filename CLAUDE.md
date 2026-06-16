@@ -93,7 +93,7 @@ conservative A5 gate #7 (`production_autonomy` `ruleset_version` bumped to `slic
 narrows `no_issue_provenance_or_release_binding` → `no_issue_provenance` when a frozen release
 candidate exists (release-binding half satisfied), with frozen/bound-issue counts as context — still
 `insufficient_evidence`, **never passes** (no issue provenance/completeness); binding declares KNOWN
-issues, not completeness; go-live stays false. In progress.**
+issues, not completeness; go-live stays false — merged via PR #39 (commit `f706a30`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
