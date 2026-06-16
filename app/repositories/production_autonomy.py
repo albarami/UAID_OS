@@ -1,4 +1,4 @@
-"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23 + 24) — compute-on-read, no persist.
+"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23 + 24 + 25) — compute-on-read, no persist.
 
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
@@ -13,10 +13,11 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gates #5/#6 (Slice 23): ``ReleaseFindingRepository.count_open`` /
   ``count_open_unaccepted_critical`` for ``security`` and ``shortcut`` — surfaced as the four
   ``context`` counts; both stay ``insufficient_evidence:no_finding_provenance_or_scan_source``;
-- gate #7 (Slice 22 + 24): ``RiskAcceptanceRepository.count_active_nonblocking`` +
-  ``ReleaseIssueRepository.count_open`` / ``count_open_blocking`` /
-  ``count_open_unaccepted_blocking`` — surfaced as the four ``context`` counts; stays
-  ``insufficient_evidence:no_issue_provenance_or_release_binding``.
+- gate #7 (Slice 22 + 24 + 25): ``RiskAcceptanceRepository.count_active_nonblocking`` +
+  ``ReleaseIssueRepository`` open counts + ``ReleaseCandidateRepository.count_frozen`` /
+  ``latest_frozen`` + bound-issue counts — surfaced as ``context``. The reason narrows to
+  ``no_issue_provenance`` when a frozen release candidate exists; it stays
+  ``insufficient_evidence`` and never passes.
 Nothing here authorizes go-live.
 """
 
@@ -32,6 +33,7 @@ from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.cost import BudgetRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
+from app.repositories.release_candidates import ReleaseCandidateRepository
 from app.repositories.release_findings import ReleaseFindingRepository
 from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
@@ -67,6 +69,16 @@ class ProductionAutonomyRepository:
         ).count_active_nonblocking(project_id)
         issues = ReleaseIssueRepository(self.session, self.context)
         findings = ReleaseFindingRepository(self.session, self.context)
+        candidates = ReleaseCandidateRepository(self.session, self.context)
+        latest_frozen = await candidates.latest_frozen(project_id)
+        if latest_frozen is not None:
+            bound_open = await candidates.bound_open_issue_count(latest_frozen.id)
+            bound_open_blocking = await candidates.bound_open_blocking_issue_count(latest_frozen.id)
+            bound_open_unaccepted_blocking = (
+                await candidates.bound_open_unaccepted_blocking_issue_count(latest_frozen.id)
+            )
+        else:
+            bound_open = bound_open_blocking = bound_open_unaccepted_blocking = 0
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -79,6 +91,16 @@ class ProductionAutonomyRepository:
             open_unaccepted_blocking_issue_count=(
                 await issues.count_open_unaccepted_blocking(project_id)
             ),
+            frozen_release_candidate_count=await candidates.count_frozen(project_id),
+            latest_frozen_release_candidate_id=(
+                str(latest_frozen.id) if latest_frozen is not None else None
+            ),
+            latest_frozen_release_ref=(
+                latest_frozen.release_ref if latest_frozen is not None else None
+            ),
+            bound_open_issue_count=bound_open,
+            bound_open_blocking_issue_count=bound_open_blocking,
+            bound_open_unaccepted_blocking_issue_count=bound_open_unaccepted_blocking,
             open_security_finding_count=await findings.count_open(project_id, "security"),
             open_unaccepted_critical_security_finding_count=(
                 await findings.count_open_unaccepted_critical(project_id, "security")

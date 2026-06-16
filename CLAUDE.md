@@ -79,6 +79,21 @@ A5 gate #7 (`production_autonomy` `ruleset_version` bumped to `slice24.v1`): gat
 with open-issue counts (`open_issue_count`/`open_blocking_issue_count`/
 `open_unaccepted_blocking_issue_count`) + `active_risk_acceptance_count` as context — never passes (no
 issue provenance/release binding); go-live stays false — merged via PR #37 (commit `7a2ae44`).**
+**Slice 25 adds a deterministic, tenant-owned release-candidate / release-binding store
+(`release_candidates` + append-only `release_candidate_events` + append-only, freeze-locked
+`release_candidate_issue_bindings`, migration `0024`, §24.1/§24.2/Appendix B #7) — the *release-binding*
+half of A5 gate #7, creating the **future** referent namespace for Slice-22
+`risk_acceptance_records.release_id` (not yet FK'd/validated). One-way lifecycle
+draft→frozen→{superseded,canceled} (`frozen_at` set iff entering frozen; identity immutable;
+same-status no-op); **issue-only** bindings addable only while `draft` (freeze-locks membership) with
+same-project enforcement, no unbind; additive FK Option A (no `release_issues` mutation —
+`release_candidates` carries `UNIQUE(id,tenant_id)` [event FK] + `UNIQUE(id,project_id,tenant_id)`
+[binding FK]); RLS ENABLE+FORCE, no DELETE, DB-guard backstop, audit safe-metadata only. Wires the
+conservative A5 gate #7 (`production_autonomy` `ruleset_version` bumped to `slice25.v1`): the reason
+narrows `no_issue_provenance_or_release_binding` → `no_issue_provenance` when a frozen release
+candidate exists (release-binding half satisfied), with frozen/bound-issue counts as context — still
+`insufficient_evidence`, **never passes** (no issue provenance/completeness); binding declares KNOWN
+issues, not completeness; go-live stays false. In progress.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -385,15 +400,18 @@ the admin `app` role only.
   `insufficient_evidence` (partial *context* primitives that never pass a gate — **#5/#6
   security/shortcut findings are `insufficient_evidence:no_finding_provenance_or_scan_source` with
   open/critical-finding-count context** after Slice 23 added the stores; **#7 risk-acceptance is
-  `insufficient_evidence:no_issue_provenance_or_release_binding` with `context.active_risk_acceptance_count`
-  + open-issue counts (`open_issue_count`/`open_blocking_issue_count`/`open_unaccepted_blocking_issue_count`)**
-  after Slice 24 added the open-issue store); the other **5** (#3/#4/#10/#11/#13) are
+  open/critical-finding-count context** after Slice 23 added the stores; **#7 (risk-acceptance +
+  open-issue + release-binding) is `insufficient_evidence` — its reason narrows from
+  `no_issue_provenance_or_release_binding` to `no_issue_provenance` once a FROZEN release candidate
+  exists (Slice 25), with risk-acceptance/open-issue/frozen-release/bound-issue counts as context**);
+  the other **5** (#3/#4/#10/#11/#13) are
   `no_evidence_source:<subsystem>` (await
   Phase 3/5/6). `a5_satisfied` (all-13-passed) and **`can_go_live_autonomously` are ALWAYS false** —
   go-live also needs a request-authenticated A5 pre-approval (not implemented); this module never
-  authorizes production. `ruleset_version` is `slice24.v1`. `ProductionAutonomyRepository`
+  authorizes production. `ruleset_version` is `slice25.v1`. `ProductionAutonomyRepository`
   (`evaluate`, **compute-on-read, no persistence, no table/migration**) reads current state via the
-  readiness/autonomy/budget/category/risk-acceptance/release-findings/release-issue repos inside `tenant_scope`/RLS;
+  readiness/autonomy/budget/category/risk-acceptance/release-findings/release-issue/release-candidate
+  repos inside `tenant_scope`/RLS;
   cross-tenant/nonexistent yields a generic not-satisfied report (no leak). Read-only exposed at
   `GET /api/projects/{id}/production_autonomy` (Slice 21). **Skeleton: scores gate structure only —
   builds no evidence subsystem (CI/test-exec/rollback/monitoring/emergency-stop), no go-live,
@@ -438,6 +456,31 @@ the admin `app` role only.
   **Skeleton: store + lifecycle only — no reviewer/CI/verifier issue provenance, no findings→issue
   bridge, no issue/release entity, no evidence pack, no go-live, no LLM, no HTTP API; `open` ⟹ not
   accepted, so `count_open_unaccepted_blocking` equals `count_open_blocking` this slice.**
+- `app/release/release_candidates.py` + `app/models/release_candidate.py` +
+  `app/models/release_candidate_event.py` + `app/models/release_candidate_issue_binding.py` +
+  `app/repositories/release_candidates.py` — **deterministic, tenant-owned release-candidate /
+  release-binding store** (Slice 25, §24.1/§24.2/Appendix B #7 — the *release-binding* half of gate #7;
+  the **future** referent namespace for Slice-22 `risk_acceptance_records.release_id`, **not yet
+  FK'd/validated**). `release_candidates.py` (pure): `STATUSES` (`draft`/`frozen`/`superseded`/
+  `canceled`), `TERMINAL_STATUSES`, `validate_new_candidate` (required `release_ref`; optional str
+  `title`), `validate_transition` (one-way draft→{frozen,canceled}, frozen→{superseded,canceled}).
+  `ReleaseCandidateRepository` (`create`/`freeze`/`supersede`/`cancel`/`bind_issue`/`get`/
+  `list_for_project` + A5 counts `count_frozen`/`latest_frozen` [ordered `frozen_at DESC, created_at
+  DESC, id DESC`]/`bound_open_issue_count`/`bound_open_blocking_issue_count`/
+  `bound_open_unaccepted_blocking_issue_count`): audits safe metadata only (ids/release_ref/status —
+  never `title`/prose). `release_candidates` (tenant-owned, RLS ENABLE+FORCE; SELECT/INSERT/UPDATE,
+  **no DELETE**; status CHECK; **`UNIQUE(id,tenant_id)`** [event FK target] +
+  **`UNIQUE(id,project_id,tenant_id)`** [binding FK target] + `UNIQUE(tenant,project,release_ref)`;
+  guard trigger = INSERT invariants [status=draft, frozen_at NULL] + identity immutability +
+  same-status no-op + one-way lifecycle + `frozen_at`-iff-entering-`frozen`) + append-only
+  `release_candidate_events` + append-only, **freeze-locked** `release_candidate_issue_bindings`
+  [**Option A FK** — `(release_candidate_id,project_id,tenant_id)`→candidates,
+  `(release_issue_id,tenant_id)`→`release_issues` (no `release_issues` mutation); guard trigger rejects
+  INSERT unless the candidate is `draft` and the issue's project matches]. Migration `0024`. Feeds the
+  conservative A5 gate #7 (never passes). **Skeleton: store + lifecycle only — no reviewer/CI issue
+  provenance/completeness, no risk_acceptance `release_id` FK, no findings/risk-acceptance binding, no
+  release approval/verdict/deploy, no evidence pack, no go-live, no LLM, no HTTP API; `open` ⟹ not
+  accepted, so `bound_open_unaccepted_blocking_issue_count` equals `bound_open_blocking_issue_count`.**
 - `app/release/risk_acceptance.py` + `app/models/risk_acceptance_record.py` +
   `app/models/risk_acceptance_event.py` + `app/repositories/risk_acceptance.py` — **deterministic,
   tenant-owned go-live risk-acceptance store** (Slice 22, §24.1/§27.10 — the first real A5 evidence
@@ -600,7 +643,14 @@ the admin `app` role only.
   `other`⇒summary+detail, critical⇒blocking) + per-transition mutability + one-way lifecycle +
   hard-blocker-cannot-be-accepted + accepted-requires-usable-risk-acceptance-record; no DELETE/TRUNCATE]
   + append-only `release_issue_events` [SELECT/INSERT only; UPDATE/DELETE/TRUNCATE block triggers];
-  no change to existing tables).
+  no change to existing tables); `0024_release_candidates.py`
+  (Slice 25: **tenant-owned** `release_candidates` [RLS ENABLE+FORCE; SELECT/INSERT/UPDATE, no DELETE;
+  status CHECK; `UNIQUE(id,tenant_id)` + `UNIQUE(id,project_id,tenant_id)` +
+  `UNIQUE(tenant,project,release_ref)`; guard trigger = INSERT invariants (status=draft, frozen_at
+  NULL) + identity immutability + same-status no-op + one-way lifecycle + frozen_at-iff-frozen; no
+  DELETE/TRUNCATE] + append-only `release_candidate_events` + append-only, freeze-locked
+  `release_candidate_issue_bindings` [Option A FKs → candidates + `release_issues`; guard trigger =
+  candidate-must-be-draft + issue-project-match; SELECT/INSERT only]; no change to existing tables).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -626,11 +676,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 248 passing (Docker-free); `make test-db` → 310 passing (DB-backed: tenancy,
+  **`make test` → 255 passing (Docker-free); `make test-db` → 330 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -660,8 +710,9 @@ the admin `app` role only.
   them, non-declarable still rejected), declarable/secret/source-XOR validators, readiness interaction
   (no declared categories ⇒ R2, cap now R5, every category consumed ⇒ not-assessed empty), accepted-doc
   pinning, immutable keys, no-DELETE/TRUNCATE, RLS, catalog], the A5 production-autonomy evaluator
-  [13 gates, only #1 passes; gates #5/#6/#7 `insufficient_evidence` with context counts; `slice24.v1`;
-  gate #7 `no_issue_provenance_or_release_binding` with open-issue counts; gate-set
+  [13 gates, only #1 passes; gates #5/#6/#7 `insufficient_evidence` with context counts; `slice25.v1`;
+  gate #7 reason narrows `no_issue_provenance_or_release_binding` → `no_issue_provenance` when a frozen
+  release candidate exists, with open-issue + frozen/bound counts; gate-set
   `PARTIAL={2,5,6,7,8,9,12}`/`SOURCELESS={3,4,10,11,13}`; go-live always false; compute-on-read
   no-writes; cross-tenant no-leak], the risk-acceptance store [required-field + hard-refusal + lifecycle
   validation, store-time hard-refusal rejection, expire-on-demand, count-active-nonblocking, RLS +
@@ -677,7 +728,12 @@ the admin `app` role only.
   re-transition, critical/hard-blocker accept, accept-without-record, accept with
   expired/non-active/blocking/wrong-project/wrong-issue/cross-tenant record); resolve/supersede/accept;
   count_open + count_open_blocking + count_open_unaccepted_blocking; RLS + cross-tenant; append-only
-  events + immutability; audit safe-metadata; catalog/grants; A5 gate-#7 wiring reads the counts]).
+  events + immutability; audit safe-metadata; catalog/grants; A5 gate-#7 wiring reads the counts]), and
+  the release-candidate/binding store [lifecycle validation; create/freeze/supersede/cancel/bind_issue;
+  count_frozen + latest_frozen ordering + bound counts; DB-guard refusals (bad-status insert, frozen_at
+  on insert, updated_at-only update, freeze-without-frozen_at, terminal re-transition, bind-when-not-draft,
+  bind-cross-project, duplicate-binding, no-DELETE/TRUNCATE on all three); RLS + cross-tenant; audit
+  safe-metadata; catalog incl. the three unique constraints; A5 gate-#7 narrowing reads the counts]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -711,8 +767,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 248 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 310 passing
+make test                                  # Docker-free tests (no services) — 255 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 330 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

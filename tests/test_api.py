@@ -649,11 +649,11 @@ async def test_production_autonomy_endpoint_returns_report(api_ctx):
     assert body["a5_satisfied"] is False
     assert body["can_go_live_autonomously"] is False
     assert len(body["gates"]) == 13
-    assert body["ruleset_version"] == "slice24.v1"
+    assert body["ruleset_version"] == "slice25.v1"
 
 
 @pytest.mark.db
-async def test_production_autonomy_endpoint_returns_slice24_context_shape(api_ctx):
+async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ctx):
     pa = api_ctx["pa"]
     async with _client() as client:
         r = await client.get(
@@ -661,18 +661,25 @@ async def test_production_autonomy_endpoint_returns_slice24_context_shape(api_ct
         )
     assert r.status_code == 200
     body = r.json()["production_autonomy"]
-    assert body["ruleset_version"] == "slice24.v1"
+    assert body["ruleset_version"] == "slice25.v1"
     assert all("context" in g and isinstance(g["context"], dict) for g in body["gates"])
     by_num = {g["number"]: g for g in body["gates"]}
     g7 = by_num[7]
     assert g7["status"] == "insufficient_evidence"
+    # no frozen release candidate seeded in the API fixture ⇒ full reason
     assert g7["reason"] == "no_issue_provenance_or_release_binding"
-    # Slice 24: gate #7 carries risk-acceptance + open-issue count context (still insufficient)
+    # Slice 24/25: gate #7 carries risk-acceptance + open-issue + release-binding context
     for k in (
         "active_risk_acceptance_count",
         "open_issue_count",
         "open_blocking_issue_count",
         "open_unaccepted_blocking_issue_count",
+        "frozen_release_candidate_count",
+        "latest_frozen_release_candidate_id",
+        "latest_frozen_release_ref",
+        "bound_open_issue_count",
+        "bound_open_blocking_issue_count",
+        "bound_open_unaccepted_blocking_issue_count",
     ):
         assert k in g7["context"]
     # Slice 23: gates #5/#6 now carry finding-count context (still insufficient_evidence)
