@@ -13,9 +13,9 @@ non-authorizing**:
 - **Lifecycle** is one-way: ``active`` → ``expired`` | ``revoked`` | ``superseded``; terminal states
   never transition again.
 
-Signer identity is **not verified** here (the repository stamps
-``approver_provenance="caller_supplied_unverified"`` until request-auth exists). Records never enable
-go-live.
+This pure module is signer-agnostic; the repository stamps ``approver_provenance`` —
+``caller_supplied_unverified`` by default, or (Slice 27) ``request_authenticated`` under actor-bound
+signer semantics (key-custody, **not** a human signature). Records never enable go-live.
 """
 
 from __future__ import annotations

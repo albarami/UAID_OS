@@ -27,6 +27,7 @@ from app.approvals.states import (
 )
 from app.approvals.states import is_blocked as _gate_is_blocked
 from app.audit import record as audit_record
+from app.identity import REQUEST_AUTHENTICATED, actor_fields
 from app.models.approval import Approval
 from app.models.approval_event import ApprovalEvent
 from app.policy.matrix import is_mandatory_action
@@ -60,6 +61,8 @@ class ApprovalRepository(TenantScopedRepository):
             )
         explicit = mandatory or (requires_explicit_approval is True)
 
+        # Slice 27: a request-authenticated principal replaces the caller-typed requester label.
+        req_by, req_prov = actor_fields(self.context.actor, requested_by)
         requested_at = _now()
         approval = Approval(
             project_id=project_id,
@@ -68,14 +71,15 @@ class ApprovalRepository(TenantScopedRepository):
             risk_tier=tier.value,
             requires_explicit_approval=explicit,
             status=Status.PENDING.value,
-            requested_by=requested_by,
+            requested_by=req_by,
+            requested_by_provenance=req_prov,
             requested_at=requested_at,
             deadline_at=compute_deadline(requested_at, tier, requires_explicit=explicit),
             payload=dict(payload or {}),
         )
         await self.add(approval)  # stamps tenant_id from context
         await self.session.flush()
-        await self._record(approval, event="requested", actor=requested_by, from_status=None)
+        await self._record(approval, event="requested", actor=req_by, from_status=None)
         return approval
 
     async def approve(
@@ -168,21 +172,44 @@ class ApprovalRepository(TenantScopedRepository):
     async def _resolve_by_human(
         self, approval_id: uuid.UUID, target: Status, actor: str, note: str | None
     ) -> Approval:
-        await self._transition(approval_id, target, resolved_by=actor)
+        # Slice 27: a verified resolver replaces the caller-typed actor label.
+        resolver, prov = actor_fields(self.context.actor, actor)
+        # §2.2: a verified actor cannot APPROVE its own verified request (separation of duties).
+        if target is Status.APPROVED:
+            existing = await self.get(approval_id)
+            if (
+                existing is not None
+                and prov == REQUEST_AUTHENTICATED
+                and existing.requested_by_provenance == REQUEST_AUTHENTICATED
+                and existing.requested_by == resolver
+            ):
+                raise InvalidApprovalRequest(
+                    "a verified actor cannot approve its own verified request (§2.2)"
+                )
+        await self._transition(
+            approval_id, target, resolved_by=resolver, approver_provenance=prov
+        )
         approval = await self.get(approval_id)
         await self._record(
-            approval, event=target.value, actor=actor, from_status=Status.PENDING, note=note
+            approval, event=target.value, actor=resolver, from_status=Status.PENDING, note=note
         )
         return approval
 
     async def _transition(
-        self, approval_id: uuid.UUID, target: Status, *, resolved_by: str | None
+        self,
+        approval_id: uuid.UUID,
+        target: Status,
+        *,
+        resolved_by: str | None,
+        approver_provenance: str | None = None,
     ) -> None:
         # Guarded: only a PENDING row transitions (fail-closed on concurrent resolve).
         values: dict[str, Any] = {"status": target.value}
         if resolved_by is not None:
             values["resolved_by"] = resolved_by
             values["resolved_at"] = func.now()
+        if approver_provenance is not None:
+            values["approver_provenance"] = approver_provenance
         stmt = (
             update(Approval)
             .where(
@@ -221,6 +248,7 @@ class ApprovalRepository(TenantScopedRepository):
                 "action": approval.action,
                 "risk_tier": approval.risk_tier,
                 "requires_explicit_approval": approval.requires_explicit_approval,
+                "requested_by_provenance": approval.requested_by_provenance,
                 "approver_provenance": approval.approver_provenance,
                 "from_status": from_status.value if from_status else None,
                 "to_status": approval.status,

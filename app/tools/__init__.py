@@ -2,9 +2,9 @@
 
 A platform-controlled chokepoint for tool calls: deny-by-default catalog, per-agent
 allowlist, authority (Slice 3) + approval (Slice 4) composition, and a recorded
-decision for every attempt. SKELETON: no real tool execution / connectors. Because
-request-auth is out of scope, the success terminal is ``ALLOWED_UNVERIFIED_IDENTITY``
-("would be allowed if agent identity were authenticated") — never executable.
+decision for every attempt. SKELETON: no real tool execution / connectors. The broker is
+**not wired** to Slice 27 request-auth identity (D-27-4), so the success terminal stays
+``ALLOWED_UNVERIFIED_IDENTITY`` ("would be allowed if agent identity were authenticated") — never executable.
 """
 
 from app.tools.broker import BrokerDecision, broker_call

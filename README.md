@@ -107,9 +107,12 @@ low-risk non-response can never bypass it. The gate `is_blocked(project, action)
 **fail-closed** (no approval ⇒ blocked). Every transition writes an `approval_events` row and
 an audit-log entry. Tables are tenant-owned + RLS; `approvals` is never `DELETE`-able and
 `approval_events` is append-only. The engine is **wired into the Slice 5 broker for tool-scoped
-approval decisions only** (no scheduler/channels/dashboard); and **approver identity is unverified**
-(`approver_provenance='caller_supplied_unverified'`) until request-auth exists, so these are not yet
-verified human approvals.
+approval decisions only** (no scheduler/channels/dashboard). **Slice 27** adds request-authenticated
+identity: an authenticated request stamps `request_authenticated` (**key-custody-based, not** a human
+signature) on the **requester** (`requested_by_provenance`) and **resolver** (`approver_provenance`),
+and a verified actor **cannot approve its own verified request** (§2.2); an unauthenticated caller
+still gets `caller_supplied_unverified`. These remain **not** human signatures and authorize nothing
+on their own.
 
 ## Tool broker (§11)
 `app/tools/` is the controlled chokepoint for tool calls (`broker_call`). It is
@@ -120,9 +123,10 @@ catalog is code-defined; params are validated (mapping-only, ≤16 KiB) and **se
 keys redacted** before storage (`DENIED_INVALID_PARAMS` otherwise; audit never includes
 params). The allowlist is an append-only **grant/revoke ledger** (no UPDATE/DELETE; latest
 event decides). Every attempt is recorded to tenant-owned, append-only `tool_calls` + the
-audit log. **Skeleton — no real execution.** Because request-auth is out of scope, an
-unverified approval yields `NEEDS_AUTHENTICATED_APPROVAL` and the success terminal is
-`ALLOWED_UNVERIFIED_IDENTITY` — never executable authorization yet.
+audit log. **Skeleton — no real execution.** The broker is **not wired** to Slice 27 identity
+(D-27-4 deferred): its authenticated-approval allowlist is **empty**, so **any** provenance — even
+the real `request_authenticated` tier — yields `NEEDS_AUTHENTICATED_APPROVAL`, and the success
+terminal is `ALLOWED_UNVERIFIED_IDENTITY` — never executable authorization yet.
 
 ## Agent registry (§9.7 / §17.4 / §22.2)
 `app/agents/` is the durable agent identity + change-control substrate. **Global,
@@ -547,8 +551,10 @@ evidence source: a signed acceptance of a known, **non-blocking** open issue so 
   `missing_production_rollback`, `missing_regulated_or_safety_authority` are **rejected at store time
   and never counted** — the spec's human-authority override needs verified authority + an
   autonomy-override path that do not exist yet, so they are blocked outright.
-- **Unverified signer:** `approver_provenance = "caller_supplied_unverified"` — these are not verified
-  human signatures until request-auth exists.
+- **Signer provenance (Slice 27):** without an authenticated actor, `approver_provenance =
+  "caller_supplied_unverified"`. With one, the store stamps `request_authenticated` **only under
+  actor-bound signer semantics** (the principal must equal the payload `approver` and appear in
+  `accepted_by`, else refused) — **key-custody-based, not** a human signature; it never enables go-live.
 - **Lifecycle:** one-way `active → expired | revoked | superseded`; expiry computed on demand; expired
   never counts. `risk_acceptance_records` (RLS; **no DELETE**; guard trigger so only `status`/
   `updated_at` are mutable) + append-only `risk_acceptance_events` (migration `0021`). Audit records
@@ -558,8 +564,9 @@ evidence source: a signed acceptance of a known, **non-blocking** open issue so 
   `no_issue_provenance_or_release_binding` to `no_issue_provenance` once a frozen release candidate
   exists (release binding now exists as a primitive), but it stays `insufficient_evidence` and never
   passes — issue provenance/completeness still does not exist.
-- **Out of scope:** issue/release entities, request-auth/verified signature, evidence-pack, go-live,
-  LLM, and any HTTP API (no operator endpoint this slice).
+- **Out of scope:** issue/release entities, a verified **human signature** / approval-matrix authority
+  (Slice 27 adds only key-custody `request_authenticated`), evidence-pack, go-live, LLM, and any HTTP
+  API (no operator endpoint).
 
 ## Read API / dashboard (§18.6)
 `app/api/` exposes **read-only JSON** endpoints behind **hashed bearer-key tenant auth** (Phase‑1
@@ -579,6 +586,16 @@ by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Re
 **`SECURITY DEFINER` function** (`resolve_tenant_api_key`, owned by the least-privilege NOLOGIN role
 `api_key_resolver`): the runtime role `uaid_app` has **EXECUTE-only** access and **no direct read** of
 the key table, and only the hash is passed into SQL (the raw key never reaches the statement/logs).
+**Slice 27 (verified actor identity):** the resolver now returns `(tenant_id, principal_subject,
+actor_type)`, so `require_tenant` yields a `TenantContext` carrying an `AuthenticatedActor` — a
+**request-authenticated principal** (key-custody-based, **not** a human signature). This adds a second,
+**identity-axis** provenance tier, `request_authenticated`, **app-stamped** (never caller-asserted) onto
+approvals (requester + resolver provenance, with a §2.2 verified self-approval refusal) and
+risk-acceptance (actor-bound signer: the principal must equal the payload `approver` and appear in
+`accepted_by`). Principal metadata lives in the **global, non-RLS** `tenant_api_keys` table, protected by
+the same D4 least-privilege resolver access (not RLS), and resolves only alongside its own tenant. **The
+read-only API contract is unchanged** — no write endpoint, and **no A5 gate passes** (go-live stays
+false; gates #7/#12/#13 still unmet).
 Covers the implemented
 §18.6 subset (run state, open approvals, blockers, cost + stop decision, — Slice 17 — the latest
 persisted build-readiness and gap/contradiction findings snapshots, — Slice 19 — their full

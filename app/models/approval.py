@@ -2,8 +2,10 @@
 
 `requires_explicit_approval` is the non-bypassable flag (True for §2.6 actions):
 when True, only an APPROVED status unblocks the dependent action. `risk_tier`
-drives only the non-response/UX behavior. `approver_provenance` defaults to an
-unverified caller label until request-auth exists.
+drives only the non-response/UX behavior. Slice 27: `requested_by_provenance` (requester) and
+`approver_provenance` (resolver) carry `request_authenticated` when that party is a request-
+authenticated principal — key-custody-based, **not** a human signature — else
+`caller_supplied_unverified`.
 """
 
 import uuid
@@ -46,6 +48,15 @@ class Approval(Base, TimestampMixin):
         CheckConstraint(
             f"risk_tier IN ({', '.join(repr(t) for t in _TIERS)})", name="risk_tier_valid"
         ),
+        # Slice 27: requester vs resolver provenance, each constrained to the identity-axis tiers.
+        CheckConstraint(
+            "requested_by_provenance IN ('caller_supplied_unverified', 'request_authenticated')",
+            name="requested_by_provenance_valid",
+        ),
+        CheckConstraint(
+            "approver_provenance IN ('caller_supplied_unverified', 'request_authenticated')",
+            name="approver_provenance_valid",
+        ),
         Index(None, "tenant_id"),
         Index("ix_approvals_tenant_id_status", "tenant_id", "status"),
     )
@@ -63,6 +74,10 @@ class Approval(Base, TimestampMixin):
     requires_explicit_approval: Mapped[bool] = mapped_column(Boolean, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
     requested_by: Mapped[str] = mapped_column(Text, nullable=False)
+    # Slice 27: provenance of the requester identity (resolver provenance is approver_provenance).
+    requested_by_provenance: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'caller_supplied_unverified'")
+    )
     requested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

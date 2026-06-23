@@ -407,9 +407,9 @@ async def test_contract_unverified_approval_yields_authenticated(tool_ctx):
 
 @pytest.mark.db
 async def test_bogus_provenance_still_needs_authenticated_approval(tool_ctx):
-    # Fail-closed: ANY provenance not on the (empty) authenticated allowlist — even
-    # an arbitrary/forged string like 'bogus' — must NOT authorize. Proves the gate
-    # is allowlist-based, not "anything except the unverified default".
+    # Fail-closed: ANY provenance not on the (empty) authenticated allowlist — even the
+    # real 'request_authenticated' tier (Slice 27) — must NOT authorize, because Slice 27
+    # does NOT wire the broker (D-27-4 deferred). Proves the gate is allowlist-based.
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
@@ -427,9 +427,9 @@ async def test_bogus_provenance_still_needs_authenticated_approval(tool_ctx):
             subject_ref="tool:ci.deploy_production",
         )
         await ApprovalRepository(session, ctx).approve(approval_id=a.id, actor="boss")
-        # Forge a non-default provenance value directly on the row.
+        # Set the strongest real provenance tier directly on the row (CHECK-valid).
         await session.execute(
-            text("UPDATE approvals SET approver_provenance='bogus' WHERE id=:id"),
+            text("UPDATE approvals SET approver_provenance='request_authenticated' WHERE id=:id"),
             {"id": str(a.id)},
         )
         d = await broker_call(

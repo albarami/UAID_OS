@@ -18,6 +18,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
+from app.identity import AuthenticatedActor
 
 
 class CrossTenantError(Exception):
@@ -26,9 +27,15 @@ class CrossTenantError(Exception):
 
 @dataclass(frozen=True)
 class TenantContext:
-    """An explicit tenant scope. Required to touch tenant-owned data."""
+    """An explicit tenant scope. Required to touch tenant-owned data.
+
+    ``actor`` is the request-authenticated principal (Slice 27), or ``None`` for an
+    unauthenticated/internal caller. When present, repositories stamp the
+    ``request_authenticated`` provenance tier (key-custody-based, NOT a human signature).
+    """
 
     tenant_id: uuid.UUID
+    actor: AuthenticatedActor | None = None
 
 
 @asynccontextmanager

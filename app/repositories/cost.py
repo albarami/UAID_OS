@@ -4,7 +4,7 @@
 source-namespaced key) and computes on-demand totals; ``BudgetRepository`` manages
 per-project ceilings (audited with before/after caps). ``evaluate`` composes them
 into the §19.7 stop decision. Run inside ``tenant_scope`` (GUC set). ``actor`` is an
-untrusted caller label until request-auth exists.
+untrusted caller label (the cost ledger is not wired to Slice 27 request-auth identity).
 """
 
 import uuid

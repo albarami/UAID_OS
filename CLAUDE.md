@@ -105,6 +105,17 @@ slice), a `repo_ref` owner/repo-slug + GitHub-token-prefix-denylist DB backstop,
 snapshot exists), with snapshot/verified-count context — **never passes** (only unverified evidence is
 writable; the PASS path lands with the real connector, Slice 28). Adds `GET
 /api/projects/{id}/ci_evidence` (latest-or-null). merged via PR #41 (commit `dc622a09`).**
+**Slice 27 adds request-authentication → verified actor identity (`app/identity.py`, migration `0026`,
+§2.2/§5.2/§7.x/§23.4): a bearer key now binds a verified **principal** (`tenant_api_keys.principal_subject`
++ `actor_type`); the D4 resolver returns `(tenant_id, principal_subject, actor_type)` (DROP+recreate,
+least-privilege model intact); `require_tenant` returns a `TenantContext` carrying an
+`AuthenticatedActor`. A new **app-stamped** `request_authenticated` provenance tier
+(**key-custody-based, NOT a human signature**) lands on approvals (new `requested_by_provenance` +
+resolver-only `approver_provenance`, both CHECK-constrained) with a §2.2 verified self-approval refusal,
+and on risk-acceptance under **actor-bound** signer semantics (the verified principal must equal the
+payload `approver` AND appear in `accepted_by`, else refused). Flips **NO** A5 gate (#7/#12/#13 stay
+unmet; go-live stays false); broker unwired (D-27-4). In progress on branch
+`feat/slice27-request-auth`.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -227,7 +238,7 @@ the admin `app` role only.
   level + overrides jsonb; composite FK to projects). `app/repositories/autonomy_policies.py`
   — `decision_for` (**fail-closed**: missing policy ⇒ DENY, invalid persisted override ⇒ DENY)
   and `upsert` (validates overrides, audits the change via `audit_append` with safe metadata;
-  `actor` is an **untrusted** caller label until request-auth exists).
+  `actor` is an **untrusted** caller label (autonomy-policy writes are not wired to Slice 27 identity)).
 - `app/approvals/states.py` — pure approval state machine (Slice 4, §18): `Status`
   (pending/approved/rejected/cancelled/expired/proceeded_by_policy), `RiskTier`, transition
   validation, non-response policy (`compute_deadline`/`auto_transition`, §18.5 24h), and the
@@ -528,13 +539,16 @@ the admin `app` role only.
   **hard-refusal `blocking_category` rejected**), `validate_transition` (one-way
   active→{expired,revoked,superseded}). `RiskAcceptanceRepository` (`create`/`revoke`/`supersede`/
   `expire_if_overdue`/`count_active_nonblocking`/`get`/`list_for_project`): create rejects hard
-  refusals at store time, stamps `approver_provenance="caller_supplied_unverified"` (**not** a verified
-  signature), writes a `risk_acceptance_events` row + audit (safe metadata only — ids/severity/status,
+  refusals at store time, stamps `approver_provenance` (`caller_supplied_unverified`, or — **Slice 27** —
+  `request_authenticated` under **actor-bound** signer semantics: principal == payload `approver` AND in
+  `accepted_by`; key-custody, **not** a verified human signature), writes a `risk_acceptance_events` row +
+  audit (safe metadata only — ids/severity/status,
   never prose). `risk_acceptance_records` (tenant-owned, RLS ENABLE+FORCE; SELECT/INSERT/UPDATE, **no
   DELETE**; severity + status CHECKs; **guard trigger: only `status`/`updated_at` mutable**) +
   append-only `risk_acceptance_events` (SELECT/INSERT only; UPDATE/DELETE/TRUNCATE blocked). Migration
   `0021`. Feeds the conservative A5 gate-#7 hook (never passes). **Skeleton: store + lifecycle only —
-  no issue/release entity, no request-auth/verified signature, no evidence-pack, no go-live, no LLM,
+  no issue/release entity, no verified **human signature**/approval-matrix authority (Slice 27 adds only
+  key-custody `request_authenticated` under actor-bound semantics), no evidence-pack, no go-live, no LLM,
   no HTTP API; the §24.1 human-authority override for hard refusals is out of scope (blocked outright).**
 - `app/llm/` + `app/intake/extraction.py` + `app/repositories/extraction.py` — LLM-assisted
   extractor (Phase 2, Slice 14a, §2.1/§2.2/§2.4/§16.3/§16.5/§19). **The first real LLM integration;
@@ -696,7 +710,16 @@ the admin `app` role only.
   provenance=caller_supplied_unverified (the `connector_verified` tier is schema-reserved but
   **unwritable** this slice), the `repo_ref` shape + token denylist, the JSON-array shape + per-element
   bounded-string rule, and `required_status_check_count` = jsonb_array_length(required_status_checks)];
-  no change to existing tables).
+  no change to existing tables);
+  `0026_request_auth_identity.py` (Slice 27: request-auth → verified actor identity. `tenant_api_keys`
+  gains `principal_subject` + `actor_type` (the verified principal; existing keys backfilled
+  `service`/`legacy:<id>`, then NOT NULL + bounded/`IN ('human','service')` CHECKs);
+  `resolve_tenant_api_key(text)` is **DROP+recreate**d to return `(tenant_id, principal_subject,
+  actor_type)` with the D4 model restored verbatim (`api_key_resolver` owner; PUBLIC revoked; `uaid_app`
+  EXECUTE-only, **no** table SELECT); `approvals` gains `requested_by_provenance` + value CHECKs on both
+  provenance columns (`caller_supplied_unverified`/`request_authenticated`); the
+  `risk_acceptance_records` guard is **CREATE OR REPLACE**d to allow `request_authenticated` on INSERT
+  (every other 0021 invariant preserved). Reversible; no new table).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -722,11 +745,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 308 passing (Docker-free); `make test-db` → 356 passing (DB-backed: tenancy,
+  **`make test` → 320 passing (Docker-free); `make test-db` → 368 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -823,8 +846,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 308 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 356 passing
+make test                                  # Docker-free tests (no services) — 320 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 368 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -871,13 +894,16 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
 - Approval engine (§18): **present (Slice 4)** — request→await→resolve, risk tiers + non-response
   policy, fail-closed gate, non-bypassable `requires_explicit_approval` for §2.6 actions.
   **Wired into the Slice 5 broker for tool-scoped approval decisions only; no scheduler (on-demand
-  expiry), no real channels (Slack/email), no dashboard (§18.6 / Slice 10), no request-auth — approver
-  identity is unverified.** Note: the policy `is_mandatory_action` helper was added to `app/policy/matrix.py`.
+  expiry), no real channels (Slack/email), no dashboard (§18.6 / Slice 10). Slice 27 adds
+  request-authenticated requester/resolver provenance (`request_authenticated`, key-custody — **not** a
+  human signature) + a §2.2 verified self-approval refusal; an unauthenticated caller stays
+  `caller_supplied_unverified`.** Note: the policy `is_mandatory_action` helper was added to `app/policy/matrix.py`.
 - Tool broker (§11): **present (Slice 5)** — deny-by-default decision chokepoint composing
   policy + approval, per-agent allowlist ledger, every attempt recorded. **Skeleton: no real
   execution / connectors / MCP / credentials / rate limits / cost / auto-suspension.** Success
-  caps at `ALLOWED_UNVERIFIED_IDENTITY`; unverified approvals ⇒ `NEEDS_AUTHENTICATED_APPROVAL`
-  (nothing here is executable authorization until request-auth lands).
+  caps at `ALLOWED_UNVERIFIED_IDENTITY`; the broker is **not wired** to Slice 27 identity (D-27-4) — its
+  authenticated-approval allowlist is empty, so even `request_authenticated` ⇒ `NEEDS_AUTHENTICATED_APPROVAL`
+  (nothing here is executable authorization yet).
 - Agent registry (§9.7/§17.4/§22.2): **present (Slice 6)** — global admin-curated `agent_blueprints`,
   global **immutable** `agent_versions` (full §22.2 hash snapshot; UPDATE/DELETE/TRUNCATE blocked by
   trigger — *DML-immutable, not tamper-proof vs. a DB superuser*), tenant-scoped RLS `agent_instances`
