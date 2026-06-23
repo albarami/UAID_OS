@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.auth import require_tenant
 from app.repositories.approvals import ApprovalRepository
+from app.repositories.ci_evidence import CIEvidenceRepository
 from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.repositories.cost import evaluate as cost_evaluate
 from app.repositories.documents import DocumentRepository
@@ -77,6 +78,26 @@ def _findings_dict(rec) -> dict:
         "gap_count": rec.gap_count,
         "contradiction_count": rec.contradiction_count,
         "report": rec.report,  # gaps/contradictions (refs only) + counts, JSON-safe
+    }
+
+
+def _ci_evidence_dict(rec) -> dict:
+    # Slice 26 — latest branch-protection snapshot. ``provenance`` distinguishes observed-unverified
+    # (the only value writable this slice) from connector_verified (Slice 28). Returned only on the
+    # tenant's own dashboard (their data); the audit log excludes repo_ref/check-names.
+    return {
+        "snapshot_id": str(rec.id),
+        "observed_at": rec.observed_at.isoformat() if rec.observed_at is not None else None,
+        "recorded_at": rec.created_at.isoformat(),
+        "provider": rec.provider,
+        "repo_ref": rec.repo_ref,
+        "branch": rec.branch,
+        "protection_enabled": rec.protection_enabled,
+        "required_pull_request_reviews": rec.required_pull_request_reviews,
+        "required_status_checks": rec.required_status_checks,
+        "required_status_check_count": rec.required_status_check_count,
+        "enforce_admins": rec.enforce_admins,
+        "provenance": rec.provenance,
     }
 
 
@@ -189,3 +210,15 @@ async def project_production_autonomy(
     async with tenant_scope(context) as session:
         report = await ProductionAutonomyRepository(session, context).evaluate(project_id)
         return {"production_autonomy": report.to_dict()}
+
+
+@router.get("/projects/{project_id}/ci_evidence")
+async def project_ci_evidence(
+    project_id: uuid.UUID, context: TenantContext = Depends(require_tenant)
+) -> dict:
+    # Slice 26 — latest source-control/CI branch-protection snapshot (the A5 gate-#3 evidence class),
+    # or null. Latest-only (no list/history this slice). Never-recorded / cross-tenant / nonexistent
+    # are indistinguishable (200 + null, no existence oracle).
+    async with tenant_scope(context) as session:
+        rec = await CIEvidenceRepository(session, context).latest_branch_protection(project_id)
+        return {"ci_evidence": _ci_evidence_dict(rec) if rec is not None else None}

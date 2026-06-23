@@ -13,6 +13,7 @@ from app.models.approval_event import ApprovalEvent
 from app.models.audit_log import AuditLog
 from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
+from app.models.branch_protection_snapshot import BranchProtectionSnapshot
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
 from app.models.document import Document
@@ -60,6 +61,7 @@ __all__ = [
     "AgentInstance",
     "CostEvent",
     "Budget",
+    "BranchProtectionSnapshot",
     "RunCheckpoint",
     "RunCheckpointWrite",
     "RunStep",

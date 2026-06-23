@@ -30,6 +30,7 @@ from app.release.production_autonomy import (
     evaluate_production_autonomy,
 )
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.ci_evidence import CIEvidenceRepository
 from app.repositories.cost import BudgetRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
@@ -70,6 +71,8 @@ class ProductionAutonomyRepository:
         issues = ReleaseIssueRepository(self.session, self.context)
         findings = ReleaseFindingRepository(self.session, self.context)
         candidates = ReleaseCandidateRepository(self.session, self.context)
+        ci = CIEvidenceRepository(self.session, self.context)
+        latest_bp = await ci.latest_branch_protection(project_id)
         latest_frozen = await candidates.latest_frozen(project_id)
         if latest_frozen is not None:
             bound_open = await candidates.bound_open_issue_count(latest_frozen.id)
@@ -108,5 +111,20 @@ class ProductionAutonomyRepository:
             open_shortcut_finding_count=await findings.count_open(project_id, "shortcut"),
             open_unaccepted_critical_shortcut_finding_count=(
                 await findings.count_open_unaccepted_critical(project_id, "shortcut")
+            ),
+            branch_protection_snapshot_count=(
+                await ci.count_branch_protection_snapshots(project_id)
+            ),
+            connector_verified_branch_protection_count=(
+                await ci.count_connector_verified_branch_protection(project_id)
+            ),
+            latest_branch_protection_provenance=(
+                latest_bp.provenance if latest_bp is not None else None
+            ),
+            latest_branch_protection_enabled=(
+                latest_bp.protection_enabled if latest_bp is not None else None
+            ),
+            latest_required_status_check_count=(
+                latest_bp.required_status_check_count if latest_bp is not None else 0
             ),
         )

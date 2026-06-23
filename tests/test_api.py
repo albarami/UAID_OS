@@ -649,7 +649,7 @@ async def test_production_autonomy_endpoint_returns_report(api_ctx):
     assert body["a5_satisfied"] is False
     assert body["can_go_live_autonomously"] is False
     assert len(body["gates"]) == 13
-    assert body["ruleset_version"] == "slice25.v1"
+    assert body["ruleset_version"] == "slice26.v1"
 
 
 @pytest.mark.db
@@ -661,7 +661,7 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
         )
     assert r.status_code == 200
     body = r.json()["production_autonomy"]
-    assert body["ruleset_version"] == "slice25.v1"
+    assert body["ruleset_version"] == "slice26.v1"
     assert all("context" in g and isinstance(g["context"], dict) for g in body["gates"])
     by_num = {g["number"]: g for g in body["gates"]}
     g7 = by_num[7]
@@ -690,6 +690,19 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
     assert "open_unaccepted_critical_security_finding_count" in by_num[5]["context"]
     assert "open_shortcut_finding_count" in by_num[6]["context"]
     assert "open_unaccepted_critical_shortcut_finding_count" in by_num[6]["context"]
+    # Slice 26: gate #3 (branch protection) is now insufficient_evidence with snapshot-count context
+    # (no snapshot seeded in the API fixture ⇒ no_branch_protection_evidence).
+    g3 = by_num[3]
+    assert g3["status"] == "insufficient_evidence"
+    assert g3["reason"] == "no_branch_protection_evidence"
+    for k in (
+        "branch_protection_snapshot_count",
+        "connector_verified_branch_protection_count",
+        "latest_branch_protection_provenance",
+        "latest_branch_protection_enabled",
+        "latest_required_status_check_count",
+    ):
+        assert k in g3["context"]
 
 
 @pytest.mark.db
@@ -724,3 +737,62 @@ async def test_production_autonomy_read_only(api_ctx):
     async with _client() as client:
         assert (await client.get(path, headers=_auth(api_ctx["key_a"]))).status_code == 200
         assert (await client.post(path, headers=_auth(api_ctx["key_a"]))).status_code == 405
+
+
+# --- DB-backed: Slice 26 — CI evidence (branch protection) read endpoint -------
+
+
+async def _record_branch_protection(project_id, tenant_id):
+    from app.repositories.ci_evidence import CIEvidenceRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(tenant_id)
+    async with tenant_scope(ctx) as session:
+        row = await CIEvidenceRepository(session, ctx).record_branch_protection(
+            project_id=project_id,
+            payload={
+                "provider": "github",
+                "repo_ref": "owner/repo",
+                "branch": "main",
+                "protection_enabled": True,
+                "required_pull_request_reviews": True,
+                "required_status_checks": ["ci/build"],
+                "enforce_admins": False,
+            },
+            actor="rev",
+        )
+        return row.id
+
+
+@pytest.mark.db
+async def test_ci_evidence_endpoint_returns_latest_or_null(api_ctx):
+    pa, ta = api_ctx["pa"], api_ctx["ta"]
+    async with _client() as client:
+        empty = await client.get(f"/api/projects/{pa}/ci_evidence", headers=_auth(api_ctx["key_a"]))
+        assert empty.status_code == 200 and empty.json() == {"ci_evidence": None}
+    await _record_branch_protection(pa, ta)
+    async with _client() as client:
+        r = await client.get(f"/api/projects/{pa}/ci_evidence", headers=_auth(api_ctx["key_a"]))
+    assert r.status_code == 200
+    body = r.json()["ci_evidence"]
+    assert body is not None
+    assert body["provider"] == "github"
+    assert body["protection_enabled"] is True
+    assert body["required_status_checks"] == ["ci/build"]
+    assert body["required_status_check_count"] == 1
+    assert body["provenance"] == "caller_supplied_unverified"
+
+
+@pytest.mark.db
+async def test_ci_evidence_cross_tenant_and_auth_and_read_only(api_ctx):
+    pa, pb, tb = api_ctx["pa"], api_ctx["pb"], api_ctx["tb"]
+    await _record_branch_protection(pb, tb)  # tenant B's project
+    path_a = f"/api/projects/{pa}/ci_evidence"
+    async with _client() as client:
+        # key A on tenant B's project ⇒ 200 + null (no leak)
+        cross = await client.get(f"/api/projects/{pb}/ci_evidence", headers=_auth(api_ctx["key_a"]))
+        assert cross.status_code == 200 and cross.json() == {"ci_evidence": None}
+        # auth deny-by-default + read-only
+        assert (await client.get(path_a)).status_code == 401
+        assert (await client.get(path_a, headers=_auth(api_ctx["key_revoked"]))).status_code == 401
+        assert (await client.post(path_a, headers=_auth(api_ctx["key_a"]))).status_code == 405

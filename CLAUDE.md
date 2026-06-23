@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-06-13)
+## Current status (2026-06-23)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -94,6 +94,18 @@ narrows `no_issue_provenance_or_release_binding` → `no_issue_provenance` when 
 candidate exists (release-binding half satisfied), with frozen/bound-issue counts as context — still
 `insufficient_evidence`, **never passes** (no issue provenance/completeness); binding declares KNOWN
 issues, not completeness; go-live stays false — merged via PR #39 (commit `f706a30`).**
+**Slice 26 adds a deterministic, tenant-owned source-control / CI evidence-provenance store
+(`branch_protection_snapshots`, migration `0025`, Appendix B #3 / §26.3) — the first evidence class for
+A5 gate #3: immutable append-only snapshots (RLS, SELECT/INSERT only) with a two-tier `provenance` axis
+(`caller_supplied_unverified` writable; `connector_verified` schema-reserved but **unwritable** this
+slice), a `repo_ref` owner/repo-slug + GitHub-token-prefix-denylist DB backstop, and a JSON-array
+`required_status_checks` guard. Wires the conservative A5 gate #3 (`production_autonomy`
+`ruleset_version` bumped to `slice26.v1`): gate #3 moves `no_evidence_source` → `insufficient_evidence`
+(reason narrows `no_branch_protection_evidence` → `branch_protection_observed_unverified` once a
+snapshot exists), with snapshot/verified-count context — **never passes** (only unverified evidence is
+writable; the PASS path lands with the real connector, Slice 28). Adds `GET
+/api/projects/{id}/ci_evidence` (latest-or-null). In progress on branch
+`feat/slice26-ci-evidence`.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -404,18 +416,44 @@ the admin `app` role only.
   open-issue + release-binding) is `insufficient_evidence` — its reason narrows from
   `no_issue_provenance_or_release_binding` to `no_issue_provenance` once a FROZEN release candidate
   exists (Slice 25), with risk-acceptance/open-issue/frozen-release/bound-issue counts as context**);
-  the other **5** (#3/#4/#10/#11/#13) are
+  **#3 (branch protection) is `insufficient_evidence` after Slice 26 added the
+  `branch_protection_snapshots` store — reason narrows `no_branch_protection_evidence` →
+  `branch_protection_observed_unverified` once a snapshot exists, with snapshot/verified-count context;
+  never passes (only `caller_supplied_unverified` evidence is writable, no PASS path this slice)**);
+  the other **4** (#4/#10/#11/#13) are
   `no_evidence_source:<subsystem>` (await
-  Phase 3/5/6). `a5_satisfied` (all-13-passed) and **`can_go_live_autonomously` are ALWAYS false** —
+  Phase 5/6). `a5_satisfied` (all-13-passed) and **`can_go_live_autonomously` are ALWAYS false** —
   go-live also needs a request-authenticated A5 pre-approval (not implemented); this module never
-  authorizes production. `ruleset_version` is `slice25.v1`. `ProductionAutonomyRepository`
+  authorizes production. `ruleset_version` is `slice26.v1`. `ProductionAutonomyRepository`
   (`evaluate`, **compute-on-read, no persistence, no table/migration**) reads current state via the
-  readiness/autonomy/budget/category/risk-acceptance/release-findings/release-issue/release-candidate
-  repos inside `tenant_scope`/RLS;
+  readiness/autonomy/budget/category/risk-acceptance/release-findings/release-issue/release-candidate/
+  ci-evidence repos inside `tenant_scope`/RLS;
   cross-tenant/nonexistent yields a generic not-satisfied report (no leak). Read-only exposed at
   `GET /api/projects/{id}/production_autonomy` (Slice 21). **Skeleton: scores gate structure only —
-  builds no evidence subsystem (CI/test-exec/rollback/monitoring/emergency-stop), no go-live,
-  no LLM, no migration.**
+  builds no evidence subsystem (test-exec/rollback/monitoring/emergency-stop), no go-live,
+  no LLM.**
+- `app/release/ci_evidence.py` + `app/models/branch_protection_snapshot.py` +
+  `app/repositories/ci_evidence.py` — **deterministic, tenant-owned source-control / CI
+  evidence-provenance store** (Slice 26, Appendix B #3 / §26.3 — the first evidence class for A5 gate
+  #3). `ci_evidence.py` (pure): `PROVIDERS` (`github`), two-tier `PROVENANCES`
+  (`caller_supplied_unverified` writable; `connector_verified` schema-reserved but **unwritable** this
+  slice), `REPO_REF_RE` (owner/repo slug) + `TOKENISH_RE` (GitHub-token-prefix denylist),
+  `validate_new_snapshot` (provider/repo_ref-shape+token/bool-fields/`required_status_checks`
+  bounded-string-list; rejects caller-asserted `connector_verified`), `derived_check_count`.
+  `CIEvidenceRepository` (`record_branch_protection` [stamps `caller_supplied_unverified`, derives
+  count, audits **safe metadata only** — never repo_ref/check-names/URLs], `latest_branch_protection`,
+  `count_branch_protection_snapshots`, `count_connector_verified_branch_protection` [always 0 this
+  slice]). `branch_protection_snapshots` (tenant-owned, RLS ENABLE+FORCE; **immutable append-only** —
+  SELECT/INSERT only, UPDATE/DELETE/TRUNCATE blocked; the §3/§4.1 CHECKs + INSERT guard are the
+  authoritative DB backstop, migration `0025`). Wires the conservative A5 gate #3
+  (`production_autonomy` `ruleset_version` bumped to `slice26.v1`): gate #3 moves
+  `no_evidence_source:ci_branch_protection` → `insufficient_evidence` (reason narrows
+  `no_branch_protection_evidence` → `branch_protection_observed_unverified` once a snapshot exists),
+  with snapshot/verified-count + latest-observed context — **never passes** (only unverified evidence
+  is writable; the PASS path lands with the real connector, Slice 28). Latest snapshot read-only exposed
+  at `GET /api/projects/{id}/ci_evidence` (latest-or-null, no list/history). **Skeleton: store +
+  provenance model only — no real source-control connector / broker call (Slice 28), no
+  secrets-reference verification, no PR/test-oracle evidence, no go-live, no LLM; gate #3 never passes.**
 - `app/release/findings.py` + `app/models/release_finding.py` + `app/models/release_finding_event.py`
   + `app/repositories/release_findings.py` — **deterministic, tenant-owned security/shortcut
   release-findings store** (Slice 23, §13.4/§916-920/§24.1 — A5 gates #5/#6 evidence). `findings.py`
@@ -650,7 +688,16 @@ the admin `app` role only.
   NULL) + identity immutability + same-status no-op + one-way lifecycle + frozen_at-iff-frozen; no
   DELETE/TRUNCATE] + append-only `release_candidate_events` + append-only, freeze-locked
   `release_candidate_issue_bindings` [Option A FKs → candidates + `release_issues`; guard trigger =
-  candidate-must-be-draft + issue-project-match; SELECT/INSERT only]; no change to existing tables).
+  candidate-must-be-draft + issue-project-match; SELECT/INSERT only]; no change to existing tables);
+  `0025_ci_evidence.py` (Slice 26: **tenant-owned, immutable append-only** `branch_protection_snapshots`
+  [RLS ENABLE+FORCE; **SELECT/INSERT only** — no UPDATE/DELETE/TRUNCATE (block triggers, mirroring
+  `0015`); provider/provenance/count CHECKs; a `repo_ref` owner/repo-slug CHECK
+  (`ck_bps_repo_ref_slug`) + a GitHub-token-prefix denylist CHECK (`ck_bps_repo_ref_not_tokenish`); a
+  `required_status_checks` JSON-array CHECK (`ck_bps_checks_array`); a BEFORE INSERT guard enforcing
+  provenance=caller_supplied_unverified (the `connector_verified` tier is schema-reserved but
+  **unwritable** this slice), the `repo_ref` shape + token denylist, the JSON-array shape + per-element
+  bounded-string rule, and `required_status_check_count` = jsonb_array_length(required_status_checks)];
+  no change to existing tables).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -676,11 +723,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 255 passing (Docker-free); `make test-db` → 330 passing (DB-backed: tenancy,
+  **`make test` → 308 passing (Docker-free); `make test-db` → 356 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -710,10 +757,12 @@ the admin `app` role only.
   them, non-declarable still rejected), declarable/secret/source-XOR validators, readiness interaction
   (no declared categories ⇒ R2, cap now R5, every category consumed ⇒ not-assessed empty), accepted-doc
   pinning, immutable keys, no-DELETE/TRUNCATE, RLS, catalog], the A5 production-autonomy evaluator
-  [13 gates, only #1 passes; gates #5/#6/#7 `insufficient_evidence` with context counts; `slice25.v1`;
+  [13 gates, only #1 passes; gates #3/#5/#6/#7 `insufficient_evidence` with context counts; `slice26.v1`;
   gate #7 reason narrows `no_issue_provenance_or_release_binding` → `no_issue_provenance` when a frozen
-  release candidate exists, with open-issue + frozen/bound counts; gate-set
-  `PARTIAL={2,5,6,7,8,9,12}`/`SOURCELESS={3,4,10,11,13}`; go-live always false; compute-on-read
+  release candidate exists, with open-issue + frozen/bound counts; **gate #3 reason narrows
+  `no_branch_protection_evidence` → `branch_protection_observed_unverified` once a snapshot exists,
+  never passes**; gate-set
+  `PARTIAL={2,3,5,6,7,8,9,12}`/`SOURCELESS={4,10,11,13}`; go-live always false; compute-on-read
   no-writes; cross-tenant no-leak], the risk-acceptance store [required-field + hard-refusal + lifecycle
   validation, store-time hard-refusal rejection, expire-on-demand, count-active-nonblocking, RLS +
   cross-tenant, append-only events + record immutability guard, audit safe-metadata, catalog/grants],
@@ -733,7 +782,15 @@ the admin `app` role only.
   count_frozen + latest_frozen ordering + bound counts; DB-guard refusals (bad-status insert, frozen_at
   on insert, updated_at-only update, freeze-without-frozen_at, terminal re-transition, bind-when-not-draft,
   bind-cross-project, duplicate-binding, no-DELETE/TRUNCATE on all three); RLS + cross-tenant; audit
-  safe-metadata; catalog incl. the three unique constraints; A5 gate-#7 narrowing reads the counts]).
+  safe-metadata; catalog incl. the three unique constraints; A5 gate-#7 narrowing reads the counts]),
+  and the source-control/CI evidence store [Slice 26: pure validators (provider/provenance, repo_ref
+  owner/repo-slug shape + GitHub-token-prefix denylist, required_status_checks bounded-string list,
+  caller-cannot-assert-connector_verified); DB-guard refusals (connector_verified-write, bad provider,
+  repo_ref URL/SSH/query/multislash/token, required_status_checks non-array/non-string/empty/oversized,
+  count-mismatch); append-only no-UPDATE/DELETE/TRUNCATE; FK cross-project/tenant; RLS + cross-tenant;
+  audit safe-metadata (no repo_ref/check-names); catalog/grants (SELECT/INSERT only) + the three CHECKs;
+  A5 gate-#3 wiring reads snapshot/verified counts; ci_evidence read endpoint latest-or-null + cross-tenant
+  no-leak]).
   `make test-db` requires `RLS_DB_PASSWORD`.**
 
 ### Infra / tooling files
@@ -767,8 +824,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 255 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 330 passing
+make test                                  # Docker-free tests (no services) — 308 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 356 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
