@@ -36,12 +36,15 @@ connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
 - Readiness: http://localhost:8000/health/ready  (real `SELECT 1`; 200 when DB up, 503 when down)
 - Demo:      http://localhost:8000/demo
 - Dashboard (read-only, §18.6): `GET /api/projects/{id}/{runs,approvals,blockers,cost,readiness,findings}`
-  plus `…/{readiness,findings}/history` plus `…/production_autonomy` —
+  plus `…/{readiness,findings}/history` plus `…/production_autonomy` plus `…/ci_evidence` (Slice 26 —
+  latest branch-protection snapshot or `null`) —
   require `Authorization: Bearer <api-key>`; missing/invalid ⇒ 401 (see "Read API / dashboard" below).
-  Two distinct read shapes (both `200`, no cross-tenant leak):
+  Three distinct read shapes (all `200`, no cross-tenant leak):
   - `readiness`/`findings` (Slice 17) return the **latest persisted snapshot** or `null`; their
     `…/history` variants (Slice 19) return the **full persisted list** newest-first or `[]`.
     No-snapshot / cross-tenant / nonexistent are indistinguishable (`null` / `[]`).
+  - `ci_evidence` (Slice 26) returns the **latest persisted branch-protection snapshot** or `null`;
+    no list/history this slice. No-snapshot / cross-tenant / nonexistent are indistinguishable (`null`).
   - `production_autonomy` (Slice 21) is **computed on read** (not a stored snapshot): it always
     returns the fail-closed A5 gate report — never `null` — with `a5_satisfied` and
     `can_go_live_autonomously` false; cross-tenant / nonexistent yield a generic not-satisfied
@@ -406,36 +409,63 @@ auditor is now **capped at R5** (A5/Appendix-B production autonomy still out of 
   spine kinds; the R3/R4/R5 rules consuming these declarations live in Slices 16/18/20, and A5/Appendix-B
   production autonomy remains deferred (go-live stays false even at R5).**
 
-## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23+24+25, §5.1 / App. B)
+## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23+24+25+26, §5.1 / App. B)
 `app/release/production_autonomy.py` + `app/repositories/production_autonomy.py` add a **pure,
 deterministic, fail-closed** evaluator that scores the **13 Appendix-B A5 gates** and emits a
 `production_autonomy` report (separate from the R5 readiness report). It is **non-authorizing**: it
 never deploys, never approves, and **never sets `can_go_live_autonomously` true**.
 - Each gate has `status ∈ {passed, insufficient_evidence, no_evidence_source}` (subsystem detail in
   `reason`; every gate also carries a `context` dict, default `{}`). **Only gate #1 (R5 intake
-  complete) can pass** (when readiness is R5). Gates **#2/#5/#6/#7/#8/#9/#12** have partial *context*
-  primitives only and return `insufficient_evidence` (they never pass) — **#5/#6 (security/shortcut
+  complete) can pass** (when readiness is R5). Gates **#2/#3/#5/#6/#7/#8/#9/#12** have partial *context*
+  primitives only and return `insufficient_evidence` (they never pass) — **#3 (branch protection,
+  Slice 26) is `insufficient_evidence`** with its reason narrowing `no_branch_protection_evidence` →
+  `branch_protection_observed_unverified` once a `branch_protection_snapshots` row exists, and
+  snapshot/verified-count context (only `caller_supplied_unverified` evidence is writable, so it never
+  passes — the PASS path lands with the real connector, Slice 28); **#5/#6 (security/shortcut
   findings) are `insufficient_evidence:no_finding_provenance_or_scan_source`** with open/critical
   finding-count context (Slice 23 added the stores but there's no authoritative scan coverage);
   **#7 (risk-acceptance + open-issue + release-binding) is `insufficient_evidence`** — its reason
   narrows from `no_issue_provenance_or_release_binding` to `no_issue_provenance` once a FROZEN release
   candidate exists (Slice 25 supplies the release-binding half), with open-issue + frozen/bound-issue
   counts as context, but issue provenance/completeness still does not exist so it never passes; the
-  other five
-  (#3/#4/#10/#11/#13) return `no_evidence_source:<subsystem>` and await Phase 3/5/6 subsystems
-  (CI/branch-protection, test-oracle execution, rollback verification, monitoring, emergency stop).
+  other four
+  (#4/#10/#11/#13) return `no_evidence_source:<subsystem>` and await Phase 5/6 subsystems
+  (test-oracle execution, rollback verification, monitoring, emergency stop).
 - `a5_satisfied` (all 13 passed) is impossible this slice; `can_go_live_autonomously` is **hard-false
   always** — go-live additionally needs a request-authenticated, verified A5 pre-approval that does
   not exist yet. `deploy_production` stays mandatory-approval / never auto-ALLOW.
 - **Compute-on-read, no persistence, no migration:** `ProductionAutonomyRepository.evaluate` reads
   current state (readiness + autonomy/budget/category/risk-acceptance/release-findings/release-issue/
-  release-candidate context) via tenant-scoped repos inside `tenant_scope`/RLS and runs the pure
-  engine — it writes nothing. Read-only at `GET /api/projects/{id}/production_autonomy`;
+  release-candidate/ci-evidence context) via tenant-scoped repos inside `tenant_scope`/RLS and runs the
+  pure engine — it writes nothing. Read-only at `GET /api/projects/{id}/production_autonomy`;
   cross-tenant/nonexistent yields a generic not-satisfied report (no leak).
-  `ruleset_version = "slice25.v1"`.
+  `ruleset_version = "slice26.v1"`.
 - **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings + issue +
-  release-candidate *stores* (no scanner/detector/reviewer execution, no issue provenance), request-auth,
-  persistence/history, LLM, actual deploy.
+  release-candidate + ci-evidence *stores* (no scanner/detector/reviewer/connector execution, no issue
+  provenance), request-auth, persistence/history, LLM, actual deploy.
+
+## Source-control / CI evidence (branch protection) — deterministic, tenant-owned store (Slice 26, App. B #3 / §26.3)
+`app/release/ci_evidence.py` + `app/repositories/ci_evidence.py` add the **first evidence class for A5
+gate #3**: immutable, append-only `branch_protection_snapshots` recording a repo's branch-protection
+*configuration*. Fail-closed and **non-authorizing**.
+- **Two-tier provenance:** `caller_supplied_unverified` is the **only** value writable this slice; the
+  `connector_verified` tier is **schema-reserved but unwritable** (the DB guard forces the unverified
+  value on INSERT — the real connector, Slice 28, relaxes it).
+- **`repo_ref` hardening (enforced at validator + column CHECK + INSERT guard):** a GitHub-first
+  `owner/repo` **slug** (`ck_bps_repo_ref_slug`) **plus** a GitHub-token-prefix **denylist**
+  (`ck_bps_repo_ref_not_tokenish`, rejects `owner/ghp_…`, `github_pat_…`, etc.) — no URLs, credentialed
+  URLs, SSH URLs, query strings, fragments, whitespace, multi-slash, or token-looking values.
+- **`required_status_checks`:** a JSON array (`ck_bps_checks_array`) whose elements the guard verifies
+  are bounded non-empty strings, with `required_status_check_count` strictly = `jsonb_array_length(...)`.
+- **Persistence:** `branch_protection_snapshots` (tenant-owned, RLS ENABLE+FORCE; **SELECT/INSERT only**
+  — UPDATE/DELETE/TRUNCATE blocked; migration `0025`); audit = safe metadata only (ids/provider/branch/
+  booleans/count/provenance — **never** `repo_ref`, the check-name list, or any URL/token).
+- **A5 hook:** feeds gate #3 (`production_autonomy` `ruleset_version` → `slice26.v1`) — moves it
+  `no_evidence_source` → `insufficient_evidence` with snapshot/verified counts as context; **never
+  passes** (no verified evidence is writable, no PASS path this slice).
+- Latest snapshot read-only at `GET /api/projects/{id}/ci_evidence` (latest-or-null, no list/history).
+- **Out of scope:** the real source-control connector / broker call (Slice 28), secrets-reference
+  verification, PR/test-oracle evidence, request-auth, go-live, LLM; gate #3 never passes.
 
 ## Release findings (security / shortcut) — deterministic, tenant-owned store (Slice 23, §13.4 / §916-920)
 `app/release/findings.py` + `app/repositories/release_findings.py` add the A5 gate-#5/#6 evidence
@@ -539,7 +569,8 @@ HTTP request becomes a tenant: it parses `Authorization: Bearer <key>`, resolves
 `TenantContext`; a missing/malformed/unknown/revoked key ⇒ **`401` with no fallback tenant**.
 Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost|readiness|findings}`
 plus `…/{readiness|findings}/history` (Slice 19) plus `…/production_autonomy` (Slice 21 — the
-fail-closed A5 report, computed on read) —
+fail-closed A5 report, computed on read) plus `…/ci_evidence` (Slice 26 — the latest persisted
+branch-protection snapshot or `null`) —
 and each opens `tenant_scope(context)` so all reads pass through RLS; a `project_id` outside the
 caller's tenant returns nothing (never another tenant's data, proven end-to-end over HTTP).
 `tenant_api_keys` is a **global auth-lookup table** (intentionally not RLS, since resolution happens
@@ -550,8 +581,10 @@ by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Re
 the key table, and only the hash is passed into SQL (the raw key never reaches the statement/logs).
 Covers the implemented
 §18.6 subset (run state, open approvals, blockers, cost + stop decision, — Slice 17 — the latest
-persisted build-readiness and gap/contradiction findings snapshots, and — Slice 19 — their full
-snapshot **history** newest-first); **forecast, critical path, evidence-pack status, deployment
+persisted build-readiness and gap/contradiction findings snapshots, — Slice 19 — their full
+snapshot **history** newest-first, — Slice 21 — the fail-closed A5 production-autonomy report
+computed on read, and — Slice 26 — the latest persisted branch-protection / CI evidence snapshot
+or `null`); **forecast, critical path, evidence-pack status, deployment
 status, next action, history pagination, and any web UI are deferred.**
 
 ## Migrations (admin only)

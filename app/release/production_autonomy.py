@@ -1,4 +1,4 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25, spec §5.1 + App. B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25 + 26, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
@@ -15,20 +15,26 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   ``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a FROZEN release
   candidate exists (the release-binding half is satisfied), but issue provenance/completeness still
   does not exist, so it never passes. Their counts are context only and never authorize.
-- The **five** sourceless gates (#3, #4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
-  they await Phase 3/5/6 evidence subsystems.
+- **Slice 26 (#3 branch protection):** the ``branch_protection_snapshots`` store now exists, so gate #3
+  moves from ``no_evidence_source`` to ``insufficient_evidence`` (reason narrows from
+  ``no_branch_protection_evidence`` to ``branch_protection_observed_unverified`` once a snapshot exists),
+  with snapshot/verified counts as context. It **never passes** — Slice 26 writes only
+  ``caller_supplied_unverified`` evidence and implements no PASS path (that lands with the real
+  connector, Slice 28).
+- The **four** sourceless gates (#4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
+  they await Phase 5/6 evidence subsystems.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
 ``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
 request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice25.v1``.
+production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice26.v1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-A5_RULESET_VERSION = "slice25.v1"
+A5_RULESET_VERSION = "slice26.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -116,6 +122,11 @@ def evaluate_production_autonomy(
     open_unaccepted_critical_security_finding_count: int = 0,
     open_shortcut_finding_count: int = 0,
     open_unaccepted_critical_shortcut_finding_count: int = 0,
+    branch_protection_snapshot_count: int = 0,
+    connector_verified_branch_protection_count: int = 0,
+    latest_branch_protection_provenance: str | None = None,
+    latest_branch_protection_enabled: bool | None = None,
+    latest_required_status_check_count: int = 0,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -205,11 +216,34 @@ def evaluate_production_autonomy(
         },
     )
 
-    # Gates with no evidence source at all (await Phase 3/5/6 subsystems).
+    # Slice 26: the branch-protection snapshot store now exists, so gate #3 moves from
+    # no_evidence_source to insufficient_evidence. It NEVER passes — Slice 26 writes only
+    # caller_supplied_unverified evidence (the verified tier is unwritable) and implements no PASS
+    # path (that lands with the real connector, Slice 28). The reason narrows once a snapshot exists.
+    gate3_reason = (
+        "no_branch_protection_evidence"
+        if branch_protection_snapshot_count == 0
+        else "branch_protection_observed_unverified"
+    )
+    gate3 = _insufficient(
+        3,
+        "branch_protection_and_required_checks_active",
+        gate3_reason,
+        {
+            "branch_protection_snapshot_count": branch_protection_snapshot_count,
+            "connector_verified_branch_protection_count": connector_verified_branch_protection_count,
+            "latest_branch_protection_provenance": latest_branch_protection_provenance,
+            # observed, UNVERIFIED — never an assertion that protection is on; never flips the gate.
+            "latest_branch_protection_enabled": latest_branch_protection_enabled,
+            "latest_required_status_check_count": latest_required_status_check_count,
+        },
+    )
+
+    # Gates with no evidence source at all (await Phase 5/6 subsystems).
     gates = [
         gate1,
         gate2,
-        _no_source(3, "branch_protection_and_required_checks_active", "ci_branch_protection"),
+        gate3,
         _no_source(4, "all_critical_test_oracles_pass", "test_oracle_execution"),
         gate5,
         gate6,
