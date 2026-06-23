@@ -39,10 +39,12 @@ connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
   plus `…/{readiness,findings}/history` plus `…/production_autonomy` plus `…/ci_evidence` (Slice 26 —
   latest branch-protection snapshot or `null`) —
   require `Authorization: Bearer <api-key>`; missing/invalid ⇒ 401 (see "Read API / dashboard" below).
-  Two distinct read shapes (both `200`, no cross-tenant leak):
+  Three distinct read shapes (all `200`, no cross-tenant leak):
   - `readiness`/`findings` (Slice 17) return the **latest persisted snapshot** or `null`; their
     `…/history` variants (Slice 19) return the **full persisted list** newest-first or `[]`.
     No-snapshot / cross-tenant / nonexistent are indistinguishable (`null` / `[]`).
+  - `ci_evidence` (Slice 26) returns the **latest persisted branch-protection snapshot** or `null`;
+    no list/history this slice. No-snapshot / cross-tenant / nonexistent are indistinguishable (`null`).
   - `production_autonomy` (Slice 21) is **computed on read** (not a stored snapshot): it always
     returns the fail-closed A5 gate report — never `null` — with `a5_satisfied` and
     `can_go_live_autonomously` false; cross-tenant / nonexistent yield a generic not-satisfied
@@ -567,7 +569,8 @@ HTTP request becomes a tenant: it parses `Authorization: Bearer <key>`, resolves
 `TenantContext`; a missing/malformed/unknown/revoked key ⇒ **`401` with no fallback tenant**.
 Endpoints are GET-only and project-scoped — `GET /api/projects/{id}/{runs|approvals|blockers|cost|readiness|findings}`
 plus `…/{readiness|findings}/history` (Slice 19) plus `…/production_autonomy` (Slice 21 — the
-fail-closed A5 report, computed on read) —
+fail-closed A5 report, computed on read) plus `…/ci_evidence` (Slice 26 — the latest persisted
+branch-protection snapshot or `null`) —
 and each opens `tenant_scope(context)` so all reads pass through RLS; a `project_id` outside the
 caller's tenant returns nothing (never another tenant's data, proven end-to-end over HTTP).
 `tenant_api_keys` is a **global auth-lookup table** (intentionally not RLS, since resolution happens
@@ -578,8 +581,10 @@ by an admin-path helper (`secrets.token_urlsafe(32)`; raw key returned once). Re
 the key table, and only the hash is passed into SQL (the raw key never reaches the statement/logs).
 Covers the implemented
 §18.6 subset (run state, open approvals, blockers, cost + stop decision, — Slice 17 — the latest
-persisted build-readiness and gap/contradiction findings snapshots, and — Slice 19 — their full
-snapshot **history** newest-first); **forecast, critical path, evidence-pack status, deployment
+persisted build-readiness and gap/contradiction findings snapshots, — Slice 19 — their full
+snapshot **history** newest-first, — Slice 21 — the fail-closed A5 production-autonomy report
+computed on read, and — Slice 26 — the latest persisted branch-protection / CI evidence snapshot
+or `null`); **forecast, critical path, evidence-pack status, deployment
 status, next action, history pagination, and any web UI are deferred.**
 
 ## Migrations (admin only)

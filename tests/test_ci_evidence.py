@@ -297,10 +297,12 @@ async def _raw_insert(rls_engine, t1, p1, **over):
         {"prov": "connector_verified"},  # verified tier unwritable
         {"provider": "gitlab"},  # provider CHECK
         {"repo_ref": "https://github.com/org/repo"},  # repo_ref shape (URL)
+        {"repo_ref": "https://token@github.com/org/repo"},  # repo_ref shape (credentialed URL)
         {"repo_ref": "git@github.com:org/repo.git"},  # repo_ref shape (SSH)
         {"repo_ref": "org/repo?token=x"},  # repo_ref shape (query)
         {"repo_ref": "org/repo/extra"},  # repo_ref shape (multi-slash)
-        {"repo_ref": "owner/ghp_abcdefghijklmnopqrstuvwxyz123456"},  # token denylist
+        {"repo_ref": "owner/ghp_abcdefghijklmnopqrstuvwxyz123456"},  # token denylist (ghp_)
+        {"repo_ref": "owner/gho_16C7e42F292c6912E7710c838347Ae178B4a"},  # token denylist (gho_)
         {"repo_ref": "owner/github_pat_11ABCDEF"},  # token denylist
         {"checks": '"x"'},  # non-array JSON
         {"checks": '{"a":1}'},  # non-array JSON
@@ -337,6 +339,7 @@ async def test_append_only_no_update_delete_truncate(bp_ctx, rls_engine):
     for verb in (
         "UPDATE branch_protection_snapshots SET branch='dev' WHERE id=:i",
         "DELETE FROM branch_protection_snapshots WHERE id=:i",
+        "TRUNCATE branch_protection_snapshots",
     ):
         with pytest.raises(Exception):
             async with rls_engine.connect() as conn:

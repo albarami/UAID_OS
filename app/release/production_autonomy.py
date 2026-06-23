@@ -1,4 +1,4 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25, spec §5.1 + App. B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25 + 26, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
@@ -27,7 +27,7 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 ``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
 ``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
 request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice25.v1``.
+production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice26.v1``.
 """
 
 from __future__ import annotations

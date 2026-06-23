@@ -1,4 +1,4 @@
-"""Read-only dashboard endpoints (Slice 10 + Slice 17 + Slice 19 + Slice 21, §18.6). API-only JSON.
+"""Read-only dashboard endpoints (Slice 10 + Slice 17 + Slice 19 + Slice 21 + Slice 26, §18.6). API-only JSON.
 
 Every endpoint requires a bearer API key (``require_tenant``), then opens
 ``tenant_scope`` so all reads pass through RLS. A ``project_id`` outside the caller's
@@ -7,14 +7,18 @@ tenant yields no rows (never another tenant's data). GET-only — no mutations.
 Covers the implemented §18.6 subset: run state, open approvals, blockers, cost
 consumed + stop decision, (Slice 17) the latest persisted build-readiness (§4.5)
 and gap/contradiction findings snapshots, (Slice 19) their full snapshot **history**,
-and (Slice 21) the fail-closed A5 **production-autonomy** report. Forecast / critical
-path / evidence-pack / deployment / next action are deferred (subsystems not built).
+(Slice 21) the fail-closed A5 **production-autonomy** report, and (Slice 26) the latest
+**branch-protection / CI evidence** snapshot. Forecast / critical path / evidence-pack /
+deployment / next action are deferred (subsystems not built).
 
-Two distinct read shapes, both GET-only and never mutating:
+Three distinct read shapes, all GET-only and never mutating:
 - **readiness/findings (Slice 17/19)** — return **persisted snapshots**, no compute on GET.
   ``…/readiness`` & ``…/findings`` (``repo.latest``): latest snapshot or ``null``.
   ``…/{readiness,findings}/history`` (``repo.history``): the full list (newest-first) or ``[]``.
   No-snapshot / cross-tenant / nonexistent are indistinguishable (``200`` + ``null``/``[]``).
+- **ci_evidence (Slice 26)** — returns the **latest persisted** branch-protection snapshot
+  (``repo.latest_branch_protection``) or ``null``; no list/history this slice. No-snapshot /
+  cross-tenant / nonexistent are indistinguishable (``200`` + ``null``).
 - **production_autonomy (Slice 21)** — **computed on read** (no persistence), always
   non-authorizing: ``a5_satisfied``/``can_go_live_autonomously`` are always false. Returns a
   report (never ``null``); cross-tenant/nonexistent yield a generic not-satisfied report (no leak).
