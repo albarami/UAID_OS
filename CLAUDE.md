@@ -114,8 +114,7 @@ least-privilege model intact); `require_tenant` returns a `TenantContext` carryi
 resolver-only `approver_provenance`, both CHECK-constrained) with a §2.2 verified self-approval refusal,
 and on risk-acceptance under **actor-bound** signer semantics (the verified principal must equal the
 payload `approver` AND appear in `accepted_by`, else refused). Flips **NO** A5 gate (#7/#12/#13 stay
-unmet; go-live stays false); broker unwired (D-27-4). In progress on branch
-`feat/slice27-request-auth`.**
+unmet; go-live stays false); broker unwired (D-27-4). merged via PR #43 (commit `372e15b`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
