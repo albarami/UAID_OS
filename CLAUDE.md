@@ -104,8 +104,7 @@ slice), a `repo_ref` owner/repo-slug + GitHub-token-prefix-denylist DB backstop,
 (reason narrows `no_branch_protection_evidence` → `branch_protection_observed_unverified` once a
 snapshot exists), with snapshot/verified-count context — **never passes** (only unverified evidence is
 writable; the PASS path lands with the real connector, Slice 28). Adds `GET
-/api/projects/{id}/ci_evidence` (latest-or-null). In progress on branch
-`feat/slice26-ci-evidence`.**
+/api/projects/{id}/ci_evidence` (latest-or-null). merged via PR #41 (commit `dc622a09`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
