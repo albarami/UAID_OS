@@ -95,9 +95,15 @@ async def api_ctx(admin_engine):
         )
     async with AsyncSession(admin_engine, expire_on_commit=False) as s:
         repo = TenantApiKeyRepository(s)
-        out["key_a"], _ = await repo.issue(tenant_id=out["ta"], label="A key")
-        out["key_b"], _ = await repo.issue(tenant_id=out["tb"], label="B key")
-        revoked_raw, revoked_row = await repo.issue(tenant_id=out["ta"], label="revoked")
+        out["key_a"], _ = await repo.issue(
+            tenant_id=out["ta"], label="A key", principal_subject="svc-a", actor_type="service"
+        )
+        out["key_b"], _ = await repo.issue(
+            tenant_id=out["tb"], label="B key", principal_subject="svc-b", actor_type="service"
+        )
+        revoked_raw, revoked_row = await repo.issue(
+            tenant_id=out["ta"], label="revoked", principal_subject="svc-r", actor_type="service"
+        )
         await repo.revoke(key_id=revoked_row.id)
         out["key_revoked"] = revoked_raw
         await s.commit()
@@ -300,7 +306,10 @@ async def test_tenant_api_keys_catalog(admin_engine):
             )
         ).scalar_one()
     # hash-only: no raw-key column
-    assert cols == {"id", "tenant_id", "key_hash", "label", "status", "created_at", "updated_at"}
+    assert cols == {
+        "id", "tenant_id", "key_hash", "label", "status", "created_at", "updated_at",
+        "principal_subject", "actor_type",  # Slice 27: verified principal binding
+    }
     assert not any("raw" in col or "secret" in col or col == "key" for col in cols)
     assert grants == set()  # uaid_app has NO direct key-table read (D4 hardening)
     assert rls is False  # global auth-lookup, intentionally not RLS
@@ -319,11 +328,13 @@ async def test_uaid_app_resolver_execute_not_table_read(api_ctx, rls_engine):
     async with rls_engine.connect() as conn:
 
         async def _resolve(raw: str):
+            # Slice 27: the resolver now returns a (tenant_id, principal_subject, actor_type) row.
             return (
                 await conn.execute(
-                    text("SELECT public.resolve_tenant_api_key(:h)"), {"h": hash_key(raw)}
+                    text("SELECT tenant_id FROM public.resolve_tenant_api_key(:h)"),
+                    {"h": hash_key(raw)},
                 )
-            ).scalar_one()
+            ).scalar_one_or_none()
 
         active = await _resolve(api_ctx["key_a"])
         unknown = await _resolve("uaidk_does_not_exist")

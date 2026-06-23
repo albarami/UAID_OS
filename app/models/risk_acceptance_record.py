@@ -3,9 +3,10 @@
 A signed acceptance of a known, non-blocking open issue so a release may proceed (§24.1). Tenant-owned
 + RLS; **no DELETE**. After creation only ``status`` and ``updated_at`` are mutable — a DB guard
 trigger (migration ``0021``) rejects any other column change. Lifecycle is one-way
-``active`` → ``expired``|``revoked``|``superseded``. Signer identity is **not verified**
-(``approver_provenance='caller_supplied_unverified'``) until request-auth exists; these are not
-verified human signatures and they never enable go-live. ``blocking_category`` (if set) names a
+``active`` → ``expired``|``revoked``|``superseded``. ``approver_provenance`` is
+``caller_supplied_unverified`` by default, or (Slice 27) ``request_authenticated`` under **actor-bound**
+signer semantics — **key-custody-based, not** a human signature; records never enable go-live.
+``blocking_category`` (if set) names a
 hard-refusal category — such records are rejected at creation and never counted.
 """
 

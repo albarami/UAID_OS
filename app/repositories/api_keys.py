@@ -14,6 +14,7 @@ import uuid
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.identity import validate_actor
 from app.models.tenant_api_key import TenantApiKey
 
 _KEY_PREFIX = "uaidk_"
@@ -35,12 +36,30 @@ class TenantApiKeyRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def issue(self, *, tenant_id: uuid.UUID, label: str) -> tuple[str, TenantApiKey]:
-        """Admin path: mint a key, store ONLY its hash, return ``(raw_key, row)`` once."""
+    async def issue(
+        self,
+        *,
+        tenant_id: uuid.UUID,
+        label: str,
+        principal_subject: str,
+        actor_type: str,
+    ) -> tuple[str, TenantApiKey]:
+        """Admin path: mint a key, store ONLY its hash, return ``(raw_key, row)`` once.
+
+        Slice 27: the key is bound to a verified principal (``principal_subject``/``actor_type``);
+        ``validate_actor`` fail-closes on a bad subject/type.
+        """
         if not isinstance(label, str) or not (1 <= len(label.encode("utf-8")) <= 255):
             raise ValueError("label must be a 1..255-byte string")
+        validate_actor(principal_subject, actor_type)  # raises InvalidActor on bad principal
         raw = generate_raw_key()
-        row = TenantApiKey(tenant_id=tenant_id, key_hash=hash_key(raw), label=label)
+        row = TenantApiKey(
+            tenant_id=tenant_id,
+            key_hash=hash_key(raw),
+            label=label,
+            principal_subject=principal_subject,
+            actor_type=actor_type,
+        )
         self.session.add(row)
         await self.session.flush()
         return raw, row
@@ -50,14 +69,22 @@ class TenantApiKeyRepository:
             update(TenantApiKey).where(TenantApiKey.id == key_id).values(status="revoked")
         )
 
-    async def resolve(self, raw_key: str) -> uuid.UUID | None:
+    async def resolve(self, raw_key: str) -> tuple[uuid.UUID, str, str] | None:
         """Runtime pre-tenant lookup via the SECURITY DEFINER resolver (D4 hardening).
 
         ``uaid_app`` has EXECUTE on the resolver but no direct SELECT on the key table.
         Only the hash is passed to SQL — the raw key never enters the statement/logs.
-        Returns the tenant for an active key, else ``None`` (uniform for unknown/revoked).
+        Slice 27: returns ``(tenant_id, principal_subject, actor_type)`` for an ACTIVE key, else
+        ``None`` (uniform for unknown/revoked — the OUT params come back NULL).
         """
         result = await self.session.execute(
-            text("SELECT public.resolve_tenant_api_key(:h)"), {"h": hash_key(raw_key)}
+            text(
+                "SELECT tenant_id, principal_subject, actor_type "
+                "FROM public.resolve_tenant_api_key(:h)"
+            ),
+            {"h": hash_key(raw_key)},
         )
-        return result.scalar_one()  # uuid or None
+        row = result.one_or_none()
+        if row is None or row.tenant_id is None:
+            return None
+        return row.tenant_id, row.principal_subject, row.actor_type

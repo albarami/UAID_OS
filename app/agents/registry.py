@@ -13,7 +13,7 @@ Two paths, matching the two trust zones:
 - **Tenant path:** ``AgentInstanceRepository`` is a ``TenantScopedRepository`` for
   the tenant-owned ``agent_instances``. Every mutation writes an ``audit_logs``
   entry (run inside ``tenant_scope`` so the GUC is set). ``actor`` is an untrusted
-  caller label until request-auth exists.
+  caller label (the agent registry is not wired to Slice 27 request-auth identity).
 
 This is a registry skeleton: no Agent Factory, no qualification/eval execution, no
 model routing, no agent execution, no broker wiring.

@@ -22,8 +22,9 @@ from app.tenancy import TenantContext
 from app.tools.registry import InvalidParams, get_contract, sanitize_params
 
 _APPROVED = "approved"
-# Provenance values that count as authenticated human approval. EMPTY in Slice 5
-# (no request-auth yet) ⇒ every approval is treated as unverified (fail-closed):
+# Provenance values that count as authenticated human approval. EMPTY: the broker is NOT
+# wired to Slice 27 request-auth identity (D-27-4), so every approval — even the
+# `request_authenticated` tier — is treated as unverified (fail-closed):
 # any provenance not in this set ⇒ NEEDS_AUTHENTICATED_APPROVAL.
 _AUTHENTICATED_APPROVAL_PROVENANCES: frozenset[str] = frozenset()
 

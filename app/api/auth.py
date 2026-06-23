@@ -9,6 +9,7 @@ auth-lookup table; endpoints then open ``tenant_scope`` for the actual reads.
 from fastapi import Header, HTTPException, status
 
 from app.db import get_sessionmaker
+from app.identity import InvalidActor, validate_actor
 from app.repositories.api_keys import TenantApiKeyRepository
 from app.tenancy import TenantContext
 
@@ -31,13 +32,23 @@ def parse_bearer(authorization: str | None) -> str | None:
 
 
 async def require_tenant(authorization: str | None = Header(default=None)) -> TenantContext:
-    """FastAPI dependency: resolve the bearer key to a TenantContext, or raise 401."""
+    """FastAPI dependency: resolve the bearer key to a TenantContext, or raise 401.
+
+    Slice 27: the key resolves to a tenant **and** a verified principal; the returned
+    ``TenantContext`` carries an ``AuthenticatedActor`` (``request_authenticated`` tier —
+    key-custody-based, not a human signature). A malformed stored principal fails closed (401).
+    """
     raw_key = parse_bearer(authorization)
     if raw_key is None:
         raise _UNAUTHORIZED
     # Pre-tenant lookup: plain session, no GUC (tenant_api_keys is global/non-RLS).
     async with get_sessionmaker()() as session:
-        tenant_id = await TenantApiKeyRepository(session).resolve(raw_key)
-    if tenant_id is None:
+        resolved = await TenantApiKeyRepository(session).resolve(raw_key)
+    if resolved is None:
         raise _UNAUTHORIZED
-    return TenantContext(tenant_id)
+    tenant_id, principal_subject, actor_type = resolved
+    try:
+        actor = validate_actor(principal_subject, actor_type)
+    except InvalidActor:
+        raise _UNAUTHORIZED from None  # fail closed on a malformed stored principal
+    return TenantContext(tenant_id, actor=actor)

@@ -4,9 +4,11 @@
 and persists an ``active`` record + a ``created`` lifecycle event. ``revoke``/``supersede``/
 ``expire_if_overdue`` perform one-way transitions (validated by ``app.release.risk_acceptance``),
 each writing an append-only event and an audit entry with **safe metadata only** (ids/severity/status
-— never reason/business_impact/evidence prose). Signer identity is stamped
-``approver_provenance='caller_supplied_unverified'`` (not a verified human signature). Records never
-enable go-live. Run inside ``tenant_scope`` (GUC set). ``actor`` is an untrusted caller label.
+— never reason/business_impact/evidence prose). Slice 27: ``approver_provenance`` is stamped
+``request_authenticated`` only when ``context.actor`` IS the signer (actor-bound: principal == payload
+``approver`` and in ``accepted_by``), else ``caller_supplied_unverified`` — key-custody, **not** a human
+signature. Records never enable go-live. Run inside ``tenant_scope``; the ``actor`` arg is an untrusted
+label, while ``context.actor`` (if set) is the verified principal.
 """
 
 import uuid
@@ -17,9 +19,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
+from app.identity import CALLER_SUPPLIED_UNVERIFIED, REQUEST_AUTHENTICATED
 from app.models.risk_acceptance_event import RiskAcceptanceEvent
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
-from app.release.risk_acceptance import validate_new_record, validate_transition
+from app.release.risk_acceptance import (
+    InvalidRiskAcceptance,
+    validate_new_record,
+    validate_transition,
+)
 from app.tenancy import TenantContext, TenantScopedRepository
 
 
@@ -31,6 +38,16 @@ class RiskAcceptanceRepository(TenantScopedRepository):
         self, *, project_id: uuid.UUID, payload: dict, actor: str
     ) -> RiskAcceptanceRecord:
         validate_new_record(payload)  # fail-closed: required fields + hard-refusal rejection
+        # Slice 27: stamp the verified tier ONLY when the authenticated principal IS the signer
+        # (actor-bound). A claimed-verified acceptance for someone else is refused, never downgraded.
+        approver_provenance = CALLER_SUPPLIED_UNVERIFIED
+        if self.context.actor is not None:
+            subject = self.context.actor.subject
+            if payload["approver"] != subject or subject not in (payload.get("accepted_by") or []):
+                raise InvalidRiskAcceptance(
+                    "verified signer must equal payload approver and appear in accepted_by (§24.1)"
+                )
+            approver_provenance = REQUEST_AUTHENTICATED
         row = RiskAcceptanceRecord(
             tenant_id=self.context.tenant_id,
             project_id=project_id,
@@ -52,6 +69,7 @@ class RiskAcceptanceRepository(TenantScopedRepository):
             approval_authority_source=payload["approval_authority_source"],
             blocking_category=payload.get("blocking_category"),
             status="active",
+            approver_provenance=approver_provenance,
         )
         self.session.add(row)
         await self.session.flush()
