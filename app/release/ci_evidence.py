@@ -1,4 +1,4 @@
-"""Source-control / CI branch-protection evidence validation (Slice 26, spec App. B #3 / §26.3) —
+"""Source-control / CI branch-protection evidence validation (Slice 26 + 28, spec App. B #3 / §26.3) —
 pure, no I/O.
 
 A ``branch_protection_snapshots`` row is an immutable, observational record of a repo's
@@ -6,17 +6,19 @@ branch-protection *configuration* (the A5 gate-#3 evidence class). Fail-closed a
 **non-authorizing**:
 
 - ``provider ∈ {github}`` (GitHub-first; the schema is provider-shaped for the real connector, Slice 28).
-- ``provenance`` is a two-tier axis: ``caller_supplied_unverified`` (the ONLY value Slice 26 may write —
-  an unverified assertion) and ``connector_verified`` (schema-reserved, **unwritable** until a real
-  connector exists). The repository stamps the unverified value; the DB guard enforces it.
+- ``provenance`` is a two-tier axis: ``caller_supplied_unverified`` (the caller/observational tier) and
+  ``connector_verified`` — the **Slice-28 connector path** writes the latter (migration ``0027`` relaxes
+  the guard). ``validate_new_snapshot`` rejects the verified tier on the caller path;
+  ``validate_connector_snapshot`` requires it (+ ``observed_at``) on the connector path.
 - ``repo_ref`` must be a GitHub-first ``owner/repo`` slug (``REPO_REF_RE``) **and** must NOT contain a
   GitHub token prefix (``TOKENISH_RE``) — rejects URLs, credentialed URLs, SSH URLs, query strings,
   fragments, whitespace, multi-slash, and token-looking repo names (e.g. ``owner/ghp_…``).
 - ``required_status_checks`` is a list of bounded non-empty strings; ``required_status_check_count`` is
   **derived** from it (never caller-trusted).
 
-These snapshots never enable go-live and never let gate #3 PASS — Slice 26 implements no PASS path
-(that lands with the real connector, Slice 28).
+These snapshots never enable go-live; **gate #3 PASSes (Slice 28) only from repo-bound latest
+``connector_verified`` + fresh + sufficient evidence** (the ``gate3_protection_sufficient`` predicate +
+the latest-wins ladder in ``production_autonomy``).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import re
 PROVIDERS = ("github",)
 PROVENANCES = ("caller_supplied_unverified", "connector_verified")
 WRITABLE_PROVENANCES = ("caller_supplied_unverified",)
+CONNECTOR_WRITABLE = ("connector_verified",)  # Slice 28: the connector path may write ONLY this
 
 # GitHub-first owner/repo slug SHAPE (anchored): rejects URLs / credentialed URLs / SSH URLs /
 # query strings / fragments / whitespace / control chars / multi-slash paths.
@@ -72,8 +75,8 @@ def derived_check_count(checks) -> int:
     return len(checks or [])
 
 
-def validate_new_snapshot(record: dict) -> None:
-    """Fail-closed validation of a new branch-protection snapshot."""
+def _validate_snapshot_shape(record: dict) -> None:
+    """Shape validation shared by the caller + connector paths (everything but provenance)."""
     for field in REQUIRED_CREATE_FIELDS:
         if field not in record:
             raise InvalidBranchProtectionSnapshot(f"missing required field: {field}")
@@ -94,8 +97,45 @@ def validate_new_snapshot(record: dict) -> None:
         if not isinstance(record[field], bool):
             raise InvalidBranchProtectionSnapshot(f"{field} must be a bool")
     validate_required_status_checks(record.get("required_status_checks", []))
+
+
+def validate_new_snapshot(record: dict) -> None:
+    """Fail-closed validation of a CALLER (unverified) snapshot."""
+    _validate_snapshot_shape(record)
     prov = record.get("provenance")
     if prov is not None and prov not in WRITABLE_PROVENANCES:
         raise InvalidBranchProtectionSnapshot(
             f"provenance {prov!r} is not writable this slice (only caller_supplied_unverified)"
         )
+
+
+def validate_connector_snapshot(record: dict) -> None:
+    """Fail-closed validation of a CONNECTOR (verified) snapshot — provenance must be
+    ``connector_verified`` (if present) and ``observed_at`` is required (a verified observation
+    has a fetch time)."""
+    _validate_snapshot_shape(record)
+    prov = record.get("provenance")
+    if prov is not None and prov not in CONNECTOR_WRITABLE:
+        raise InvalidBranchProtectionSnapshot(
+            f"connector provenance must be connector_verified, got {prov!r}"
+        )
+    if record.get("observed_at") is None:
+        raise InvalidBranchProtectionSnapshot("connector snapshot requires observed_at")
+
+
+def gate3_protection_sufficient(
+    *,
+    protection_enabled,
+    required_pull_request_reviews,
+    required_status_check_count,
+) -> bool:
+    """Pure, fail-closed: protection is 'sufficient' for gate #3 iff it is enabled, PR reviews are
+    required, and ≥1 required status check is configured. Latest/verified/fresh are handled by the
+    gate ladder (``production_autonomy``)."""
+    return (
+        protection_enabled is True
+        and required_pull_request_reviews is True
+        and isinstance(required_status_check_count, int)
+        and not isinstance(required_status_check_count, bool)
+        and required_status_check_count >= 1
+    )

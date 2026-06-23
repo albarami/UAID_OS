@@ -36,6 +36,8 @@ def _r(min_level: int, *, approval: bool = False, mandatory: bool = False) -> Au
 # Build/flow actions (no approval) + §2.6 mandatory-approval actions.
 MATRIX: dict[str, AuthorityRule] = {
     "read_docs": _r(L.A0),
+    # Slice 28: read-only source-control config fetch (branch protection). A read, never a mutation.
+    "read_source_control_config": _r(L.A1),
     "create_draft_prd": _r(L.A1),
     "create_project_tasks": _r(L.A1),
     "create_repository": _r(L.A2),

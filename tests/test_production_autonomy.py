@@ -1,15 +1,13 @@
-"""A5 production-autonomy evaluator skeleton tests (Slice 21 + 22 + 23 + 24, Appendix B).
+"""A5 production-autonomy evaluator tests (Slice 21–28, Appendix B).
 
-Fail-closed and **non-authorizing**: only gate #1 (R5 intake complete) can pass today; the **seven**
-partial-context gates (#2/#5/#6/#7/#8/#9/#12) return ``insufficient_evidence`` and the **five**
-sourceless gates (#3/#4/#10/#11/#13) return ``no_evidence_source:<subsystem>``. Gates #5/#6 (Slice 23)
-are ``insufficient_evidence:no_finding_provenance_or_scan_source`` with open/critical finding-count
-context; gate #7 (Slice 22 + 24 + 25) is ``insufficient_evidence`` — reason narrows from
-``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a frozen release candidate
-exists; ``ruleset_version`` is ``slice25.v1``.
-``a5_satisfied`` and ``can_go_live_autonomously`` are always false. Docker-free for the pure engine;
-``db`` for the repository (compute-on-read, no persistence; the open-issue store adds migration
-``0023``).
+Fail-closed and **non-authorizing**: **gate #1 (R5 intake)** passes at R5 and **gate #3 (branch
+protection, Slice 28)** is PASS-capable (repo-bound latest-wins ladder; passes on verified + fresh +
+sufficient evidence); the other partial-context gates (#2/#5/#6/#7/#8/#9/#12) return
+``insufficient_evidence`` and the sourceless gates (#4/#10/#11/#13) return
+``no_evidence_source:<subsystem>``. Gates #5/#6 carry finding-count context; gate #7's reason narrows
+to ``no_issue_provenance`` once a frozen release candidate exists; ``ruleset_version`` is
+``slice28.v1``. ``a5_satisfied`` and ``can_go_live_autonomously`` are always false (≥11 gates unmet).
+Docker-free for the pure engine; ``db`` for the repository (compute-on-read, no persistence).
 """
 
 import uuid
@@ -106,7 +104,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice26.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice28.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
@@ -221,38 +219,67 @@ def test_gates_5_6_context_carries_counts_but_never_pass():
     assert rep.to_dict()["a5_satisfied"] is False
 
 
-def test_gate3_reason_narrows_and_never_passes():
-    # no snapshot ⇒ no_branch_protection_evidence; ≥1 ⇒ branch_protection_observed_unverified;
-    # both insufficient_evidence, never passed — even with protection_enabled observed True and a
-    # (hypothetical) connector_verified count, Slice 26 has no PASS path.
-    g3_none = _gate(_eval(readiness_level="R5"), 3)
-    assert g3_none["gate"] == "branch_protection_and_required_checks_active"
-    assert g3_none["status"] == "insufficient_evidence"
-    assert g3_none["reason"] == "no_branch_protection_evidence"
-    g3_obs = _gate(
-        evaluate_production_autonomy(
-            "p",
-            readiness_level="R5",
-            branch_protection_snapshot_count=2,
-            connector_verified_branch_protection_count=1,  # hypothetical — still never passes
-            latest_branch_protection_provenance="caller_supplied_unverified",
-            latest_branch_protection_enabled=True,
-            latest_required_status_check_count=3,
-        ),
-        3,
+def test_gate3_ladder_and_pass():
+    # Slice 28: repo-bound, latest-wins ladder, keyed off the latest snapshot for the declared repo.
+    name = "branch_protection_and_required_checks_active"
+
+    def g3(**kw):
+        return _gate(evaluate_production_autonomy("p", readiness_level="R5", **kw), 3)
+
+    _verified = dict(
+        branch_protection_repo_bound=True,
+        latest_branch_protection_provenance="connector_verified",
+        latest_branch_protection_enabled=True,
+        latest_branch_protection_required_pull_request_reviews=True,
+        latest_required_status_check_count=2,
+        latest_branch_protection_fresh=True,
     )
-    assert g3_obs["status"] == "insufficient_evidence"  # never passes this slice
-    assert g3_obs["reason"] == "branch_protection_observed_unverified"
-    for k in (
-        "branch_protection_snapshot_count",
-        "connector_verified_branch_protection_count",
-        "latest_branch_protection_provenance",
-        "latest_branch_protection_enabled",
-        "latest_required_status_check_count",
-    ):
-        assert k in g3_obs["context"]
-    assert g3_obs["context"]["branch_protection_snapshot_count"] == 2
-    assert g3_obs["context"]["latest_branch_protection_enabled"] is True
+    # (0) repo not bound (default) ⇒ fail-closed unbound — old snapshots cannot rescue this.
+    assert g3()["reason"] == "branch_protection_repo_unbound"
+    # (i) bound, no snapshot for the declared repo ⇒ no evidence.
+    assert g3(branch_protection_repo_bound=True)["reason"] == "no_branch_protection_evidence"
+    # (ii) bound, latest is unverified ⇒ observed_unverified (an older verified snapshot is ignored).
+    assert (
+        g3(
+            branch_protection_repo_bound=True,
+            latest_branch_protection_provenance="caller_supplied_unverified",
+        )["reason"]
+        == "branch_protection_observed_unverified"
+    )
+    # (iii) bound, verified but stale ⇒ stale.
+    assert g3(**{**_verified, "latest_branch_protection_fresh": False})["reason"] == (
+        "branch_protection_evidence_stale"
+    )
+    # (iv) bound, verified, fresh, but no required checks ⇒ insufficient.
+    assert g3(**{**_verified, "latest_required_status_check_count": 0})["reason"] == (
+        "branch_protection_insufficient"
+    )
+    # (v) bound, verified, active, fresh ⇒ PASSED.
+    g3_pass = g3(**_verified)
+    assert g3_pass["gate"] == name
+    assert g3_pass["status"] == "passed"
+    assert g3_pass["context"]["branch_protection_repo_bound"] is True
+    assert "repo_ref" not in g3_pass["context"]  # never the raw repo_ref in the report
+
+
+def test_gate3_pass_count_depends_on_r5():
+    pass_kw = dict(
+        branch_protection_repo_bound=True,
+        latest_branch_protection_provenance="connector_verified",
+        latest_branch_protection_enabled=True,
+        latest_branch_protection_required_pull_request_reviews=True,
+        latest_required_status_check_count=1,
+        latest_branch_protection_fresh=True,
+    )
+    # gate #3 passes; with R5, gate #1 also passes ⇒ 2.
+    r5 = evaluate_production_autonomy("p", readiness_level="R5", **pass_kw).to_dict()
+    assert _gate_status(r5, 3) == "passed"
+    assert r5["passed_gate_count"] == 2
+    assert r5["a5_satisfied"] is False and r5["can_go_live_autonomously"] is False
+    # without R5, only gate #3 passes ⇒ 1.
+    r4 = evaluate_production_autonomy("p", readiness_level="R4", **pass_kw).to_dict()
+    assert _gate_status(r4, 3) == "passed"
+    assert r4["passed_gate_count"] == 1
 
 
 def test_fail_closed_defaults():
@@ -594,16 +621,23 @@ async def test_db_gate7_narrows_with_frozen_release_candidate(pa_ctx):
 
 @pytest.mark.db
 async def test_db_gate3_reads_branch_protection_counts(pa_ctx):
-    # The A5 repo wires CIEvidenceRepository into gate #3 context; it stays insufficient_evidence
-    # (never passes) and the reason narrows to branch_protection_observed_unverified once a snapshot
-    # exists. The verified-tier count is 0 (the tier is unwritable this slice).
+    # Slice 28: gate #3 binds to the project's DECLARED repo. An UNVERIFIED latest snapshot for that
+    # repo ⇒ branch_protection_observed_unverified (verified-tier count 0). Repo-bound, never passes.
     from app.repositories.ci_evidence import CIEvidenceRepository
+    from app.repositories.intake_categories import IntakeCategoryRepository
     from app.repositories.production_autonomy import ProductionAutonomyRepository
     from app.tenancy import TenantContext, tenant_scope
 
     t1, p1 = pa_ctx["t1"], pa_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
+        await IntakeCategoryRepository(session, ctx).declare(
+            project_id=p1,
+            category="existing_assets_and_repositories",
+            actor="a",
+            data={"primary_repository": "owner/repo", "protected_branch": "main"},
+            origin="test",
+        )
         await CIEvidenceRepository(session, ctx).record_branch_protection(
             project_id=p1,
             payload={
@@ -621,8 +655,9 @@ async def test_db_gate3_reads_branch_protection_counts(pa_ctx):
     g3 = _gate(rep, 3)
     assert g3["status"] == "insufficient_evidence"
     assert g3["reason"] == "branch_protection_observed_unverified"
-    assert g3["context"]["branch_protection_snapshot_count"] == 1
+    assert g3["context"]["branch_protection_repo_bound"] is True
     assert g3["context"]["connector_verified_branch_protection_count"] == 0
     assert g3["context"]["latest_branch_protection_enabled"] is True
     assert g3["context"]["latest_required_status_check_count"] == 2
+    assert "repo_ref" not in g3["context"]
     assert rep.to_dict()["a5_satisfied"] is False

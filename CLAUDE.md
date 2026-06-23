@@ -115,6 +115,26 @@ resolver-only `approver_provenance`, both CHECK-constrained) with a §2.2 verifi
 and on risk-acceptance under **actor-bound** signer semantics (the verified principal must equal the
 payload `approver` AND appear in `accepted_by`, else refused). Flips **NO** A5 gate (#7/#12/#13 stay
 unmet; go-live stays false); broker unwired (D-27-4). merged via PR #43 (commit `372e15b`).**
+**Slice 28 makes A5 gate #3 PASS-capable: a GitHub-first, broker-mediated source-control connector
+(`app/release/scm_connector.py` [SCMConnector protocol + FakeSCMConnector + shipped-but-untested
+GitHubSCMConnector + pure `map_github_branch_protection`], `app/release/ci_evidence_service.py`
+orchestration, `app/release/project_repo.py` shared resolver, migration `0027`, App. B #3). The connector
+resolves the project's OWN declared repo (`existing_assets_and_repositories`) + credential source
+(`secrets_and_credentials_manifest`) — **never a caller `repo_ref`** — calls `broker_call` for the
+read-only `source_control.read_branch_protection` tool (maps to the new A1 read action
+`read_source_control_config`; broker stays **decision-only**) with **safe params only**
+(`provider`/`branch`/`repo_ref_present`, never `repo_ref`), and on a clean GitHub **200** writes a
+`connector_verified` snapshot via `record_connector_verified_branch_protection` (the verified tier,
+unlocked by `0027`'s guard relax — app-stamped on the connector path only). Gate #3 (`production_autonomy`
+`ruleset_version` → `slice28.v1`) evaluates the latest snapshot **for the CURRENTLY declared repo/branch**
+(`latest_branch_protection_for_repo`, B1-cont) via a latest-wins ladder — `branch_protection_repo_unbound`
+→ `no_branch_protection_evidence` → `branch_protection_observed_unverified` → `branch_protection_evidence_stale`
+→ `branch_protection_insufficient` → **`passed`** (verified + protection-enabled + PR-reviews + ≥1 required
+check + fresh within `CI_EVIDENCE_MAX_AGE_HOURS`=24). Gate #3 is the **first non-#1 gate that can PASS**;
+`a5_satisfied` + `can_go_live_autonomously` stay false (≥11 gates unmet). 403/404/non-200/timeout/malformed
+⇒ no write (fail-closed, never a "verified-off" snapshot); token is operator env-only (`GITHUB_CONNECTOR_TOKEN`),
+never stored/audited/in broker params; the report exposes `branch_protection_repo_bound` (bool), never the
+raw `repo_ref`. In progress on branch `feat/slice28-scm-connector`.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -718,7 +738,13 @@ the admin `app` role only.
   EXECUTE-only, **no** table SELECT); `approvals` gains `requested_by_provenance` + value CHECKs on both
   provenance columns (`caller_supplied_unverified`/`request_authenticated`); the
   `risk_acceptance_records` guard is **CREATE OR REPLACE**d to allow `request_authenticated` on INSERT
-  (every other 0021 invariant preserved). Reversible; no new table).
+  (every other 0021 invariant preserved). Reversible; no new table);
+  `0027_connector_verified_evidence.py` (Slice 28: a single **`CREATE OR REPLACE`** of the `0025`
+  `branch_protection_snapshots_guard()` so INSERT allows `provenance IN ('caller_supplied_unverified',
+  'connector_verified')` — preserving verbatim the repo_ref slug+token denylist, JSON-array, per-element
+  and count-equality invariants. The provenance **column CHECK already allowed both** (`0025`); only the
+  guard forced the unverified tier. No new table/column/grant; `downgrade` restores the strict guard;
+  reversible).
 - `scripts/bootstrap_rls_role.sql` — idempotent roles: `uaid_app` (LOGIN, password from
   `RLS_DB_PASSWORD` via psql `\getenv`, never committed), **`audit_writer`** (NOLOGIN — limited
   SECURITY DEFINER owner of the audit functions), and **`api_key_resolver`** (NOLOGIN — limited
@@ -748,7 +774,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 320 passing (Docker-free); `make test-db` → 368 passing (DB-backed: tenancy,
+  **`make test` → 347 passing (Docker-free); `make test-db` → 377 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -845,8 +871,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 320 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 368 passing
+make test                                  # Docker-free tests (no services) — 347 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 377 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

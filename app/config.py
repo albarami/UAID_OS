@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     # call). The exact model id must be set AND present in the price card.
     llm_extraction_model: str = ""
     llm_max_output_tokens: int = 2048
+    # Slice 28 — source-control connector. Empty token ⇒ fail closed (no fetch, no verified write);
+    # gate #3 treats branch-protection evidence older than this many hours as stale (not-pass).
+    github_connector_token: str = ""
+    ci_evidence_max_age_hours: int = 24
 
 
 settings = Settings()
