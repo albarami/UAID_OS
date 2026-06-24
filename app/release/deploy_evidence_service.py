@@ -78,6 +78,7 @@ async def refresh_deployment_target_evidence(
         params={"provider": "generic_https", "environment": "production", "target_present": True},
     )
     if decision not in _ALLOWED:
+        await _audit_failure(session, actor, project_id, "broker_denied")
         return RefreshResult(False, "broker_denied", decision=decision)
 
     # 3. Probe (Fake in tests). An SSRF reject is a refusal to ATTEMPT ⇒ no write.

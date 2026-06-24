@@ -67,16 +67,23 @@ class DeploymentTargetRepository(TenantScopedRepository):
         return row
 
     async def latest_deployment_target_for_ref(
-        self, project_id: uuid.UUID, provider: str, target_ref: str
+        self,
+        project_id: uuid.UUID,
+        provider: str,
+        target_ref: str,
+        environment: str = "production",
     ) -> DeploymentTargetSnapshot | None:
-        """Latest snapshot for the SPECIFIC declared ``(provider, target_ref)`` — **gate #2 uses this**
-        so a snapshot for a no-longer-declared target cannot satisfy the gate."""
+        """Latest snapshot for the SPECIFIC declared ``(provider, environment, target_ref)`` — **gate #2
+        uses this with ``environment='production'``** (B5) so a newer *staging* row for the same host
+        cannot contaminate the production gate, and a snapshot for a no-longer-declared target cannot
+        satisfy the gate."""
         stmt = (
             select(DeploymentTargetSnapshot)
             .where(
                 DeploymentTargetSnapshot.tenant_id == self.context.tenant_id,
                 DeploymentTargetSnapshot.project_id == project_id,
                 DeploymentTargetSnapshot.provider == provider,
+                DeploymentTargetSnapshot.environment == environment,
                 DeploymentTargetSnapshot.target_ref == target_ref,
             )
             .order_by(

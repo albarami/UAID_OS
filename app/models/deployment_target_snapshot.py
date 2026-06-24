@@ -53,6 +53,9 @@ class DeploymentTargetSnapshot(Base):
         CheckConstraint(f"target_ref ~ '{_FQDN_SQL}'", name="ck_dts_target_ref_fqdn"),
         CheckConstraint("char_length(target_ref) BETWEEN 1 AND 253", name="ck_dts_target_ref_len"),
         CheckConstraint(
+            "target_ref !~* '(gh[opusr]_|github_pat_)'", name="ck_dts_target_ref_not_tokenish"
+        ),
+        CheckConstraint(
             "observed_http_status IS NULL OR (observed_http_status BETWEEN 100 AND 599)",
             name="ck_dts_http_status_range",
         ),

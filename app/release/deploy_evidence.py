@@ -31,6 +31,10 @@ CONNECTOR_WRITABLE = ("connector_verified",)
 # Strict FQDN: 1+ labels (each 1..63 alnum/hyphen, alnum ends) + an alphabetic TLD (2..63). Rejects IP
 # literals (numeric TLD), single-label hosts (localhost), schemes/ports/credentials ('://', ':', '@').
 FQDN_RE = re.compile(r"^([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$")
+# Token/secret-prefix denylist (mirrors ci_evidence ``ck_bps_repo_ref_not_tokenish``). Defense-in-depth:
+# the strict FQDN shape already excludes ``_``/``@``/``:``/``/`` (where a credential would appear), so a
+# valid target_ref cannot embed these — but the explicit denylist guards against any future shape loosening.
+TOKENISH_RE = re.compile(r"(gh[opusr]_|github_pat_)", re.IGNORECASE)
 _UNSAFE_HOST_SUFFIXES = (".local", ".internal", ".localhost")
 _UNSAFE_HOST_EXACT = ("localhost",)
 
@@ -140,6 +144,8 @@ def _validate_shape(record: dict) -> None:
         raise InvalidDeploymentSnapshot(
             f"target_ref must be a valid FQDN: {record['target_ref']!r}"
         )
+    if TOKENISH_RE.search(record["target_ref"]):
+        raise InvalidDeploymentSnapshot("target_ref must not contain a token/secret prefix")
     for field in _BOOL_FIELDS:
         if not isinstance(record[field], bool):
             raise InvalidDeploymentSnapshot(f"{field} must be a bool")

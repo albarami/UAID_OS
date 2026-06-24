@@ -68,6 +68,10 @@ def upgrade() -> None:
             "char_length(target_ref) BETWEEN 1 AND 253", name=op.f("ck_dts_target_ref_len")
         ),
         sa.CheckConstraint(
+            "target_ref !~* '(gh[opusr]_|github_pat_)'",
+            name=op.f("ck_dts_target_ref_not_tokenish"),
+        ),
+        sa.CheckConstraint(
             "observed_http_status IS NULL OR (observed_http_status BETWEEN 100 AND 599)",
             name=op.f("ck_dts_http_status_range"),
         ),

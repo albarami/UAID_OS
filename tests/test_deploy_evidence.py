@@ -881,3 +881,211 @@ async def test_no_other_gate_regression_and_ruleset(dt_ctx):
     assert _gate2(after)["status"] == "passed"
     assert after["ruleset_version"] == "slice30.v1"
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
+
+
+# ============================================================================
+# Implementation-review fixes (Slice 30 PR #49) — RED-first regression tests
+# ============================================================================
+
+
+# --- B4: target_ref token/secret denylist (pure) ------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["ghp_deadbeefdeadbeef.example.com", "x.github_pat_abc.com", "GHO_tok.example.com"],
+)
+def test_b4_target_ref_token_denylist_pure(bad):
+    with pytest.raises(InvalidDeploymentSnapshot):
+        validate_new_deployment_target(_valid(target_ref=bad))
+
+
+# --- B4: token denylist at the DB backstop (direct SQL) -----------------------
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("bad", ["ghp_tokenwithnodot", "x.ghp_tok.com", "host.github_pat_x.com"])
+async def test_b4_db_guard_rejects_tokenish_target_ref(dt_ctx, rls_engine, bad):
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, p1, target_ref=bad)
+
+
+# --- B5: gate lookup constrained to environment='production' ------------------
+
+
+@pytest.mark.db
+async def test_b5_staging_snapshot_does_not_affect_production_gate(dt_ctx):
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _dt_repo(session, ctx)
+        await _declare_env(session, ctx, p1, domain="app.example.com")
+        # production: verified + available + fresh -> gate passes
+        await _record_dt(session, ctx, p1)
+        # a NEWER staging snapshot for the SAME host (unavailable) must NOT contaminate the gate
+        await repo.record_connector_verified_deployment_target(
+            project_id=p1,
+            payload={
+                "provider": "generic_https",
+                "environment": "staging",
+                "target_ref": "app.example.com",
+                "reachable": False,
+                "provisioned": False,
+                "target_available": False,
+                "observed_http_status": None,
+                "observed_at": _real_now(),
+            },
+            actor="conn",
+        )
+        g2 = _gate2((await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict())
+        assert g2["status"] == "passed"  # the staging row did not override the production gate
+        # and the production-scoped lookup returns the production (available) snapshot
+        latest_prod = await repo.latest_deployment_target_for_ref(
+            p1, "generic_https", "app.example.com", environment="production"
+        )
+        assert latest_prod.environment == "production" and latest_prod.target_available is True
+
+
+# --- B3: broker_denied is audited by the service ------------------------------
+
+
+@pytest.mark.db
+async def test_b3_broker_denied_is_audited(dt_ctx, admin_engine):
+    from app.release.deploy_connector import FakeDeployTargetConnector
+    from app.release.deploy_evidence_service import refresh_deployment_target_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _declare_env(session, ctx, p1, domain="app.example.com")  # declared, agent NOT allowlisted
+        result = await refresh_deployment_target_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeDeployTargetConnector(result=_observation()),
+        )
+        assert result.wrote is False and result.reason == "broker_denied"
+    async with admin_engine.connect() as c:
+        payload = (
+            await c.execute(
+                text(
+                    "SELECT payload FROM audit_logs WHERE target=:tg AND tenant_id=:t "
+                    "AND action='deploy.target_fetch_failed' ORDER BY seq DESC LIMIT 1"
+                ),
+                {"tg": f"project:{p1}", "t": t1},
+            )
+        ).scalar_one()
+    assert payload["reason"] == "broker_denied"
+    assert "app.example.com" not in str(payload)  # no domain/target/IP in the failure audit
+
+
+# --- B1: connect-time IP pinning (no rebind) ----------------------------------
+
+
+def test_b1_build_pinned_get_targets_validated_ip_preserves_host():
+    from app.release.deploy_connector import _build_pinned_get
+
+    url, headers, extensions = _build_pinned_get("app.example.com", "8.8.8.8")
+    assert url == "https://8.8.8.8/"  # connect to the VALIDATED IP, not the hostname
+    assert headers["Host"] == "app.example.com"  # original host for routing
+    assert extensions["sni_hostname"] == "app.example.com"  # original host for TLS SNI/cert
+
+
+async def test_b1_connector_probes_only_validated_ips_and_rejects_private():
+    from app.release.deploy_connector import GenericHttpsDeployTargetConnector
+
+    captured = {}
+
+    async def _probe(host, ips):
+        captured["host"], captured["ips"] = host, ips
+        return 200
+
+    conn = GenericHttpsDeployTargetConnector(
+        resolve_host=lambda h: ["8.8.8.8"], http_probe=_probe
+    )
+    obs = await conn.probe_target(host="app.example.com")
+    assert obs["target_available"] is True
+    assert captured["ips"] == ["8.8.8.8"]  # http_probe only ever sees the validated IP set
+
+    # a host that resolves to a private IP is rejected BEFORE http_probe (never called)
+    called = {"n": 0}
+
+    async def _probe2(host, ips):
+        called["n"] += 1
+        return 200
+
+    conn2 = GenericHttpsDeployTargetConnector(
+        resolve_host=lambda h: ["10.0.0.1"], http_probe=_probe2
+    )
+    with pytest.raises(DeploySSRFRejected):
+        await conn2.probe_target(host="app.example.com")
+    assert called["n"] == 0
+
+
+# --- B2: live probe is status-only (never reads the body) ---------------------
+
+
+async def test_b2_default_http_probe_never_reads_body(monkeypatch):
+    import httpx
+
+    from app.release.deploy_connector import _default_http_probe
+
+    seen = {}
+
+    class _Resp:
+        status_code = 204
+
+        async def aread(self):
+            raise AssertionError("response body must not be read")
+
+        @property
+        def content(self):
+            raise AssertionError("response body must not be read")
+
+    class _Stream:
+        async def __aenter__(self):
+            return _Resp()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, **k):
+            seen["method"], seen["url"], seen["ext"] = method, url, k.get("extensions")
+            return _Stream()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    status = await _default_http_probe("app.example.com", ["8.8.8.8"])
+    assert status == 204  # only the status was consumed; body access would have raised
+    assert seen["method"] == "GET" and seen["url"] == "https://8.8.8.8/"
+    assert seen["ext"]["sni_hostname"] == "app.example.com"
+
+
+# --- non-blocking hardening: DNS failure normalized to fail-closed ------------
+
+
+async def test_dns_failure_is_fail_closed_ssrf():
+    from app.release.deploy_connector import GenericHttpsDeployTargetConnector
+
+    def _boom(host):
+        raise OSError("name resolution failed")
+
+    conn = GenericHttpsDeployTargetConnector(resolve_host=_boom)
+    with pytest.raises(DeploySSRFRejected):
+        await conn.probe_target(host="app.example.com")
