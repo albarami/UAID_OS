@@ -798,3 +798,108 @@ async def test_audit_is_safe_metadata_only(pr_ctx, admin_engine):
     assert "secret-author" not in blob  # principals never audited
     assert str(issue_id) not in blob  # traceability UUIDs never audited
     assert "repo_ref" not in payload and "author_principal" not in payload
+
+
+# --- Docker-free: GitHub PR mapping (B-29-1) ----------------------------------
+
+
+def _gh_pull(**over) -> dict:
+    p = {
+        "number": 7,
+        "state": "closed",
+        "merged": True,
+        "merge_commit_sha": "a1b2c3d4e5f6",
+        "merged_at": "2026-06-20T00:00:00Z",
+        "base": {"ref": "main", "sha": "basesha1"},
+        "head": {"ref": "feature/x", "sha": "headsha1"},
+        "user": {"login": "alice"},
+        "merged_by": {"login": "carol"},
+    }
+    p.update(over)
+    return p
+
+
+def _gh_reviews() -> list:
+    return [{"user": {"login": "bob"}, "state": "APPROVED", "submitted_at": "2026-06-19T00:00:00Z"}]
+
+
+def test_map_github_pull_merged_facts():
+    from app.release.scm_connector import map_github_pull_request
+
+    m = map_github_pull_request(_gh_pull(), _gh_reviews())
+    assert m["pr_state"] == "merged"
+    assert m["merged"] is True
+    assert m["merge_commit_sha"] == "a1b2c3d4e5f6"
+    assert m["base_branch"] == "main" and m["head_branch"] == "feature/x"
+    assert m["author_principal"] == "alice"
+    assert m["merger_principal"] == "carol"
+    assert m["approver_principals"] == ["bob"]
+    assert m["approval_count"] == 1
+    assert m["check_status_summary"] is None  # no checks provided -> not observed
+
+
+@pytest.mark.parametrize(
+    "state,merged,expected",
+    [("open", False, "open"), ("closed", False, "closed"), ("closed", True, "merged")],
+)
+def test_map_pr_state_derivation(state, merged, expected):
+    from app.release.scm_connector import map_github_pull_request
+
+    m = map_github_pull_request(_gh_pull(state=state, merged=merged), [])
+    assert m["pr_state"] == expected
+
+
+def test_map_requires_pull_and_reviews():
+    from app.release.scm_connector import SCMConnectorError, map_github_pull_request
+
+    with pytest.raises(SCMConnectorError):
+        map_github_pull_request("not-a-dict", [])
+    with pytest.raises(SCMConnectorError):
+        map_github_pull_request(_gh_pull(), "not-a-list")
+
+
+def test_map_checks_summary_states():
+    from app.release.scm_connector import map_github_pull_request
+
+    checks = {
+        "check_runs": [
+            {"status": "completed", "conclusion": "success"},
+            {"status": "completed", "conclusion": "failure"},
+            {"status": "in_progress", "conclusion": None},
+            {"status": "completed", "conclusion": "neutral"},
+        ]
+    }
+    m = map_github_pull_request(
+        _gh_pull(), _gh_reviews(), checks=checks, combined_status={"state": "failure"}
+    )
+    css = m["check_status_summary"]
+    assert css["success"] == 1 and css["failure"] == 1
+    assert css["pending"] == 1 and css["neutral"] == 1
+    assert css["combined_state"] == "failure"
+
+
+def test_map_requested_reviewers_observed_flag():
+    from app.release.scm_connector import map_github_pull_request
+
+    rr = {"users": [{"login": "dan"}], "teams": [{"slug": "team-a"}]}
+    m = map_github_pull_request(
+        _gh_pull(), _gh_reviews(), requested_reviewers=rr, requested_reviewers_observed=True
+    )
+    assert m["requested_reviewers_observed"] is True
+    assert "dan" in m["requested_reviewer_principals"]
+    # not observed -> empty list + false (no silent empty)
+    m2 = map_github_pull_request(
+        _gh_pull(), _gh_reviews(), requested_reviewers=rr, requested_reviewers_observed=False
+    )
+    assert m2["requested_reviewers_observed"] is False
+    assert m2["requested_reviewer_principals"] == []
+
+
+async def test_fake_connector_fetch_pull_request():
+    from app.release.scm_connector import FakeSCMConnector, SCMConnectorError
+
+    ok = FakeSCMConnector(result={"pr_state": "open"})
+    assert (await ok.fetch_pull_request(repo_ref="o/r", pr_number=1)) == {"pr_state": "open"}
+    boom = FakeSCMConnector(error=SCMConnectorError("x"))
+    with pytest.raises(SCMConnectorError):
+        await boom.fetch_pull_request(repo_ref="o/r", pr_number=1)

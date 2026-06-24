@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from app.release.pr_evidence import normalize_approvals
+
 
 class SCMConnectorError(Exception):
     """Provider response missing / ambiguous / malformed, or transport failure (fail-closed)."""
@@ -29,6 +31,131 @@ class SCMConnector(Protocol):
         """Return MAPPED snapshot fields for a protected branch, or ``None`` if not configured.
         Raise ``SCMConnectorError`` on a provider/transport failure (fail-closed)."""
         ...
+
+    async def fetch_pull_request(self, *, repo_ref: str, pr_number: int) -> dict | None:
+        """Return MAPPED PR-evidence fields, or ``None`` if not configured. Raise
+        ``SCMConnectorError`` on a PR/reviews provider/transport failure (fail-closed, B-29-7)."""
+        ...
+
+
+# GitHub check-run conclusion -> our observed CHECK_STATES (B-29-1).
+_CONCLUSION_TO_STATE = {
+    "success": "success",
+    "failure": "failure",
+    "timed_out": "failure",
+    "cancelled": "failure",
+    "action_required": "failure",
+    "neutral": "neutral",
+    "skipped": "neutral",
+    "stale": "unknown",
+}
+
+
+def _summarize_checks(checks: Any, combined_status: Any) -> dict | None:
+    """Map head-SHA check-runs + combined status to an observed ``check_status_summary`` (B-29-1).
+    ``None`` when no check evidence was observed — NEVER a fabricated 'passed'."""
+    if checks is None and combined_status is None:
+        return None
+    summary: dict[str, Any] = {}
+    runs = checks.get("check_runs", []) if isinstance(checks, dict) else []
+    for run in runs if isinstance(runs, list) else []:
+        if not isinstance(run, dict):
+            continue
+        if run.get("status") in ("queued", "in_progress"):
+            state = "pending"
+        else:  # completed (or unknown status) -> map by conclusion
+            state = _CONCLUSION_TO_STATE.get(run.get("conclusion") or "", "unknown")
+        summary[state] = summary.get(state, 0) + 1
+    if isinstance(combined_status, dict):
+        cs = combined_status.get("state")
+        if cs in ("success", "failure", "pending"):
+            summary["combined_state"] = cs
+    return summary or None
+
+
+def _requested_principals(requested_reviewers: Any) -> list[str]:
+    """Extract requested reviewer/team handles from the GitHub requested-reviewers shape."""
+    out: list[str] = []
+    if isinstance(requested_reviewers, dict):
+        for user in requested_reviewers.get("users", []) or []:
+            if isinstance(user, dict) and isinstance(user.get("login"), str):
+                out.append(user["login"])
+        for team in requested_reviewers.get("teams", []) or []:
+            if isinstance(team, dict) and isinstance(team.get("slug"), str):
+                out.append("team:" + team["slug"])
+    elif isinstance(requested_reviewers, list):  # PR object embeds a flat user list
+        for user in requested_reviewers:
+            if isinstance(user, dict) and isinstance(user.get("login"), str):
+                out.append(user["login"])
+    return out
+
+
+def map_github_pull_request(
+    pull: Any,
+    reviews: Any,
+    *,
+    requested_reviewers: Any = None,
+    requested_reviewers_observed: bool = False,
+    checks: Any = None,
+    combined_status: Any = None,
+) -> dict:
+    """Map GitHub PR + reviews (+ optional requested-reviewers + head-SHA checks) to PR-evidence
+    snapshot fields (pure). ``pull`` and ``reviews`` are **required** (missing/malformed ⇒
+    ``SCMConnectorError``, B-29-7); requested-reviewers/checks are optional/observed. No
+    token/URL/body/diff in the result. The caller (service) adds provider/repo_ref/pr_number/observed_at.
+    """
+    if not isinstance(pull, dict):
+        raise SCMConnectorError("pull-request payload must be a JSON object")
+    if not isinstance(reviews, list):
+        raise SCMConnectorError("reviews payload must be a JSON array")
+
+    merged = bool(pull.get("merged"))
+    pr_state = "merged" if merged else ("open" if pull.get("state") == "open" else "closed")
+
+    def _login(node: Any) -> str | None:
+        return (
+            node.get("login")
+            if isinstance(node, dict) and isinstance(node.get("login"), str)
+            else None
+        )
+
+    base = pull.get("base")
+    base = base if isinstance(base, dict) else {}
+    head = pull.get("head")
+    head = head if isinstance(head, dict) else {}
+
+    norm_reviews = []
+    for rev in reviews:
+        if not isinstance(rev, dict):
+            continue
+        login = _login(rev.get("user"))
+        if login is None:
+            continue
+        norm_reviews.append(
+            {"principal": login, "state": rev.get("state"), "submitted_at": rev.get("submitted_at")}
+        )
+    approver_principals, reviewer_principals, approval_count = normalize_approvals(norm_reviews)
+
+    return {
+        "pr_state": pr_state,
+        "merged": merged,
+        "merged_at": pull.get("merged_at"),
+        "merge_commit_sha": pull.get("merge_commit_sha"),
+        "base_branch": base.get("ref"),
+        "base_sha": base.get("sha"),
+        "head_branch": head.get("ref"),
+        "head_sha": head.get("sha"),
+        "author_principal": _login(pull.get("user")),
+        "merger_principal": _login(pull.get("merged_by")),
+        "approver_principals": approver_principals,
+        "reviewer_principals": reviewer_principals,
+        "approval_count": approval_count,
+        "requested_reviewer_principals": (
+            _requested_principals(requested_reviewers) if requested_reviewers_observed else []
+        ),
+        "requested_reviewers_observed": bool(requested_reviewers_observed),
+        "check_status_summary": _summarize_checks(checks, combined_status),
+    }
 
 
 def map_github_branch_protection(payload: Any) -> dict:
@@ -83,6 +210,11 @@ class FakeSCMConnector:
             raise self._error
         return self._result
 
+    async def fetch_pull_request(self, *, repo_ref: str, pr_number: int) -> dict | None:
+        if self._error is not None:
+            raise self._error
+        return self._result
+
 
 class GitHubSCMConnector:
     """Shipped GitHub adapter — **NEVER exercised in tests** (no network in CI). Token env-only,
@@ -121,3 +253,68 @@ class GitHubSCMConnector:
         raise SCMConnectorError(
             f"github branch-protection not available (status {resp.status_code})"
         )
+
+    async def fetch_pull_request(self, *, repo_ref: str, pr_number: int) -> dict | None:
+        """Fetch PR + reviews (MANDATORY, B-29-7) + requested-reviewers (observed) + head-SHA checks
+        (optional). PR/reviews non-200 or transport failure ⇒ ``SCMConnectorError`` (no snapshot);
+        requested-reviewers/checks failure degrades gracefully. **Never exercised in CI.**"""
+        import httpx  # lazy so the pure parts import without the dependency
+
+        base_url = f"https://api.github.com/repos/{repo_ref}"
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # PR + reviews are MANDATORY — a non-200 here writes NO verified snapshot.
+                pr_resp = await client.get(f"{base_url}/pulls/{pr_number}", headers=headers)
+                if pr_resp.status_code != 200:
+                    raise SCMConnectorError(
+                        f"github pull-request not available (status {pr_resp.status_code})"
+                    )
+                rev_resp = await client.get(
+                    f"{base_url}/pulls/{pr_number}/reviews", headers=headers
+                )
+                if rev_resp.status_code != 200:
+                    raise SCMConnectorError(
+                        f"github pull-request reviews not available (status {rev_resp.status_code})"
+                    )
+                pull, reviews = pr_resp.json(), rev_resp.json()
+                # Requested reviewers: OBSERVED — failure ⇒ observed=false (never a silent empty).
+                requested, observed = None, False
+                rr_resp = await client.get(
+                    f"{base_url}/pulls/{pr_number}/requested_reviewers", headers=headers
+                )
+                if rr_resp.status_code == 200:
+                    requested, observed = rr_resp.json(), True
+                # Checks: OPTIONAL observed-only — failure ⇒ check_status_summary=None.
+                checks = combined = None
+                head_sha = (pull.get("head") or {}).get("sha") if isinstance(pull, dict) else None
+                if isinstance(head_sha, str):
+                    cr_resp = await client.get(
+                        f"{base_url}/commits/{head_sha}/check-runs", headers=headers
+                    )
+                    if cr_resp.status_code == 200:
+                        checks = cr_resp.json()
+                    cs_resp = await client.get(
+                        f"{base_url}/commits/{head_sha}/status", headers=headers
+                    )
+                    if cs_resp.status_code == 200:
+                        combined = cs_resp.json()
+        except httpx.HTTPError as exc:  # message carries no token/URL
+            raise SCMConnectorError("github pull-request request failed") from exc
+        try:
+            return map_github_pull_request(
+                pull,
+                reviews,
+                requested_reviewers=requested,
+                requested_reviewers_observed=observed,
+                checks=checks,
+                combined_status=combined,
+            )
+        except SCMConnectorError:
+            raise
+        except Exception as exc:  # unexpected mapping failure ⇒ fail-closed
+            raise SCMConnectorError("github pull-request response was malformed") from exc
