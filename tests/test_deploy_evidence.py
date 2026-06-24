@@ -12,9 +12,12 @@ Docker-free for the pure validators / probe mapping / SSRF guard / invariant; ``
 resolver, DB guard, broker-gated connector, gate #2, and the no-other-gate-regression check.
 """
 
+import uuid
 from datetime import datetime, timezone
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.release.deploy_evidence import (
     ENVIRONMENTS,
@@ -230,3 +233,171 @@ def test_assert_safe_resolved_ips_rejects_if_any_internal():
         assert_safe_resolved_ips(["8.8.8.8", "10.0.0.1"])  # one internal poisons the set
     with pytest.raises(DeploySSRFRejected):
         assert_safe_resolved_ips([])  # no resolution = cannot attest safe
+
+
+# --- DB-backed fixtures -------------------------------------------------------
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def dt_ctx(admin_engine):
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('DtOrg',:s) RETURNING id",
+            s=f"dt-org-{sfx}",
+        )
+        out = {"sfx": sfx}
+        for label in ("t1", "t2"):
+            out[label] = await _scalar(
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"dt-{label}-{sfx}",
+            )
+        for proj, tn in (("p1", "t1"), ("p2", "t1"), ("px", "t2")):
+            out[proj] = await _scalar(
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"dt-{proj}-{sfx}",
+            )
+    return out
+
+
+# --- DB-backed: guard (direct SQL refusals) -----------------------------------
+
+_RAW_INSERT = (
+    "INSERT INTO deployment_target_snapshots "
+    "(tenant_id, project_id, provider, environment, target_ref, reachable, provisioned, "
+    " target_available, observed_http_status, provenance) "
+    "VALUES (:t,:p,:provider,:environment,:target_ref,:reachable,:provisioned,"
+    " :target_available,:status,:prov)"
+)
+
+
+async def _raw_insert(rls_engine, t1, p1, **over):
+    params = {
+        "t": str(t1),
+        "p": str(p1),
+        "provider": "generic_https",
+        "environment": "production",
+        "target_ref": "app.example.com",
+        "reachable": True,
+        "provisioned": True,
+        "target_available": True,
+        "status": 200,
+        "prov": "caller_supplied_unverified",
+    }
+    params.update(over)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
+            await conn.execute(text(_RAW_INSERT), params)
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"provider": "kubernetes"},  # provider CHECK
+        {"environment": "qa"},  # environment CHECK
+        {"prov": "made_up"},  # provenance CHECK
+        {"target_ref": "192.168.1.1"},  # IP literal (not FQDN)
+        {"target_ref": "localhost"},  # single label
+        {"target_ref": "https://app.example.com"},  # scheme markers
+        {"target_ref": "a." + "x" * 260 + ".com"},  # oversized
+        {"status": 600},  # http status range
+        {"status": 99},
+        # invariant: target_available must equal (provisioned AND reachable)
+        {"target_available": True, "provisioned": False, "reachable": True, "status": 500},
+        {"target_available": False, "provisioned": True, "reachable": True, "status": 200},
+    ],
+)
+async def test_guard_rejects_bad_inserts(dt_ctx, rls_engine, over):
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, p1, **over)
+
+
+@pytest.mark.db
+async def test_guard_accepts_positive_and_negative_rows(dt_ctx, rls_engine):
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    # positive (available)
+    await _raw_insert(rls_engine, t1, p1, reachable=True, provisioned=True, target_available=True)
+    # non-serving negative (reachable, not provisioned)
+    await _raw_insert(
+        rls_engine, t1, p1, reachable=True, provisioned=False, target_available=False, status=500
+    )
+    # transport-failure negative (unreachable)
+    await _raw_insert(
+        rls_engine, t1, p1, reachable=False, provisioned=False, target_available=False, status=None
+    )
+    # connector-verified provenance is writable too
+    await _raw_insert(rls_engine, t1, p1, prov="connector_verified")
+
+
+@pytest.mark.db
+async def test_append_only_no_update_delete_truncate(dt_ctx, rls_engine):
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
+            sid = (
+                await conn.execute(text("SELECT id FROM deployment_target_snapshots LIMIT 1"))
+            ).scalar_one()
+    for verb in (
+        "UPDATE deployment_target_snapshots SET provisioned=false WHERE id=:i",
+        "DELETE FROM deployment_target_snapshots WHERE id=:i",
+        "TRUNCATE deployment_target_snapshots",
+    ):
+        with pytest.raises(Exception):
+            async with rls_engine.connect() as conn:
+                async with conn.begin():
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+                    )
+                    await conn.execute(text(verb), {"i": str(sid)})
+
+
+@pytest.mark.db
+async def test_fk_cross_project_tenant_rejected(dt_ctx, rls_engine):
+    t1, px = dt_ctx["t1"], dt_ctx["px"]  # px belongs to t2, not t1
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, px)
+
+
+@pytest.mark.db
+async def test_catalog_grants_and_rls(admin_engine):
+    async with admin_engine.connect() as c:
+        grants = {
+            r[0]
+            for r in (
+                await c.execute(
+                    text(
+                        "SELECT privilege_type FROM information_schema.role_table_grants "
+                        "WHERE table_name='deployment_target_snapshots' AND grantee='uaid_app'"
+                    )
+                )
+            ).all()
+        }
+        assert grants == {"SELECT", "INSERT"}  # append-only
+        rls = (
+            await c.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                    "WHERE relname='deployment_target_snapshots'"
+                )
+            )
+        ).one()
+        assert rls == (True, True)
