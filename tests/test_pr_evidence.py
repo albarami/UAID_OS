@@ -1040,3 +1040,30 @@ async def test_refresh_no_write_paths(pr_ctx, scenario):
         )
         assert result.wrote is False
         assert await repo.count_connector_verified_pull_requests(p1) == 0
+
+
+# --- DB-backed: no A5 regression (Q6 store-only) ------------------------------
+
+
+@pytest.mark.db
+async def test_pr_evidence_does_not_change_a5_report(pr_ctx):
+    # Q6: store-only. PR evidence must NOT alter the production_autonomy report in any way.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        await _pr_repo(session, ctx).record_connector_verified_pull_request(
+            project_id=p1,
+            payload=_conn_payload(
+                author_principal="alice", approver_principals=["alice"], merger_principal="alice"
+            ),
+            actor="conn",
+        )
+        after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+    assert before == after  # byte-identical: PR evidence feeds no gate this slice
+    assert after["ruleset_version"] == "slice28.v1"  # NOT bumped
+    assert after["a5_satisfied"] is False
+    assert after["can_go_live_autonomously"] is False
