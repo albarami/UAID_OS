@@ -183,8 +183,10 @@ def upgrade() -> None:
             IF NEW.approval_count <> jsonb_array_length(NEW.approver_principals) THEN
                 RAISE EXCEPTION 'pull_request_evidence_snapshots: approval_count must equal jsonb_array_length(approver_principals)';
             END IF;
-            -- Observed check-status summary (B-29-1/8): NULL or an object of non-negative integer
-            -- counts keyed by allowed states, plus optional combined_state.
+            -- Observed check-status summary (B-29-1/8): NULL or an object of non-negative TRUE-integer
+            -- counts keyed by allowed states, plus optional combined_state. Counts must serialize to
+            -- pure integer digits (``^[0-9]+$``) so a float like 1.0 is rejected — making the DB guard
+            -- an authoritative backstop that matches the Python validator (which rejects floats).
             IF NEW.check_status_summary IS NOT NULL THEN
                 IF jsonb_typeof(NEW.check_status_summary) <> 'object' THEN
                     RAISE EXCEPTION 'pull_request_evidence_snapshots: check_status_summary must be null or an object';
@@ -199,8 +201,7 @@ def upgrade() -> None:
                         ))
                         OR (kv.k IN ('success','failure','pending','neutral','error','unknown')
                             AND jsonb_typeof(kv.v) = 'number'
-                            AND (kv.v::text)::numeric >= 0
-                            AND (kv.v::text)::numeric = floor((kv.v::text)::numeric))
+                            AND (kv.v::text) ~ '^[0-9]+$')
                     )
                 ) THEN
                     RAISE EXCEPTION 'pull_request_evidence_snapshots: check_status_summary has an invalid key or value';

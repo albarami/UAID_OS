@@ -1198,3 +1198,22 @@ async def test_merged_protected_requires_declared_branch_match(pr_ctx):
             project_id=p1, payload=_conn_payload(merged=True, base_branch="main"), actor="conn"
         )
         assert row2.merged_to_declared_protected_branch_observed is True
+
+
+# --- J: DB guard must reject integer-valued floats in check_status_summary ----
+
+
+@pytest.mark.db
+async def test_db_guard_rejects_integer_valued_float_count(pr_ctx, rls_engine):
+    # J: counts must be TRUE JSON integers. A float like 1.0 must be rejected so the DB guard is an
+    # authoritative backstop matching the Python validator (which rejects floats via _is_int).
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, p1, checks='{"success":1.0}')
+
+
+@pytest.mark.db
+async def test_db_guard_still_accepts_integer_count(pr_ctx, rls_engine):
+    # Legitimate integer counts continue to pass after the J tightening.
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1, checks='{"success":3,"failure":0}')
