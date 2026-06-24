@@ -135,6 +135,29 @@ check + fresh within `CI_EVIDENCE_MAX_AGE_HOURS`=24). Gate #3 is the **first non
 ⇒ no write (fail-closed, never a "verified-off" snapshot); token is operator env-only (`GITHUB_CONNECTOR_TOKEN`),
 never stored/audited/in broker params; the report exposes `branch_protection_repo_bound` (bool), never the
 raw `repo_ref`. merged via PR #45 (commit `6de94de`).**
+**Slice 29 adds a deterministic, tenant-owned pull-request evidence connector (`app/release/pr_evidence.py`
+[pure validators + `normalize_approvals` + `derive_separation_flags`], `app/release/scm_connector.py`
+[extended with `fetch_pull_request` + pure `map_github_pull_request`], `app/release/pr_evidence_service.py`
+orchestration, `app/models/pull_request_evidence_snapshot.py`, `app/repositories/pr_evidence.py`,
+migration `0028`, §12.3/§12.4; App. B #7/#8 provenance feed) — immutable, append-only, latest-wins
+`pull_request_evidence_snapshots` (Slice-26/28 evidence pattern, two-tier provenance). Records PR provider
+facts + §12.4 **presence** flags (`caller_declared`|`connector_observed_template`, presence not adequacy)
++ **observed** `check_status_summary` (nullable, NOT required-check satisfaction) + normalized
+review/identity facts + **structural-only** separation flags (`self_approval_observed`/`self_merge_observed`/
+`review_separation_observed` — provider-principal equality, NOT a verified UAID-actor separation, no
+enforcement) + an **observed** `merged_to_declared_protected_branch_observed` (cross-refs verified+fresh
+branch-protection evidence; never overclaims) + repository-validated `traceability_refs` (same-project
+`release_issues` + `kind='acceptance_criterion'` artifacts; dup/missing/wrong-kind/wrong-project fail
+closed). The broker-gated, repo-bound connector resolves the project's OWN declared repo (shared
+`resolve_declared_repo`, never a caller `repo_ref`), calls `broker_call` for the read-only
+`source_control.read_pull_request` tool (new A1 read action `read_pull_requests`; broker stays
+decision-only) with **safe params only** (`provider`/`pr_number`/`repo_ref_present`, never `repo_ref`); PR
++ reviews endpoints are **fail-closed** (failure ⇒ no snapshot), requested-reviewers is **observed**
+(`requested_reviewers_observed`), checks are optional observed-only. DB guard enforces JSON shapes +
+`approval_count = jsonb_array_length(approver_principals)` + the nullable check-summary shape (B-29-8,
+mirrors `0025`). **Store-only — `production_autonomy.py` UNTOUCHED, ruleset stays `slice28.v1`, NO A5 gate
+flip / status change; go-live stays false.** Token is operator env-only (`GITHUB_CONNECTOR_TOKEN`), never
+stored/audited/in params; audit is safe-metadata only (never repo_ref/principals/traceability UUIDs/body).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -777,11 +800,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 347 passing (Docker-free); `make test-db` → 377 passing (DB-backed: tenancy,
+  **`make test` → 396 passing (Docker-free); `make test-db` → 416 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -884,8 +907,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 347 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 377 passing
+make test                                  # Docker-free tests (no services) — 396 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 416 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
