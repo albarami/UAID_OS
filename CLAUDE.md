@@ -157,7 +157,8 @@ decision-only) with **safe params only** (`provider`/`pr_number`/`repo_ref_prese
 `approval_count = jsonb_array_length(approver_principals)` + the nullable check-summary shape (B-29-8,
 mirrors `0025`). **Store-only — `production_autonomy.py` UNTOUCHED, ruleset stays `slice28.v1`, NO A5 gate
 flip / status change; go-live stays false.** Token is operator env-only (`GITHUB_CONNECTOR_TOKEN`), never
-stored/audited/in params; audit is safe-metadata only (never repo_ref/principals/traceability UUIDs/body).**
+stored/audited/in params; audit is safe-metadata only (never repo_ref/principals/traceability UUIDs/body).
+merged via PR #47 (commit `52a4b958`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
