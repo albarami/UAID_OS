@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-06-23)
+## Current status (2026-06-24)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -134,7 +134,7 @@ check + fresh within `CI_EVIDENCE_MAX_AGE_HOURS`=24). Gate #3 is the **first non
 `a5_satisfied` + `can_go_live_autonomously` stay false (≥11 gates unmet). 403/404/non-200/timeout/malformed
 ⇒ no write (fail-closed, never a "verified-off" snapshot); token is operator env-only (`GITHUB_CONNECTOR_TOKEN`),
 never stored/audited/in broker params; the report exposes `branch_protection_repo_bound` (bool), never the
-raw `repo_ref`. In progress on branch `feat/slice28-scm-connector`.**
+raw `repo_ref`. merged via PR #45 (commit `6de94de`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
