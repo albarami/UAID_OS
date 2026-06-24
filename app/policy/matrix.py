@@ -40,6 +40,8 @@ MATRIX: dict[str, AuthorityRule] = {
     "read_source_control_config": _r(L.A1),
     # Slice 29: read-only pull-request fetch (PR/reviews/checks). A read, never a mutation.
     "read_pull_requests": _r(L.A1),
+    # Slice 30: read-only deployment-target status probe (generic_https). A read, never a deploy.
+    "read_deployment_target": _r(L.A1),
     "create_draft_prd": _r(L.A1),
     "create_project_tasks": _r(L.A1),
     "create_repository": _r(L.A2),

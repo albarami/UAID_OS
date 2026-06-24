@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # gate #3 treats branch-protection evidence older than this many hours as stale (not-pass).
     github_connector_token: str = ""
     ci_evidence_max_age_hours: int = 24
+    # Slice 30 — deployment-target evidence freshness (its own domain; gate #2 treats verified
+    # deployment-target evidence older than this many hours as stale / not-pass).
+    deployment_evidence_max_age_hours: int = 24
 
 
 settings = Settings()

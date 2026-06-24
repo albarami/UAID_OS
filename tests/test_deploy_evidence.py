@@ -623,3 +623,123 @@ async def test_generic_connector_rejects_dns_to_private_before_request():
     conn2 = GenericHttpsDeployTargetConnector(resolve_host=lambda h: ["169.254.169.254"])
     with pytest.raises(DeploySSRFRejected):
         await conn2.probe_target(host="metadata.example.com")
+
+
+# --- DB-backed: broker-gated service (B-30-5/9) -------------------------------
+
+
+def _observation(**over) -> dict:
+    rec = {"reachable": True, "provisioned": True, "target_available": True, "observed_http_status": 200}
+    rec.update(over)
+    return rec
+
+
+async def _allow_setup(session, ctx, project_id, agent_id="conn", domain="app.example.com"):
+    from app.policy.levels import AutonomyLevel
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+
+    await _declare_env(session, ctx, project_id, domain=domain)
+    await AutonomyPolicyRepository(session, ctx).upsert(
+        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    )
+    await ToolAllowlistRepository(session, ctx).grant(
+        agent_id=agent_id, tool_name="deployment.read_target_status", actor="admin"
+    )
+
+
+@pytest.mark.db
+async def test_refresh_broker_allow_writes_positive_safe_params(dt_ctx, admin_engine):
+    from app.release.deploy_connector import FakeDeployTargetConnector
+    from app.release.deploy_evidence_service import refresh_deployment_target_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _allow_setup(session, ctx, p1)
+        result = await refresh_deployment_target_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeDeployTargetConnector(result=_observation()),
+        )
+        assert result.wrote is True
+        row = await _dt_repo(session, ctx).latest_deployment_target_for_ref(
+            p1, "generic_https", "app.example.com"
+        )
+        assert row.provenance == "connector_verified" and row.target_available is True
+    # broker recorded SAFE params only — never the raw domain/target_ref.
+    async with admin_engine.connect() as c:
+        rows = (
+            await c.execute(
+                text(
+                    "SELECT params FROM tool_calls WHERE tenant_id=:t "
+                    "AND tool_name='deployment.read_target_status'"
+                ),
+                {"t": str(t1)},
+            )
+        ).all()
+    assert rows
+    for (params,) in rows:
+        assert "app.example.com" not in str(params)
+        assert "target_ref" not in (params or {}) and "domain" not in (params or {})
+        assert params.get("target_present") is True
+
+
+@pytest.mark.db
+async def test_refresh_writes_verified_negative(dt_ctx):
+    # B-30-9: a safely-attempted UNAVAILABLE probe writes a verified-NEGATIVE snapshot.
+    from app.release.deploy_connector import FakeDeployTargetConnector
+    from app.release.deploy_evidence_service import refresh_deployment_target_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _allow_setup(session, ctx, p1)
+        result = await refresh_deployment_target_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeDeployTargetConnector(
+                result=_observation(
+                    reachable=False, provisioned=False, target_available=False, observed_http_status=None
+                )
+            ),
+        )
+        assert result.wrote is True
+        row = await _dt_repo(session, ctx).latest_deployment_target_for_ref(
+            p1, "generic_https", "app.example.com"
+        )
+        assert row.provenance == "connector_verified" and row.target_available is False
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("scenario", ["target_unbound", "broker_denied", "ssrf_reject"])
+async def test_refresh_no_write_paths(dt_ctx, scenario):
+    from app.release.deploy_connector import FakeDeployTargetConnector
+    from app.release.deploy_evidence_service import refresh_deployment_target_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _dt_repo(session, ctx)
+        connector = FakeDeployTargetConnector(result=_observation())
+        if scenario == "target_unbound":
+            pass  # no environments declared
+        elif scenario == "broker_denied":
+            await _declare_env(session, ctx, p1)  # declared, but agent not allowlisted
+        elif scenario == "ssrf_reject":
+            await _allow_setup(session, ctx, p1)
+            connector = FakeDeployTargetConnector(error=DeploySSRFRejected("blocked"))
+        result = await refresh_deployment_target_evidence(
+            session, ctx, project_id=p1, agent_id="conn", actor="conn", connector=connector
+        )
+        assert result.wrote is False
+        assert await repo.count_connector_verified_deployment_targets(p1) == 0

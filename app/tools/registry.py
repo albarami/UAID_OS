@@ -62,6 +62,10 @@ TOOL_REGISTRY: dict[str, ToolContract] = {
     "source_control.read_pull_request": _c(
         "source_control.read_pull_request", "source_control", "read_pull_requests"
     ),
+    # Slice 30: broker-gated read; maps to the read-only read_deployment_target action.
+    "deployment.read_target_status": _c(
+        "deployment.read_target_status", "deployment", "read_deployment_target"
+    ),
     "source_control.open_pull_request": _c(
         "source_control.open_pull_request",
         "source_control",
