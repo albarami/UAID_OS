@@ -26,7 +26,12 @@ from app.release.production_autonomy import (
 # Slice 23: gates #5/#6 (security/shortcut findings) moved from no_evidence_source to
 # insufficient_evidence (the stores now exist, but authoritative scan coverage does not).
 # Slice 26: gate #3 (branch protection) moved from no_evidence_source to insufficient_evidence
-# (the snapshot store now exists, but only caller_supplied_unverified evidence is writable).
+# with caller-supplied snapshots. Slice 28 adds the connector-verified write path
+# (record_connector_verified_branch_protection, unlocked by migration 0027), so gate #3 is now
+# PASS-capable on a repo-bound latest connector_verified + protection-enabled + fresh snapshot
+# (see test_gate3_ladder_and_pass / test_gate3_pass_count_depends_on_r5). It still appears in
+# PARTIAL_GATES below because this pure-engine baseline passes no branch-protection evidence, so the
+# no-evidence default remains insufficient_evidence.
 PARTIAL_GATES = {2, 3, 5, 6, 7, 8, 9, 12}
 SOURCELESS_GATES = {4, 10, 11, 13}
 
