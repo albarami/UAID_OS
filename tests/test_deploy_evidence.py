@@ -13,7 +13,7 @@ resolver, DB guard, broker-gated connector, gate #2, and the no-other-gate-regre
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -743,3 +743,141 @@ async def test_refresh_no_write_paths(dt_ctx, scenario):
         )
         assert result.wrote is False
         assert await repo.count_connector_verified_deployment_targets(p1) == 0
+
+
+# --- DB-backed: gate #2 ladder + no-other-gate-regression (Slice 30 deliverable) -
+
+
+def _gate2(report_dict: dict) -> dict:
+    return next(g for g in report_dict["gates"] if g["number"] == 2)
+
+
+async def _record_dt(
+    session,
+    ctx,
+    project_id,
+    *,
+    target_ref="app.example.com",
+    reachable=True,
+    provisioned=True,
+    target_available=True,
+    status=200,
+    observed_at=None,
+    caller=False,
+):
+    repo = _dt_repo(session, ctx)
+    base = {
+        "provider": "generic_https",
+        "environment": "production",
+        "target_ref": target_ref,
+        "reachable": reachable,
+        "provisioned": provisioned,
+        "target_available": target_available,
+    }
+    if caller:
+        return await repo.record_deployment_target(project_id=project_id, payload=base, actor="c")
+    payload = {**base, "observed_http_status": status, "observed_at": observed_at or _real_now()}
+    return await repo.record_connector_verified_deployment_target(
+        project_id=project_id, payload=payload, actor="conn"
+    )
+
+
+def _real_now():
+    return datetime.now(timezone.utc)
+
+
+@pytest.mark.db
+async def test_gate2_passes_on_verified_available_fresh(dt_ctx):
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _declare_env(session, ctx, p1, domain="app.example.com")
+        await _record_dt(session, ctx, p1)  # connector_verified, available, fresh
+        g2 = _gate2((await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict())
+        assert g2["status"] == "passed"
+        assert g2["reason"] == "production_deployment_target_available_verified"
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "scenario,reason",
+    [
+        ("unbound", "no_environment_declaration"),
+        ("no_evidence", "environments_declared_but_no_target_evidence"),
+        ("unverified", "deployment_target_observed_unverified"),
+        ("stale", "deployment_target_evidence_stale"),
+        ("unavailable", "deployment_target_unavailable"),
+        ("target_mismatch", "environments_declared_but_no_target_evidence"),
+    ],
+)
+async def test_gate2_fail_paths(dt_ctx, scenario, reason):
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        if scenario != "unbound":
+            await _declare_env(session, ctx, p1, domain="app.example.com")
+        if scenario == "unverified":
+            await _record_dt(session, ctx, p1, caller=True)  # caller path = unverified
+        elif scenario == "stale":
+            await _record_dt(session, ctx, p1, observed_at=_real_now() - timedelta(hours=48))
+        elif scenario == "unavailable":
+            await _record_dt(
+                session, ctx, p1, reachable=False, provisioned=False, target_available=False, status=None
+            )
+        elif scenario == "target_mismatch":
+            await _record_dt(session, ctx, p1, target_ref="other.example.com")  # not the declared host
+        g2 = _gate2((await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict())
+        assert g2["status"] == "insufficient_evidence"
+        assert g2["reason"] == reason
+
+
+@pytest.mark.db
+async def test_gate2_negative_refresh_supersedes_passing(dt_ctx):
+    # B-30-9 at the GATE: a negative refresh of the same declared target stops gate #2 passing.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _declare_env(session, ctx, p1, domain="app.example.com")
+        await _record_dt(session, ctx, p1)  # available -> gate passes
+        assert _gate2((await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict())[
+            "status"
+        ] == "passed"
+        # later safely-attempted unavailable probe -> verified-negative snapshot supersedes
+        await _record_dt(
+            session, ctx, p1, reachable=False, provisioned=False, target_available=False, status=None
+        )
+        g2 = _gate2((await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict())
+        assert g2["status"] == "insufficient_evidence"
+        assert g2["reason"] == "deployment_target_unavailable"
+
+
+@pytest.mark.db
+async def test_no_other_gate_regression_and_ruleset(dt_ctx):
+    # The deliverable edits gate #2 ONLY. Every other gate stays byte-identical; ruleset is slice30.v1.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = ProductionAutonomyRepository(session, ctx)
+        await _declare_env(session, ctx, p1, domain="app.example.com")  # declared in both states
+        before = (await repo.evaluate(p1)).to_dict()
+        await _record_dt(session, ctx, p1)  # add deployment evidence -> only gate #2 moves
+        after = (await repo.evaluate(p1)).to_dict()
+    before_others = {g["number"]: g for g in before["gates"] if g["number"] != 2}
+    after_others = {g["number"]: g for g in after["gates"] if g["number"] != 2}
+    assert before_others == after_others  # every non-#2 gate byte-identical
+    assert _gate2(before)["status"] == "insufficient_evidence"
+    assert _gate2(after)["status"] == "passed"
+    assert after["ruleset_version"] == "slice30.v1"
+    assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
