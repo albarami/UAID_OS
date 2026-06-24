@@ -96,7 +96,11 @@ class PullRequestEvidenceSnapshot(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     # --- observed check status (B-29-1) — NULL = not observed ---
-    check_status_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # none_as_null: a Python ``None`` must persist as SQL NULL, not a JSONB ``'null'`` (the guard
+    # treats SQL NULL as "not observed"; a JSONB null would fail the object-shape check).
+    check_status_summary: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     # --- §12.4 presence (Q2) ---
     presence_flags: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")

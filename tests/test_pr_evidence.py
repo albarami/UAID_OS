@@ -14,7 +14,7 @@ and the no-A5-regression check.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -311,7 +311,7 @@ async def pr_ctx(admin_engine):
                 n=label,
                 s=f"pr-{label}-{sfx}",
             )
-        for proj, tn in (("p1", "t1"), ("px", "t2")):
+        for proj, tn in (("p1", "t1"), ("p2", "t1"), ("px", "t2")):
             out[proj] = await _scalar(
                 c,
                 "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
@@ -456,3 +456,345 @@ async def test_catalog_grants_and_rls(admin_engine):
             )
         ).one()
         assert rls == (True, True)
+
+
+# --- DB-backed: repository (record / latest / counts / flags) -----------------
+
+
+def _pr_repo(session, ctx):
+    from app.repositories.pr_evidence import PullRequestEvidenceRepository
+
+    return PullRequestEvidenceRepository(session, ctx)
+
+
+def _conn_payload(**over) -> dict:
+    rec = {
+        "provider": "github",
+        "repo_ref": "owner/repo",
+        "pr_number": 7,
+        "pr_state": "merged",
+        "merged": True,
+        "base_branch": "main",
+        "head_branch": "feature/x",
+        "author_principal": "alice",
+        "approver_principals": ["bob"],
+        "reviewer_principals": [{"principal": "bob", "latest_state": "APPROVED"}],
+        "requested_reviewer_principals": [],
+        "requested_reviewers_observed": True,
+        "merger_principal": "carol",
+        "presence_flags": {},
+        "traceability_refs": {},
+        "provenance": "connector_verified",
+        "observed_at": _NOW,
+    }
+    rec.update(over)
+    return rec
+
+
+@pytest.mark.db
+async def test_record_connector_latest_counts_and_flags(pr_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        # author approves + merges own PR -> self-approval + self-merge observed
+        row = await repo.record_connector_verified_pull_request(
+            project_id=p1,
+            payload=_conn_payload(
+                author_principal="alice", approver_principals=["alice"], merger_principal="alice"
+            ),
+            actor="conn",
+        )
+        assert row.provenance == "connector_verified"
+        assert row.approval_count == 1  # == len(approver_principals), DB-enforced
+        assert row.self_approval_observed is True
+        assert row.self_merge_observed is True
+        assert row.review_separation_observed is False
+        # newer snapshot for the same PR wins
+        row2 = await repo.record_connector_verified_pull_request(
+            project_id=p1, payload=_conn_payload(approver_principals=["bob"]), actor="conn"
+        )
+        latest = await repo.latest_pull_request_for_pr(p1, "github", "owner/repo", 7)
+        assert latest.id == row2.id
+        assert await repo.count_pull_request_snapshots(p1) == 2
+        assert await repo.count_connector_verified_pull_requests(p1) == 2
+
+
+@pytest.mark.db
+async def test_caller_path_unverified(pr_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        row = await repo.record_pull_request(
+            project_id=p1,
+            payload={
+                "provider": "github",
+                "repo_ref": "owner/repo",
+                "pr_number": 3,
+                "pr_state": "open",
+                "merged": False,
+            },
+            actor="caller",
+        )
+        assert row.provenance == "caller_supplied_unverified"
+
+
+@pytest.mark.db
+async def test_caller_declared_presence_label_preserved(pr_ctx):
+    # B-29-4: a connector_verified snapshot must NOT promote caller_declared flags.
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        row = await repo.record_connector_verified_pull_request(
+            project_id=p1,
+            payload=_conn_payload(
+                presence_flags={"tests_added": {"present": True, "source": "caller_declared"}}
+            ),
+            actor="conn",
+        )
+        assert row.presence_flags["tests_added"]["source"] == "caller_declared"
+
+
+# --- DB-backed: traceability validation (B-29-3) ------------------------------
+
+
+def _issue_payload() -> dict:
+    return {
+        "issue_category": "security",
+        "severity": "high",
+        "blocking": True,
+        "summary": "an open blocker",
+        "source": "manual",
+    }
+
+
+async def _seed_issue(session, ctx, project_id) -> uuid.UUID:
+    from app.repositories.release_issues import ReleaseIssueRepository
+
+    row = await ReleaseIssueRepository(session, ctx).create(
+        project_id=project_id, payload=_issue_payload(), actor="t"
+    )
+    return row.id
+
+
+async def _seed_artifact(session, ctx, project_id, kind, ref) -> uuid.UUID:
+    from app.intake.compiler import SourceInput
+    from app.repositories.intake import IntakeRepository
+
+    art = await IntakeRepository(session, ctx).add_artifact(
+        project_id=project_id,
+        kind=kind,
+        ref=ref,
+        title="x",
+        sources=[SourceInput(origin="human_decision", document_id=None)],
+        actor="t",
+    )
+    return art.id
+
+
+@pytest.mark.db
+async def test_traceability_valid_same_project_accepted(pr_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        issue_id = await _seed_issue(session, ctx, p1)
+        ac_id = await _seed_artifact(session, ctx, p1, "acceptance_criterion", "AC-1")
+        row = await _pr_repo(session, ctx).record_connector_verified_pull_request(
+            project_id=p1,
+            payload=_conn_payload(
+                traceability_refs={
+                    "release_issue_ids": [str(issue_id)],
+                    "acceptance_criterion_ids": [str(ac_id)],
+                }
+            ),
+            actor="conn",
+        )
+        assert str(issue_id) in row.traceability_refs["release_issue_ids"]
+
+
+@pytest.mark.db
+async def test_traceability_rejections(pr_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1, p2 = pr_ctx["t1"], pr_ctx["p1"], pr_ctx["p2"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        ac_p2 = await _seed_artifact(session, ctx, p2, "acceptance_criterion", "AC-P2")  # other proj
+        req_p1 = await _seed_artifact(session, ctx, p1, "requirement", "REQ-1")  # wrong kind
+        issue_p1 = await _seed_issue(session, ctx, p1)
+        cases = [
+            {"acceptance_criterion_ids": [str(ac_p2)]},  # wrong project
+            {"acceptance_criterion_ids": [str(req_p1)]},  # wrong kind (requirement)
+            {"acceptance_criterion_ids": [str(uuid.uuid4())]},  # unknown
+            {"release_issue_ids": [str(uuid.uuid4())]},  # unknown issue
+            {"release_issue_ids": [str(issue_p1), str(issue_p1)]},  # duplicate
+        ]
+        for refs in cases:
+            with pytest.raises(InvalidPullRequestSnapshot):
+                await repo.record_connector_verified_pull_request(
+                    project_id=p1, payload=_conn_payload(traceability_refs=refs), actor="conn"
+                )
+
+
+# --- DB-backed: merged-to-protected cross-ref (B-29-2) ------------------------
+
+
+async def _seed_verified_bp(session, ctx, project_id, repo_ref, branch, observed_at):
+    from app.repositories.ci_evidence import CIEvidenceRepository
+
+    await CIEvidenceRepository(session, ctx).record_connector_verified_branch_protection(
+        project_id=project_id,
+        payload={
+            "provider": "github",
+            "repo_ref": repo_ref,
+            "branch": branch,
+            "protection_enabled": True,
+            "required_pull_request_reviews": True,
+            "required_status_checks": ["ci/build"],
+            "enforce_admins": True,
+            "observed_at": observed_at,
+        },
+        actor="bp",
+    )
+
+
+def _now():
+    return datetime.now(timezone.utc)
+
+
+@pytest.mark.db
+async def test_merged_protected_true_only_when_verified_fresh(pr_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        await _seed_verified_bp(session, ctx, p1, "owner/repo", "main", _now())
+        row = await repo.record_connector_verified_pull_request(
+            project_id=p1,
+            payload=_conn_payload(merged=True, base_branch="main"),
+            actor="conn",
+        )
+        assert row.merged_to_declared_protected_branch_observed is True
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "scenario",
+    ["not_merged", "branch_mismatch", "no_bp", "stale_bp", "unverified_bp"],
+)
+async def test_merged_protected_false_paths(pr_ctx, scenario):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        payload = _conn_payload(merged=True, base_branch="main")
+        if scenario == "not_merged":
+            await _seed_verified_bp(session, ctx, p1, "owner/repo", "main", _now())
+            payload = _conn_payload(merged=False, pr_state="closed", base_branch="main")
+        elif scenario == "branch_mismatch":
+            await _seed_verified_bp(session, ctx, p1, "owner/repo", "main", _now())
+            payload = _conn_payload(merged=True, base_branch="dev")
+        elif scenario == "no_bp":
+            pass  # no branch-protection evidence at all
+        elif scenario == "stale_bp":
+            await _seed_verified_bp(
+                session, ctx, p1, "owner/repo", "main", _now() - timedelta(hours=48)
+            )
+        elif scenario == "unverified_bp":
+            from app.repositories.ci_evidence import CIEvidenceRepository
+
+            await CIEvidenceRepository(session, ctx).record_branch_protection(
+                project_id=p1,
+                payload={
+                    "provider": "github",
+                    "repo_ref": "owner/repo",
+                    "branch": "main",
+                    "protection_enabled": True,
+                    "required_pull_request_reviews": True,
+                    "required_status_checks": ["ci/build"],
+                    "enforce_admins": True,
+                },
+                actor="caller",
+            )
+        row = await repo.record_connector_verified_pull_request(
+            project_id=p1, payload=payload, actor="conn"
+        )
+        assert row.merged_to_declared_protected_branch_observed is False
+
+
+# --- DB-backed: RLS + audit safety --------------------------------------------
+
+
+@pytest.mark.db
+async def test_rls_cross_tenant(pr_ctx, rls_engine):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, t2, p1 = pr_ctx["t1"], pr_ctx["t2"], pr_ctx["p1"]
+    async with tenant_scope(TenantContext(t1)) as session:
+        await _pr_repo(session, TenantContext(t1)).record_connector_verified_pull_request(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            n = (
+                await conn.execute(text("SELECT count(*) FROM pull_request_evidence_snapshots"))
+            ).scalar_one()
+            assert n == 0  # deny-by-default: no GUC set
+    async with tenant_scope(TenantContext(t2)) as session:
+        assert (
+            await _pr_repo(session, TenantContext(t2)).latest_pull_request_for_pr(
+                p1, "github", "owner/repo", 7
+            )
+            is None
+        )
+
+
+@pytest.mark.db
+async def test_audit_is_safe_metadata_only(pr_ctx, admin_engine):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    secret_repo = "private-org/secret-repo"
+    async with tenant_scope(ctx) as session:
+        issue_id = await _seed_issue(session, ctx, p1)
+        row = await _pr_repo(session, ctx).record_connector_verified_pull_request(
+            project_id=p1,
+            payload=_conn_payload(
+                repo_ref=secret_repo,
+                author_principal="secret-author",
+                traceability_refs={"release_issue_ids": [str(issue_id)]},
+            ),
+            actor="conn",
+        )
+        sid = row.id
+    async with admin_engine.connect() as c:
+        payload = (
+            await c.execute(
+                text(
+                    "SELECT payload FROM audit_logs WHERE target=:tg AND tenant_id=:t "
+                    "ORDER BY seq DESC LIMIT 1"
+                ),
+                {"tg": f"pull_request_evidence_snapshot:{sid}", "t": t1},
+            )
+        ).scalar_one()
+    blob = str(payload)
+    assert secret_repo not in blob  # repo_ref never audited
+    assert "secret-author" not in blob  # principals never audited
+    assert str(issue_id) not in blob  # traceability UUIDs never audited
+    assert "repo_ref" not in payload and "author_principal" not in payload
