@@ -903,3 +903,140 @@ async def test_fake_connector_fetch_pull_request():
     boom = FakeSCMConnector(error=SCMConnectorError("x"))
     with pytest.raises(SCMConnectorError):
         await boom.fetch_pull_request(repo_ref="o/r", pr_number=1)
+
+
+# --- DB-backed: broker-gated service (B-29-4/7) -------------------------------
+
+
+async def _declare_repo(session, ctx, project_id, repo_ref, branch="main"):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    repo = IntakeCategoryRepository(session, ctx)
+    data = {"primary_repository": repo_ref, "protected_branch": branch}
+    await repo.declare(
+        project_id=project_id,
+        category="existing_assets_and_repositories",
+        actor="a",
+        data=data,
+        origin="test",
+    )
+
+
+async def _declare_secrets(session, ctx, project_id):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    await IntakeCategoryRepository(session, ctx).declare(
+        project_id=project_id,
+        category="secrets_and_credentials_manifest",
+        actor="a",
+        data={"references": [{"manager": "env", "reference_name": "GITHUB_CONNECTOR_TOKEN"}]},
+        origin="test",
+    )
+
+
+def _mapped_pr(**over) -> dict:
+    rec = {
+        "pr_state": "merged",
+        "merged": True,
+        "base_branch": "main",
+        "head_branch": "feature/x",
+        "merge_commit_sha": "a1b2c3d4",
+        "author_principal": "alice",
+        "approver_principals": ["bob"],
+        "reviewer_principals": [{"principal": "bob", "latest_state": "APPROVED"}],
+        "approval_count": 1,
+        "requested_reviewer_principals": [],
+        "requested_reviewers_observed": True,
+        "merger_principal": "carol",
+        "check_status_summary": None,
+    }
+    rec.update(over)
+    return rec
+
+
+async def _allow_setup(session, ctx, project_id, agent_id="conn"):
+    from app.policy.levels import AutonomyLevel
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+
+    await _declare_repo(session, ctx, project_id, "owner/repo")
+    await _declare_secrets(session, ctx, project_id)
+    await AutonomyPolicyRepository(session, ctx).upsert(
+        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    )
+    await ToolAllowlistRepository(session, ctx).grant(
+        agent_id=agent_id, tool_name="source_control.read_pull_request", actor="admin"
+    )
+
+
+@pytest.mark.db
+async def test_refresh_broker_allow_writes_safe_params(pr_ctx, admin_engine):
+    from app.release.pr_evidence_service import refresh_pull_request_evidence
+    from app.release.scm_connector import FakeSCMConnector
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _allow_setup(session, ctx, p1)
+        result = await refresh_pull_request_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            pr_number=7,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeSCMConnector(_mapped_pr()),
+            presence_flags={"tests_added": {"present": True, "source": "caller_declared"}},
+        )
+        assert result.wrote is True
+        row = await _pr_repo(session, ctx).latest_pull_request_for_pr(p1, "github", "owner/repo", 7)
+        assert row.provenance == "connector_verified"
+        assert row.presence_flags["tests_added"]["source"] == "caller_declared"
+    # broker recorded the tool call with SAFE params only — never the raw repo_ref.
+    async with admin_engine.connect() as c:
+        params_rows = (
+            await c.execute(
+                text(
+                    "SELECT params FROM tool_calls WHERE tenant_id=:t "
+                    "AND tool_name='source_control.read_pull_request'"
+                ),
+                {"t": str(t1)},
+            )
+        ).all()
+    assert params_rows
+    for (params,) in params_rows:
+        assert "repo_ref" not in (params or {})
+        assert params.get("repo_ref_present") is True
+        assert params.get("pr_number") == 7  # pr_number is a safe param (not a secret)
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("scenario", ["repo_unbound", "broker_denied", "connector_error", "no_pr"])
+async def test_refresh_no_write_paths(pr_ctx, scenario):
+    from app.release.pr_evidence_service import refresh_pull_request_evidence
+    from app.release.scm_connector import FakeSCMConnector, SCMConnectorError
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        connector = FakeSCMConnector(_mapped_pr())
+        if scenario == "repo_unbound":
+            pass  # no declared repo
+        elif scenario == "broker_denied":
+            await _declare_repo(session, ctx, p1, "owner/repo")
+            await _declare_secrets(session, ctx, p1)  # declared, but agent not allowlisted
+        elif scenario == "connector_error":
+            await _allow_setup(session, ctx, p1)
+            connector = FakeSCMConnector(error=SCMConnectorError("reviews endpoint 500"))
+        elif scenario == "no_pr":
+            await _allow_setup(session, ctx, p1)
+            connector = FakeSCMConnector(result=None)
+        result = await refresh_pull_request_evidence(
+            session, ctx, project_id=p1, pr_number=7, agent_id="conn", actor="conn",
+            connector=connector,
+        )
+        assert result.wrote is False
+        assert await repo.count_connector_verified_pull_requests(p1) == 0
