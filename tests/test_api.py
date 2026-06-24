@@ -660,7 +660,7 @@ async def test_production_autonomy_endpoint_returns_report(api_ctx):
     assert body["a5_satisfied"] is False
     assert body["can_go_live_autonomously"] is False
     assert len(body["gates"]) == 13
-    assert body["ruleset_version"] == "slice26.v1"
+    assert body["ruleset_version"] == "slice28.v1"
 
 
 @pytest.mark.db
@@ -672,7 +672,7 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
         )
     assert r.status_code == 200
     body = r.json()["production_autonomy"]
-    assert body["ruleset_version"] == "slice26.v1"
+    assert body["ruleset_version"] == "slice28.v1"
     assert all("context" in g and isinstance(g["context"], dict) for g in body["gates"])
     by_num = {g["number"]: g for g in body["gates"]}
     g7 = by_num[7]
@@ -701,11 +701,13 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
     assert "open_unaccepted_critical_security_finding_count" in by_num[5]["context"]
     assert "open_shortcut_finding_count" in by_num[6]["context"]
     assert "open_unaccepted_critical_shortcut_finding_count" in by_num[6]["context"]
-    # Slice 26: gate #3 (branch protection) is now insufficient_evidence with snapshot-count context
-    # (no snapshot seeded in the API fixture ⇒ no_branch_protection_evidence).
+    # Slice 28: gate #3 binds to the project's declared repo; the API fixture declares none ⇒
+    # fail-closed branch_protection_repo_unbound (insufficient_evidence, never passes here).
     g3 = by_num[3]
     assert g3["status"] == "insufficient_evidence"
-    assert g3["reason"] == "no_branch_protection_evidence"
+    assert g3["reason"] == "branch_protection_repo_unbound"
+    assert g3["context"]["branch_protection_repo_bound"] is False
+    assert "repo_ref" not in g3["context"]
     for k in (
         "branch_protection_snapshot_count",
         "connector_verified_branch_protection_count",

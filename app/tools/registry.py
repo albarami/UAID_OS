@@ -54,6 +54,10 @@ TOOL_REGISTRY: dict[str, ToolContract] = {
     "source_control.create_branch": _c(
         "source_control.create_branch", "source_control", "create_branches"
     ),
+    # Slice 28: broker-gated read; maps to the read-only read_source_control_config action.
+    "source_control.read_branch_protection": _c(
+        "source_control.read_branch_protection", "source_control", "read_source_control_config"
+    ),
     "source_control.open_pull_request": _c(
         "source_control.open_pull_request",
         "source_control",

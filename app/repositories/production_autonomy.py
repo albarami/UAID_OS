@@ -1,9 +1,10 @@
-"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23 + 24 + 25) — compute-on-read, no persist.
+"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23 + 24 + 25 + 26 + 28) — compute-on-read, no persist.
 
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
-migration — D-21-A). The verdict is deterministic from current state and, this slice, always "A5 not
-satisfied" with ``can_go_live_autonomously`` hard-false. Run inside ``tenant_scope`` (GUC set).
+migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
+``can_go_live_autonomously`` hard-false — even though gate #3 is now PASS-capable, ≥11 gates remain
+unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
 - gate #1: the **current** readiness level via ``ReadinessRepository.evaluate`` (no persisted
@@ -17,14 +18,22 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
   ``ReleaseIssueRepository`` open counts + ``ReleaseCandidateRepository.count_frozen`` /
   ``latest_frozen`` + bound-issue counts — surfaced as ``context``. The reason narrows to
   ``no_issue_provenance`` when a frozen release candidate exists; it stays
-  ``insufficient_evidence`` and never passes.
+  ``insufficient_evidence`` and never passes;
+- gate #3 (Slice 26 + 28): the latest ``branch_protection_snapshots`` row **for the project's currently
+  declared repo/branch** (``resolve_declared_repo`` + ``latest_branch_protection_for_repo``) plus
+  freshness (``CI_EVIDENCE_MAX_AGE_HOURS``). Gate #3 **PASSes** on repo-bound + ``connector_verified`` +
+  protection-active + fresh evidence (the first non-#1 gate that can pass); undeclared/malformed ⇒
+  ``branch_protection_repo_unbound``.
 Nothing here authorizes go-live.
 """
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
+from app.release.project_repo import resolve_declared_repo
 from app.release.production_autonomy import (
     ProductionAutonomyReport,
     evaluate_production_autonomy,
@@ -41,6 +50,14 @@ from app.repositories.risk_acceptance import RiskAcceptanceRepository
 from app.tenancy import TenantContext
 
 _ENV_CATEGORY = "environments_and_deployment_targets"
+
+
+def _is_fresh(row) -> bool:
+    """Slice 28: branch-protection evidence is fresh iff observed within CI_EVIDENCE_MAX_AGE_HOURS."""
+    if row is None or row.observed_at is None:
+        return False
+    max_age = timedelta(hours=settings.ci_evidence_max_age_hours)
+    return (datetime.now(timezone.utc) - row.observed_at) <= max_age
 
 
 class ProductionAutonomyRepository:
@@ -72,7 +89,17 @@ class ProductionAutonomyRepository:
         findings = ReleaseFindingRepository(self.session, self.context)
         candidates = ReleaseCandidateRepository(self.session, self.context)
         ci = CIEvidenceRepository(self.session, self.context)
-        latest_bp = await ci.latest_branch_protection(project_id)
+        # Slice 28: gate #3 binds to the project's CURRENTLY declared repo (B1-cont) — the snapshot
+        # for that repo/branch, NOT the project-only latest.
+        declared = await resolve_declared_repo(self.session, self.context, project_id)
+        repo_bound = declared is not None
+        if declared is not None:
+            latest_bp = await ci.latest_branch_protection_for_repo(
+                project_id, declared[0], declared[1]
+            )
+        else:
+            latest_bp = None
+        bp_fresh = _is_fresh(latest_bp)
         latest_frozen = await candidates.latest_frozen(project_id)
         if latest_frozen is not None:
             bound_open = await candidates.bound_open_issue_count(latest_frozen.id)
@@ -127,4 +154,9 @@ class ProductionAutonomyRepository:
             latest_required_status_check_count=(
                 latest_bp.required_status_check_count if latest_bp is not None else 0
             ),
+            branch_protection_repo_bound=repo_bound,
+            latest_branch_protection_required_pull_request_reviews=(
+                latest_bp.required_pull_request_reviews if latest_bp is not None else None
+            ),
+            latest_branch_protection_fresh=bp_fresh,
         )

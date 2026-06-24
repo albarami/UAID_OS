@@ -3,12 +3,13 @@
 
 One immutable row per observation of a repo's branch-protection configuration (the gate-#3 evidence
 class). Append-only: SELECT/INSERT only for the runtime role, with UPDATE/DELETE/TRUNCATE blocked by
-triggers (migration ``0025``). ``provenance`` is a two-tier axis whose ``connector_verified`` value is
-schema-reserved but **unwritable** in Slice 26 (the DB guard forces ``caller_supplied_unverified`` on
-INSERT). ``repo_ref`` is constrained to a GitHub-first ``owner/repo`` slug with a token-prefix denylist
-(``ck_bps_repo_ref_slug`` + ``ck_bps_repo_ref_not_tokenish``); ``required_status_checks`` is a JSON
-array (``ck_bps_checks_array`` + the §4.1 guard's per-element + count strict-verify). These snapshots
-never enable go-live and never let gate #3 PASS this slice.
+triggers (migration ``0025``). ``provenance`` is a two-tier axis: the caller path writes
+``caller_supplied_unverified``; the **Slice-28 connector path** writes ``connector_verified`` (migration
+``0027`` relaxes the guard). ``repo_ref`` is constrained to a GitHub-first ``owner/repo`` slug with a
+token-prefix denylist (``ck_bps_repo_ref_slug`` + ``ck_bps_repo_ref_not_tokenish``);
+``required_status_checks`` is a JSON array (``ck_bps_checks_array`` + the §4.1 guard's per-element +
+count strict-verify). These snapshots never enable go-live; **gate #3 PASSes (Slice 28) only from
+repo-bound latest ``connector_verified`` + fresh + sufficient evidence**.
 """
 
 import uuid

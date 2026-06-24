@@ -1,10 +1,11 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25 + 26, spec §5.1 + App. B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25 + 26 + 28, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
 (default ``{}``, serialized on every gate):
 
-- **Only gate #1 (R5 intake complete)** can ``pass`` today — and only when readiness is ``R5``.
+- **Gate #1 (R5 intake complete)** passes when readiness is ``R5``; **gate #3 (branch protection)** is
+  now **PASS-capable** (Slice 28) — see below. No other gate can pass yet.
 - The **seven** partial-context gates (#2, #5, #6, #7, #8, #9, #12) return ``insufficient_evidence``:
   the system has a *primitive* (env declaration; **Slice-23 security findings store, #5**;
   **Slice-23 shortcut findings store, #6**; **Slice-22 risk-acceptance store, #7**; AC provenance;
@@ -15,26 +16,31 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   ``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a FROZEN release
   candidate exists (the release-binding half is satisfied), but issue provenance/completeness still
   does not exist, so it never passes. Their counts are context only and never authorize.
-- **Slice 26 (#3 branch protection):** the ``branch_protection_snapshots`` store now exists, so gate #3
-  moves from ``no_evidence_source`` to ``insufficient_evidence`` (reason narrows from
-  ``no_branch_protection_evidence`` to ``branch_protection_observed_unverified`` once a snapshot exists),
-  with snapshot/verified counts as context. It **never passes** — Slice 26 writes only
-  ``caller_supplied_unverified`` evidence and implements no PASS path (that lands with the real
-  connector, Slice 28).
+- **Slice 28 (#3 branch protection — PASS-capable):** gate #3 evaluates the latest snapshot for the
+  project's **currently declared** repo/branch (B1-cont) via a latest-wins ladder —
+  ``branch_protection_repo_unbound`` → ``no_branch_protection_evidence`` →
+  ``branch_protection_observed_unverified`` → ``branch_protection_evidence_stale`` →
+  ``branch_protection_insufficient`` → **``passed``** when the latest is ``connector_verified`` +
+  protection-enabled + PR-reviews + ≥1 required check + fresh. It is the **first non-#1 gate that can
+  PASS**; counts are context only; the report carries ``branch_protection_repo_bound`` (never raw
+  ``repo_ref``).
 - The **four** sourceless gates (#4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
   they await Phase 5/6 evidence subsystems.
 
-``a5_satisfied`` is true only if **all 13** gates pass (impossible this slice).
-``can_go_live_autonomously`` is **hard-false always** — go-live additionally requires a
-request-authenticated, verified A5 pre-approval that does not exist yet. This module never authorizes
-production: it only reports the gate structure honestly. ``ruleset_version`` is ``slice26.v1``.
+``a5_satisfied`` is true only if **all 13** gates pass (still impossible — ≥11 gates remain unmet even
+with gate #1 and gate #3 passing). ``can_go_live_autonomously`` is **hard-false always** — go-live
+additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
+module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
+``slice28.v1``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-A5_RULESET_VERSION = "slice26.v1"
+from app.release.ci_evidence import gate3_protection_sufficient
+
+A5_RULESET_VERSION = "slice28.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -127,6 +133,9 @@ def evaluate_production_autonomy(
     latest_branch_protection_provenance: str | None = None,
     latest_branch_protection_enabled: bool | None = None,
     latest_required_status_check_count: int = 0,
+    branch_protection_repo_bound: bool = False,
+    latest_branch_protection_required_pull_request_reviews: bool | None = None,
+    latest_branch_protection_fresh: bool = False,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -216,28 +225,41 @@ def evaluate_production_autonomy(
         },
     )
 
-    # Slice 26: the branch-protection snapshot store now exists, so gate #3 moves from
-    # no_evidence_source to insufficient_evidence. It NEVER passes — Slice 26 writes only
-    # caller_supplied_unverified evidence (the verified tier is unwritable) and implements no PASS
-    # path (that lands with the real connector, Slice 28). The reason narrows once a snapshot exists.
-    gate3_reason = (
-        "no_branch_protection_evidence"
-        if branch_protection_snapshot_count == 0
-        else "branch_protection_observed_unverified"
-    )
-    gate3 = _insufficient(
-        3,
-        "branch_protection_and_required_checks_active",
-        gate3_reason,
-        {
-            "branch_protection_snapshot_count": branch_protection_snapshot_count,
-            "connector_verified_branch_protection_count": connector_verified_branch_protection_count,
-            "latest_branch_protection_provenance": latest_branch_protection_provenance,
-            # observed, UNVERIFIED — never an assertion that protection is on; never flips the gate.
-            "latest_branch_protection_enabled": latest_branch_protection_enabled,
-            "latest_required_status_check_count": latest_required_status_check_count,
-        },
-    )
+    # Slice 28: gate #3 is PASS-capable. The "latest" inputs are the snapshot for the CURRENTLY
+    # DECLARED repo/branch (B1-cont — bound by the repo at evaluation time); the ladder is keyed ONLY
+    # off that latest snapshot. A 200-verified, active, fresh snapshot PASSES; everything else fails
+    # closed. Counts are context only. The report carries branch_protection_repo_bound, never repo_ref.
+    _gate3_name = "branch_protection_and_required_checks_active"
+    _gate3_ctx = {
+        "branch_protection_repo_bound": branch_protection_repo_bound,
+        "branch_protection_snapshot_count": branch_protection_snapshot_count,
+        "connector_verified_branch_protection_count": connector_verified_branch_protection_count,
+        "latest_branch_protection_provenance": latest_branch_protection_provenance,
+        "latest_branch_protection_enabled": latest_branch_protection_enabled,
+        "latest_required_status_check_count": latest_required_status_check_count,
+    }
+    if not branch_protection_repo_bound:
+        gate3 = _insufficient(3, _gate3_name, "branch_protection_repo_unbound", _gate3_ctx)
+    elif latest_branch_protection_provenance is None:
+        gate3 = _insufficient(3, _gate3_name, "no_branch_protection_evidence", _gate3_ctx)
+    elif latest_branch_protection_provenance != "connector_verified":
+        gate3 = _insufficient(3, _gate3_name, "branch_protection_observed_unverified", _gate3_ctx)
+    elif not latest_branch_protection_fresh:
+        gate3 = _insufficient(3, _gate3_name, "branch_protection_evidence_stale", _gate3_ctx)
+    elif not gate3_protection_sufficient(
+        protection_enabled=latest_branch_protection_enabled,
+        required_pull_request_reviews=latest_branch_protection_required_pull_request_reviews,
+        required_status_check_count=latest_required_status_check_count,
+    ):
+        gate3 = _insufficient(3, _gate3_name, "branch_protection_insufficient", _gate3_ctx)
+    else:
+        gate3 = GateResult(
+            3,
+            _gate3_name,
+            STATUS_PASSED,
+            "branch_protection_and_required_checks_active_verified",
+            _gate3_ctx,
+        )
 
     # Gates with no evidence source at all (await Phase 5/6 subsystems).
     gates = [

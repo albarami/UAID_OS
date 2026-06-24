@@ -413,19 +413,21 @@ auditor is now **capped at R5** (A5/Appendix-B production autonomy still out of 
   spine kinds; the R3/R4/R5 rules consuming these declarations live in Slices 16/18/20, and A5/Appendix-B
   production autonomy remains deferred (go-live stays false even at R5).**
 
-## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23+24+25+26, §5.1 / App. B)
+## Production-autonomy (A5) evaluator — fail-closed, non-authorizing (Slices 21+22+23+24+25+26+28, §5.1 / App. B)
 `app/release/production_autonomy.py` + `app/repositories/production_autonomy.py` add a **pure,
 deterministic, fail-closed** evaluator that scores the **13 Appendix-B A5 gates** and emits a
 `production_autonomy` report (separate from the R5 readiness report). It is **non-authorizing**: it
 never deploys, never approves, and **never sets `can_go_live_autonomously` true**.
 - Each gate has `status ∈ {passed, insufficient_evidence, no_evidence_source}` (subsystem detail in
-  `reason`; every gate also carries a `context` dict, default `{}`). **Only gate #1 (R5 intake
-  complete) can pass** (when readiness is R5). Gates **#2/#3/#5/#6/#7/#8/#9/#12** have partial *context*
-  primitives only and return `insufficient_evidence` (they never pass) — **#3 (branch protection,
-  Slice 26) is `insufficient_evidence`** with its reason narrowing `no_branch_protection_evidence` →
-  `branch_protection_observed_unverified` once a `branch_protection_snapshots` row exists, and
-  snapshot/verified-count context (only `caller_supplied_unverified` evidence is writable, so it never
-  passes — the PASS path lands with the real connector, Slice 28); **#5/#6 (security/shortcut
+  `reason`; every gate also carries a `context` dict, default `{}`). **Gate #1 (R5 intake complete)
+  passes** when readiness is R5; **gate #3 (branch protection) is now PASS-capable** (Slice 28) — see
+  below. Gates **#2/#5/#6/#7/#8/#9/#12** have partial *context* primitives only and return
+  `insufficient_evidence` (they never pass) — **#3 (branch protection, Slice 28)** evaluates the latest
+  snapshot for the project's **currently declared** repo/branch via a latest-wins ladder
+  (`branch_protection_repo_unbound` → `no_branch_protection_evidence` →
+  `branch_protection_observed_unverified` → `branch_protection_evidence_stale` →
+  `branch_protection_insufficient` → **`passed`** when the latest is `connector_verified` +
+  protection-active + fresh), the **first non-#1 gate that can PASS**; **#5/#6 (security/shortcut
   findings) are `insufficient_evidence:no_finding_provenance_or_scan_source`** with open/critical
   finding-count context (Slice 23 added the stores but there's no authoritative scan coverage);
   **#7 (risk-acceptance + open-issue + release-binding) is `insufficient_evidence`** — its reason
@@ -443,7 +445,7 @@ never deploys, never approves, and **never sets `can_go_live_autonomously` true*
   release-candidate/ci-evidence context) via tenant-scoped repos inside `tenant_scope`/RLS and runs the
   pure engine — it writes nothing. Read-only at `GET /api/projects/{id}/production_autonomy`;
   cross-tenant/nonexistent yields a generic not-satisfied report (no leak).
-  `ruleset_version = "slice26.v1"`.
+  `ruleset_version = "slice28.v1"`.
 - **Out of scope:** any real evidence subsystem beyond the risk-acceptance + findings + issue +
   release-candidate + ci-evidence *stores* (no scanner/detector/reviewer/connector execution, no issue
   provenance), request-auth, persistence/history, LLM, actual deploy.
@@ -452,9 +454,9 @@ never deploys, never approves, and **never sets `can_go_live_autonomously` true*
 `app/release/ci_evidence.py` + `app/repositories/ci_evidence.py` add the **first evidence class for A5
 gate #3**: immutable, append-only `branch_protection_snapshots` recording a repo's branch-protection
 *configuration*. Fail-closed and **non-authorizing**.
-- **Two-tier provenance:** `caller_supplied_unverified` is the **only** value writable this slice; the
-  `connector_verified` tier is **schema-reserved but unwritable** (the DB guard forces the unverified
-  value on INSERT — the real connector, Slice 28, relaxes it).
+- **Two-tier provenance:** `caller_supplied_unverified` (the caller/observational tier) and
+  `connector_verified`. In Slice 26 only the unverified tier was writable; **Slice 28's migration `0027`
+  relaxes the guard so the connector path writes `connector_verified`** (see the connector section below).
 - **`repo_ref` hardening (enforced at validator + column CHECK + INSERT guard):** a GitHub-first
   `owner/repo` **slug** (`ck_bps_repo_ref_slug`) **plus** a GitHub-token-prefix **denylist**
   (`ck_bps_repo_ref_not_tokenish`, rejects `owner/ghp_…`, `github_pat_…`, etc.) — no URLs, credentialed
@@ -464,12 +466,38 @@ gate #3**: immutable, append-only `branch_protection_snapshots` recording a repo
 - **Persistence:** `branch_protection_snapshots` (tenant-owned, RLS ENABLE+FORCE; **SELECT/INSERT only**
   — UPDATE/DELETE/TRUNCATE blocked; migration `0025`); audit = safe metadata only (ids/provider/branch/
   booleans/count/provenance — **never** `repo_ref`, the check-name list, or any URL/token).
-- **A5 hook:** feeds gate #3 (`production_autonomy` `ruleset_version` → `slice26.v1`) — moves it
-  `no_evidence_source` → `insufficient_evidence` with snapshot/verified counts as context; **never
-  passes** (no verified evidence is writable, no PASS path this slice).
+- **A5 hook:** feeds gate #3; **Slice 28 makes gate #3 PASS-capable** (`ruleset_version` → `slice28.v1`)
+  on repo-bound + latest `connector_verified` + fresh + sufficient evidence — see the connector section
+  below for the full ladder.
 - Latest snapshot read-only at `GET /api/projects/{id}/ci_evidence` (latest-or-null, no list/history).
-- **Out of scope:** the real source-control connector / broker call (Slice 28), secrets-reference
-  verification, PR/test-oracle evidence, request-auth, go-live, LLM; gate #3 never passes.
+- **Out of scope (Slice 26):** the real source-control connector / broker call (Slice 28),
+  secrets-reference verification, PR/test-oracle evidence, request-auth, go-live, LLM.
+
+## Verified source-control / CI connector — A5 gate #3 PASS-capable (Slice 28, App. B #3 / §26.3)
+`app/release/scm_connector.py` + `app/release/ci_evidence_service.py` + `app/release/project_repo.py`
+add the **GitHub-first, broker-mediated** connector that turns gate #3 from "observed" to **verified**:
+- **Project-repo bound (security):** the connector resolves `repo_ref`/`branch` from the project's OWN
+  declared `existing_assets_and_repositories` and the credential source from
+  `secrets_and_credentials_manifest` — **never a caller-supplied `repo_ref`** — so an unrelated protected
+  repo cannot satisfy gate #3. The **same shared resolver** runs at gate-evaluation time, so revising the
+  declaration invalidates old-repo evidence; undeclared/malformed ⇒ fail-closed `branch_protection_repo_unbound`.
+- **Broker-gated read:** calls `broker_call` for the read-only `source_control.read_branch_protection`
+  tool (maps to the A1 `read_source_control_config` action; the broker stays **decision-only**, no
+  authority broadening) with **safe params only** (`provider`/`branch`/`repo_ref_present`) — `repo_ref`
+  never enters `tool_calls.params` or audit.
+- **Verified write (200-only):** on a clean GitHub **200** it writes a `connector_verified` snapshot
+  (the tier unlocked by migration `0027`, app-stamped on the connector path only). `403`/`404`/non-200/
+  timeout/malformed ⇒ **no write** (fail-closed; never a fabricated "verified-off" snapshot). Token is
+  operator env-only (`GITHUB_CONNECTOR_TOKEN`, empty ⇒ fail closed), redacted, never persisted/audited.
+  `GitHubSCMConnector` is shipped but **never exercised in tests** (no network in CI); `FakeSCMConnector`
+  drives all tests.
+- **Gate #3 PASS rule (`ruleset_version=slice28.v1`):** the latest snapshot **for the currently declared
+  repo/branch** must be `connector_verified` + `protection_enabled` + `required_pull_request_reviews` +
+  ≥1 required check + **fresh** (`CI_EVIDENCE_MAX_AGE_HOURS`=24, default). Latest-wins ladder; counts are
+  context-only; the report exposes `branch_protection_repo_bound`, never `repo_ref`. Gate #3 is the
+  **first non-#1 gate that can PASS**; `a5_satisfied` + go-live stay **false** (≥11 gates unmet).
+- **Out of scope (Slice 28):** PR/review/test-result evidence (Slice 29), per-tenant token resolution
+  (operator-level now), any HTTP write endpoint (admin/internal only), go-live.
 
 ## Release findings (security / shortcut) — deterministic, tenant-owned store (Slice 23, §13.4 / §916-920)
 `app/release/findings.py` + `app/repositories/release_findings.py` add the A5 gate-#5/#6 evidence

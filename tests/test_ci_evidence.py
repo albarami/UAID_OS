@@ -1,11 +1,12 @@
-"""Source-control / CI branch-protection evidence store tests (Slice 26, Appendix B #3 / §26.3).
+"""Source-control / CI branch-protection evidence + connector tests (Slice 26 + 28, App. B #3 / §26.3).
 
-Fail-closed and non-authorizing: an immutable, append-only ``branch_protection_snapshots`` store whose
-only writable provenance is ``caller_supplied_unverified`` (the ``connector_verified`` tier is
-schema-reserved but unwritable this slice). ``repo_ref`` is a GitHub-first ``owner/repo`` slug with a
+Immutable, append-only ``branch_protection_snapshots`` with a two-tier provenance: the caller path
+writes ``caller_supplied_unverified``; the **Slice-28 connector path** writes ``connector_verified``
+(the tier unlocked by migration ``0027``). ``repo_ref`` is a GitHub-first ``owner/repo`` slug with a
 token-prefix denylist; ``required_status_checks`` is a bounded-string JSON array with server-derived
-count. Docker-free for the pure validators; ``db`` for the store (RLS, append-only, DB guard + CHECKs,
-audit safe-metadata). Gate #3 never PASSes this slice.
+count. Docker-free for the pure validators + connector mapping/gate predicate; ``db`` for the store, the
+broker-gated repo-bound connector, and gate #3 (which PASSes only on repo-bound + latest verified +
+fresh + sufficient evidence).
 """
 
 import uuid
@@ -237,7 +238,7 @@ async def test_counts_and_verified_tier_empty(bp_ctx):
             project_id=p1, payload=_valid(required_status_checks=[]), actor="a"
         )
         assert await repo.count_branch_protection_snapshots(p1) == 2
-        assert await repo.count_connector_verified_branch_protection(p1) == 0  # tier unwritable
+        assert await repo.count_connector_verified_branch_protection(p1) == 0  # no connector write here
 
 
 @pytest.mark.db
@@ -294,7 +295,6 @@ async def _raw_insert(rls_engine, t1, p1, **over):
 @pytest.mark.parametrize(
     "over",
     [
-        {"prov": "connector_verified"},  # verified tier unwritable
         {"provider": "gitlab"},  # provider CHECK
         {"repo_ref": "https://github.com/org/repo"},  # repo_ref shape (URL)
         {"repo_ref": "https://token@github.com/org/repo"},  # repo_ref shape (credentialed URL)
@@ -398,3 +398,477 @@ async def test_catalog_grants_and_rls(admin_engine):
             "ck_bps_repo_ref_not_tokenish",
             "ck_bps_checks_array",
         } <= checks
+
+
+# --- Slice 28: connector pure functions (Docker-free) -------------------------
+
+from app.release.ci_evidence import (  # noqa: E402
+    CONNECTOR_WRITABLE,
+    gate3_protection_sufficient,
+    validate_connector_snapshot,
+)
+
+
+def _connector_valid(**over) -> dict:
+    rec = _valid()
+    rec["provenance"] = "connector_verified"
+    rec["observed_at"] = "2026-06-23T00:00:00Z"  # required for the connector path
+    rec.update(over)
+    return rec
+
+
+def test_connector_writable_tuple():
+    assert CONNECTOR_WRITABLE == ("connector_verified",)
+
+
+def test_validate_connector_snapshot_accepts_verified():
+    validate_connector_snapshot(_connector_valid())  # no raise
+
+
+def test_validate_connector_snapshot_requires_observed_at():
+    rec = _connector_valid()
+    del rec["observed_at"]
+    with pytest.raises(InvalidBranchProtectionSnapshot):
+        validate_connector_snapshot(rec)
+
+
+def test_validate_connector_snapshot_rejects_caller_tier():
+    with pytest.raises(InvalidBranchProtectionSnapshot):
+        validate_connector_snapshot(_connector_valid(provenance="caller_supplied_unverified"))
+
+
+def test_caller_validator_still_rejects_connector_tier():
+    # The unverified caller path must NEVER accept connector_verified (Slice 26 invariant holds).
+    with pytest.raises(InvalidBranchProtectionSnapshot):
+        validate_new_snapshot(_valid(provenance="connector_verified"))
+
+
+@pytest.mark.parametrize(
+    "enabled,pr,count,expected",
+    [
+        (True, True, 1, True),
+        (True, True, 3, True),
+        (False, True, 1, False),  # protection off
+        (True, False, 1, False),  # no PR reviews
+        (True, True, 0, False),  # no required checks
+        (None, True, 1, False),  # fail-closed on None
+        (True, None, 1, False),
+    ],
+)
+def test_gate3_protection_sufficient(enabled, pr, count, expected):
+    assert (
+        gate3_protection_sufficient(
+            protection_enabled=enabled,
+            required_pull_request_reviews=pr,
+            required_status_check_count=count,
+        )
+        is expected
+    )
+
+
+# --- Slice 28: GitHub response mapping (pure) ---------------------------------
+
+from app.release.scm_connector import (  # noqa: E402
+    SCMConnectorError,
+    map_github_branch_protection,
+)
+
+
+def test_map_github_happy():
+    m = map_github_branch_protection(
+        {
+            "required_pull_request_reviews": {"dismiss_stale_reviews": True},
+            "required_status_checks": {"contexts": ["ci/build", "ci/test"]},
+            "enforce_admins": {"enabled": True},
+        }
+    )
+    assert m["protection_enabled"] is True  # a 200 means protection is on
+    assert m["required_pull_request_reviews"] is True
+    assert m["required_status_checks"] == ["ci/build", "ci/test"]
+    assert m["enforce_admins"] is True
+
+
+def test_map_github_no_pr_reviews_no_checks():
+    m = map_github_branch_protection({"enforce_admins": {"enabled": False}})
+    assert m["required_pull_request_reviews"] is False
+    assert m["required_status_checks"] == []
+    assert m["enforce_admins"] is False
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "x",
+        None,
+        123,
+        {},
+        {"enforce_admins": "no"},  # not an object
+        {"enforce_admins": {}},  # missing enabled
+        {"enforce_admins": {"enabled": "yes"}},  # enabled not a bool
+        {"enforce_admins": {"enabled": 1}},  # int is not bool (no truthy coercion)
+        {"enforce_admins": {"enabled": True}, "required_status_checks": "x"},  # rsc non-object
+        {  # non-string context — must NOT be silently dropped
+            "enforce_admins": {"enabled": True},
+            "required_status_checks": {"contexts": ["a", 1]},
+        },
+        {  # malformed check object
+            "enforce_admins": {"enabled": True},
+            "required_status_checks": {"checks": [{"context": 1}]},
+        },
+    ],
+)
+def test_map_github_malformed_raises(bad):
+    with pytest.raises(SCMConnectorError):
+        map_github_branch_protection(bad)
+
+
+async def test_github_adapter_wraps_malformed_200_json(monkeypatch):
+    # GitHubSCMConnector is never run against the real network; here we monkeypatch httpx so a 200
+    # with non-JSON body fails closed as SCMConnectorError (no verified write). No network.
+    import httpx
+
+    from app.release.scm_connector import GitHubSCMConnector
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("not json")
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, *a, **k):
+            return _Resp()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    with pytest.raises(SCMConnectorError):
+        await GitHubSCMConnector("tok").fetch_branch_protection(repo_ref="owner/repo", branch="main")
+
+
+# --- Slice 28 DB: connector verified write + gate-time repo binding -----------
+
+from datetime import datetime, timezone  # noqa: E402
+
+
+def _gate3(rep) -> dict:
+    return next(g for g in rep.to_dict()["gates"] if g["number"] == 3)
+
+
+def _connector_payload(repo_ref="owner/repo-a", branch="main", **over) -> dict:
+    rec = {
+        "provider": "github",
+        "repo_ref": repo_ref,
+        "branch": branch,
+        "protection_enabled": True,
+        "required_pull_request_reviews": True,
+        "required_status_checks": ["ci/build"],
+        "enforce_admins": True,
+        "observed_at": datetime.now(timezone.utc),
+    }
+    rec.update(over)
+    return rec
+
+
+async def _declare_repo(session, ctx, project_id, repo_ref, branch="main"):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    repo = IntakeCategoryRepository(session, ctx)
+    data = {"primary_repository": repo_ref, "protected_branch": branch}
+    if await repo.get_category(project_id, "existing_assets_and_repositories") is None:
+        await repo.declare(
+            project_id=project_id,
+            category="existing_assets_and_repositories",
+            actor="a",
+            data=data,
+            origin="test",
+        )
+    else:
+        await repo.revise(
+            project_id=project_id,
+            category="existing_assets_and_repositories",
+            actor="a",
+            data=data,
+        )
+
+
+async def _declare_secrets(session, ctx, project_id):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    await IntakeCategoryRepository(session, ctx).declare(
+        project_id=project_id,
+        category="secrets_and_credentials_manifest",
+        actor="a",
+        data={"references": [{"manager": "env", "reference_name": "GITHUB_CONNECTOR_TOKEN"}]},
+        origin="test",
+    )
+
+
+@pytest.mark.db
+async def test_connector_verified_write_and_counts(bp_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _repo(session, ctx)
+        row = await repo.record_connector_verified_branch_protection(
+            project_id=p1, payload=_connector_payload(), actor="conn"
+        )
+        assert row.provenance == "connector_verified"
+        assert await repo.count_connector_verified_branch_protection(p1) == 1
+        got = await repo.latest_branch_protection_for_repo(p1, "owner/repo-a", "main")
+        assert got is not None and got.id == row.id
+        # a different repo/branch has no snapshot
+        assert await repo.latest_branch_protection_for_repo(p1, "owner/other", "main") is None
+
+
+@pytest.mark.db
+async def test_db_guard_now_allows_connector_verified_only(bp_ctx, rls_engine):
+    # 0027 relaxed the guard: connector_verified now inserts; bad provider still rejected.
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1, prov="connector_verified")  # no raise now
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, p1, prov="connector_verified", provider="gitlab")
+
+
+@pytest.mark.db
+async def test_gate3_passes_for_declared_repo_and_invalidated_on_revision(bp_ctx):
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _declare_repo(session, ctx, p1, "owner/repo-a")
+        await _repo(session, ctx).record_connector_verified_branch_protection(
+            project_id=p1, payload=_connector_payload("owner/repo-a"), actor="conn"
+        )
+        rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
+        g3 = _gate3(rep)
+        assert g3["status"] == "passed"
+        assert g3["context"]["branch_protection_repo_bound"] is True
+        assert "repo_ref" not in g3["context"]  # never the raw repo_ref
+    # Revise the declaration to repo B — the old verified A snapshot must NOT satisfy gate #3.
+    async with tenant_scope(ctx) as session:
+        await _declare_repo(session, ctx, p1, "owner/repo-b")
+        g3 = _gate3(await ProductionAutonomyRepository(session, ctx).evaluate(p1))
+        assert g3["status"] == "insufficient_evidence"
+        assert g3["reason"] == "no_branch_protection_evidence"
+    # A verified snapshot for B then passes.
+    async with tenant_scope(ctx) as session:
+        await _repo(session, ctx).record_connector_verified_branch_protection(
+            project_id=p1, payload=_connector_payload("owner/repo-b"), actor="conn"
+        )
+        g3 = _gate3(await ProductionAutonomyRepository(session, ctx).evaluate(p1))
+        assert g3["status"] == "passed"
+
+
+@pytest.mark.db
+async def test_gate3_unbound_fails_closed_even_with_old_snapshot(bp_ctx):
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        # a verified snapshot exists, but the project declares NO repo ⇒ fail-closed unbound.
+        await _repo(session, ctx).record_connector_verified_branch_protection(
+            project_id=p1, payload=_connector_payload("owner/repo-a"), actor="conn"
+        )
+        g3 = _gate3(await ProductionAutonomyRepository(session, ctx).evaluate(p1))
+        assert g3["status"] == "insufficient_evidence"
+        assert g3["reason"] == "branch_protection_repo_unbound"
+
+
+@pytest.mark.db
+async def test_refresh_broker_allow_writes_safe_params(bp_ctx, admin_engine):
+    from app.policy.levels import AutonomyLevel
+    from app.release.ci_evidence_service import refresh_branch_protection
+    from app.release.scm_connector import FakeSCMConnector
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    mapped = {
+        "provider": "github",
+        "protection_enabled": True,
+        "required_pull_request_reviews": True,
+        "required_status_checks": ["ci/build"],
+        "enforce_admins": True,
+    }
+    async with tenant_scope(ctx) as session:
+        await _declare_repo(session, ctx, p1, "owner/repo-a")
+        await _declare_secrets(session, ctx, p1)
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=p1, autonomy_level=int(AutonomyLevel.A5), actor="a"
+        )
+        await ToolAllowlistRepository(session, ctx).grant(
+            agent_id="conn", tool_name="source_control.read_branch_protection", actor="admin"
+        )
+        result = await refresh_branch_protection(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeSCMConnector(mapped),
+        )
+        assert result.wrote is True
+        g3 = _gate3(await ProductionAutonomyRepository(session, ctx).evaluate(p1))
+        assert g3["status"] == "passed"
+    # the broker recorded the tool call with SAFE params only — never the raw repo_ref.
+    async with admin_engine.connect() as c:
+        params_rows = (
+            await c.execute(
+                text(
+                    "SELECT params FROM tool_calls WHERE tenant_id=:t "
+                    "AND tool_name='source_control.read_branch_protection'"
+                ),
+                {"t": str(t1)},
+            )
+        ).all()
+    assert params_rows
+    for (params,) in params_rows:
+        assert "repo_ref" not in (params or {})
+        assert params.get("repo_ref_present") is True
+
+
+@pytest.mark.db
+async def test_refresh_no_write_paths(bp_ctx):
+    from app.release.ci_evidence_service import refresh_branch_protection
+    from app.release.scm_connector import FakeSCMConnector
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    # (a) undeclared repo ⇒ fail-closed, no broker call, no write.
+    async with tenant_scope(ctx) as session:
+        r = await refresh_branch_protection(
+            session, ctx, project_id=p1, agent_id="conn", actor="conn",
+            connector=FakeSCMConnector({"provider": "github"}),
+        )
+        assert r.wrote is False and r.reason == "repo_unbound"
+    # (b) declared + not-allowlisted agent ⇒ broker denies, no write.
+    async with tenant_scope(ctx) as session:
+        await _declare_repo(session, ctx, p1, "owner/repo-a")
+        await _declare_secrets(session, ctx, p1)
+        r = await refresh_branch_protection(
+            session, ctx, project_id=p1, agent_id="nope", actor="conn",
+            connector=FakeSCMConnector({"provider": "github"}),
+        )
+        assert r.wrote is False  # broker_denied (not allowlisted / no policy)
+        assert await _repo(session, ctx).count_connector_verified_branch_protection(p1) == 0
+
+
+@pytest.mark.db
+async def test_connector_audit_has_no_secret(bp_ctx, admin_engine):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    secret_repo = "private-org/secret-repo-x"
+    async with tenant_scope(ctx) as session:
+        row = await _repo(session, ctx).record_connector_verified_branch_protection(
+            project_id=p1, payload=_connector_payload(secret_repo), actor="conn"
+        )
+        sid = row.id
+    async with admin_engine.connect() as c:
+        payload = (
+            await c.execute(
+                text(
+                    "SELECT payload FROM audit_logs WHERE target=:tg AND tenant_id=:t "
+                    "ORDER BY seq DESC LIMIT 1"
+                ),
+                {"tg": f"branch_protection_snapshot:{sid}", "t": t1},
+            )
+        ).scalar_one()
+    assert secret_repo not in str(payload)
+    assert "repo_ref" not in payload and "required_status_checks" not in payload
+
+
+@pytest.mark.db
+async def test_credential_reference_binding(bp_ctx):
+    # D-28-3/11: the credential SOURCE must name a usable {env, GITHUB_CONNECTOR_TOKEN} reference.
+    from app.release.project_repo import has_declared_credential
+    from app.repositories.intake_categories import IntakeCategoryRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as s:
+        cats = IntakeCategoryRepository(s, ctx)
+        # (a) no declaration ⇒ False
+        assert await has_declared_credential(s, ctx, p1) is False
+        # (b) empty declaration ⇒ False
+        await cats.declare(
+            project_id=p1, category="secrets_and_credentials_manifest",
+            actor="a", data={}, origin="test",
+        )
+        assert await has_declared_credential(s, ctx, p1) is False
+        # (c) unrelated reference ⇒ False
+        await cats.revise(
+            project_id=p1, category="secrets_and_credentials_manifest",
+            actor="a", data={"references": [{"manager": "vault", "reference_name": "OTHER"}]},
+        )
+        assert await has_declared_credential(s, ctx, p1) is False
+        # (d) valid env reference ⇒ True
+        await cats.revise(
+            project_id=p1, category="secrets_and_credentials_manifest",
+            actor="a",
+            data={"references": [{"manager": "env", "reference_name": "GITHUB_CONNECTOR_TOKEN"}]},
+        )
+        assert await has_declared_credential(s, ctx, p1) is True
+
+
+@pytest.mark.db
+async def test_refresh_credential_unbound_no_broker_no_write(bp_ctx):
+    from app.release.ci_evidence_service import refresh_branch_protection
+    from app.release.scm_connector import FakeSCMConnector
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as s:
+        await _declare_repo(s, ctx, p1, "owner/repo-a")  # repo declared, but NO usable credential
+        r = await refresh_branch_protection(
+            s, ctx, project_id=p1, agent_id="conn", actor="conn",
+            connector=FakeSCMConnector({"provider": "github"}),
+        )
+        assert r.wrote is False and r.reason == "credential_unbound"
+        assert r.decision is None  # fail-closed BEFORE the broker call
+        assert await _repo(s, ctx).count_connector_verified_branch_protection(p1) == 0
+
+
+@pytest.mark.db
+async def test_gate3_latest_wins_newer_unverified_b_never_passes_from_a(bp_ctx):
+    # Older VERIFIED snapshot for A + newer UNVERIFIED snapshot for the now-declared B ⇒ the gate
+    # (bound to B) sees an unverified latest ⇒ observed_unverified; A's verified evidence never passes.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = bp_ctx["t1"], bp_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as s:
+        await _declare_repo(s, ctx, p1, "owner/repo-a")
+        await _repo(s, ctx).record_connector_verified_branch_protection(
+            project_id=p1, payload=_connector_payload("owner/repo-a"), actor="conn"
+        )
+    async with tenant_scope(ctx) as s:
+        await _declare_repo(s, ctx, p1, "owner/repo-b")  # revise declaration to B
+        await _repo(s, ctx).record_branch_protection(
+            project_id=p1, payload=_valid(repo_ref="owner/repo-b"), actor="caller"
+        )  # newer UNVERIFIED snapshot for B
+        g3 = _gate3(await ProductionAutonomyRepository(s, ctx).evaluate(p1))
+        assert g3["status"] == "insufficient_evidence"
+        assert g3["reason"] == "branch_protection_observed_unverified"
