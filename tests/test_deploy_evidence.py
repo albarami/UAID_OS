@@ -587,3 +587,39 @@ async def test_audit_is_safe_metadata_only(dt_ctx, admin_engine):
         ).scalar_one()
     assert secret_host not in str(payload)  # target_ref/domain never audited
     assert "target_ref" not in payload
+
+
+# --- Docker-free: connector (Fake + GenericHttps SSRF wiring, no network) ------
+
+
+async def test_fake_deploy_connector_returns_and_raises():
+    from app.release.deploy_connector import FakeDeployTargetConnector
+
+    obs = {"reachable": True, "provisioned": True, "target_available": True, "observed_http_status": 200}
+    ok = FakeDeployTargetConnector(result=obs)
+    assert (await ok.probe_target(host="app.example.com")) == obs
+    boom = FakeDeployTargetConnector(error=DeploySSRFRejected("nope"))
+    with pytest.raises(DeploySSRFRejected):
+        await boom.probe_target(host="app.example.com")
+
+
+async def test_generic_connector_rejects_unsafe_host_before_dns():
+    # validate_target_host runs before any DNS/socket -> unsafe host fails closed, no network.
+    from app.release.deploy_connector import GenericHttpsDeployTargetConnector
+
+    conn = GenericHttpsDeployTargetConnector(resolve_host=lambda h: ["8.8.8.8"])
+    for bad in ("localhost", "app.local", "10.0.0.5", "http://app.example.com"):
+        with pytest.raises(DeploySSRFRejected):
+            await conn.probe_target(host=bad)
+
+
+async def test_generic_connector_rejects_dns_to_private_before_request():
+    # DNS-resolve-then-pin: a host that resolves to a private IP fails closed before the HTTP request.
+    from app.release.deploy_connector import GenericHttpsDeployTargetConnector
+
+    conn = GenericHttpsDeployTargetConnector(resolve_host=lambda h: ["10.0.0.1"])
+    with pytest.raises(DeploySSRFRejected):
+        await conn.probe_target(host="app.example.com")
+    conn2 = GenericHttpsDeployTargetConnector(resolve_host=lambda h: ["169.254.169.254"])
+    with pytest.raises(DeploySSRFRejected):
+        await conn2.probe_target(host="metadata.example.com")
