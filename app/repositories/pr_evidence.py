@@ -26,10 +26,12 @@ from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapsho
 from app.release.pr_evidence import (
     InvalidPullRequestSnapshot,
     derive_separation_flags,
+    parse_iso_timestamp,
     validate_connector_pull_request,
     validate_new_pull_request,
     validate_traceability_refs_shape,
 )
+from app.release.project_repo import resolve_declared_repo
 from app.tenancy import TenantContext, TenantScopedRepository
 
 
@@ -73,6 +75,7 @@ class PullRequestEvidenceRepository(TenantScopedRepository):
             author_principal=payload.get("author_principal"),
             approver_principals=approvers,
             merger_principal=payload.get("merger_principal"),
+            merged=bool(payload.get("merged")),
         )
         merged_protected = await self._compute_merged_protected(
             project_id,
@@ -88,7 +91,7 @@ class PullRequestEvidenceRepository(TenantScopedRepository):
             pr_number=payload["pr_number"],
             pr_state=payload["pr_state"],
             merged=payload["merged"],
-            merged_at=payload.get("merged_at"),
+            merged_at=parse_iso_timestamp(payload.get("merged_at")),
             merge_commit_sha=payload.get("merge_commit_sha"),
             base_branch=payload.get("base_branch"),
             base_sha=payload.get("base_sha"),
@@ -149,15 +152,23 @@ class PullRequestEvidenceRepository(TenantScopedRepository):
         self, project_id: uuid.UUID, *, merged: bool, base_branch, repo_ref: str
     ) -> bool:
         """B-29-2: an *observed* (not asserted) merged-to-protected fact. True only when the PR merged
-        AND the base branch has a ``connector_verified`` + protection-enabled + fresh branch-protection
-        snapshot for the same repo (cross-ref the Slice-26/28 store). False ≠ 'definitely unprotected'."""
+        INTO the project's currently **declared** protected branch (``resolve_declared_repo``) AND that
+        declared repo/branch has a ``connector_verified`` + protection-enabled + fresh branch-protection
+        snapshot (cross-ref the Slice-26/28 store). A PR merged into a protected-but-not-declared branch
+        does NOT count — the field name promises 'declared'. False ≠ 'definitely unprotected'."""
         if not merged or not base_branch:
+            return False
+        declared = await resolve_declared_repo(self.session, self.context, project_id)
+        if declared is None:
+            return False
+        declared_repo, declared_branch = declared
+        if repo_ref != declared_repo or base_branch != declared_branch:
             return False
         from app.repositories.ci_evidence import CIEvidenceRepository
 
         bp = await CIEvidenceRepository(
             self.session, self.context
-        ).latest_branch_protection_for_repo(project_id, repo_ref, base_branch)
+        ).latest_branch_protection_for_repo(project_id, declared_repo, declared_branch)
         if bp is None or bp.provenance != "connector_verified" or not bp.protection_enabled:
             return False
         return _is_fresh(bp)

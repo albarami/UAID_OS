@@ -681,6 +681,7 @@ async def test_merged_protected_true_only_when_verified_fresh(pr_ctx):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _pr_repo(session, ctx)
+        await _declare_repo(session, ctx, p1, "owner/repo", branch="main")
         await _seed_verified_bp(session, ctx, p1, "owner/repo", "main", _now())
         row = await repo.record_connector_verified_pull_request(
             project_id=p1,
@@ -702,6 +703,7 @@ async def test_merged_protected_false_paths(pr_ctx, scenario):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _pr_repo(session, ctx)
+        await _declare_repo(session, ctx, p1, "owner/repo", branch="main")
         payload = _conn_payload(merged=True, base_branch="main")
         if scenario == "not_merged":
             await _seed_verified_bp(session, ctx, p1, "owner/repo", "main", _now())
@@ -1067,3 +1069,132 @@ async def test_pr_evidence_does_not_change_a5_report(pr_ctx):
     assert after["ruleset_version"] == "slice28.v1"  # NOT bumped
     assert after["a5_satisfied"] is False
     assert after["can_go_live_autonomously"] is False
+
+
+# ============================================================================
+# Code-review fixes (Slice 29 review round) — RED-first regression tests
+# ============================================================================
+
+
+# --- A: merged_at ISO string must be parsed to a datetime (asyncpg crash) -----
+
+
+def test_parse_iso_timestamp_and_mapper_merged_at_is_datetime():
+    from app.release.pr_evidence import parse_iso_timestamp
+    from app.release.scm_connector import map_github_pull_request
+
+    assert parse_iso_timestamp(None) is None
+    dt = parse_iso_timestamp("2026-06-20T00:00:00Z")
+    assert isinstance(dt, datetime) and dt.tzinfo is not None
+    # passthrough an existing datetime unchanged
+    assert parse_iso_timestamp(dt) == dt
+    # the mapper must emit a datetime (not the raw provider string)
+    m = map_github_pull_request(_gh_pull(merged_at="2026-06-20T00:00:00Z"), _gh_reviews())
+    assert isinstance(m["merged_at"], datetime)
+
+
+@pytest.mark.db
+async def test_connector_record_accepts_string_merged_at(pr_ctx):
+    # Defense-in-depth: repo coerces a string merged_at so a merged PR never crashes on flush.
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        row = await _pr_repo(session, ctx).record_connector_verified_pull_request(
+            project_id=p1, payload=_conn_payload(merged_at="2026-06-20T00:00:00Z"), actor="conn"
+        )
+        assert isinstance(row.merged_at, datetime)
+
+
+# --- C: a null-timestamp review must not supersede a real one -----------------
+
+
+def test_normalize_approvals_null_timestamp_does_not_drop_approval():
+    reviews = [
+        _rev("bob", "APPROVED", "2026-06-01T00:00:00Z"),
+        _rev("bob", "PENDING", None),  # own pending review, null submitted_at
+    ]
+    approvers, _, count = normalize_approvals(reviews)
+    assert approvers == ["bob"] and count == 1  # approval retained
+
+
+# --- D: combined-status 'error' must be recorded, not dropped -----------------
+
+
+def test_summarize_checks_maps_combined_error_to_failure():
+    from app.release.scm_connector import map_github_pull_request
+
+    m = map_github_pull_request(_gh_pull(), _gh_reviews(), combined_status={"state": "error"})
+    assert m["check_status_summary"] is not None
+    assert m["check_status_summary"]["combined_state"] == "failure"
+
+
+# --- F: principal lists must be validated (no list()-coercion corruption) -----
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"approver_principals": "bob"},  # non-list string
+        {"approver_principals": [{"principal": "alice"}]},  # dict elements
+        {"approver_principals": [1, 2]},  # non-string elements
+        {"author_principal": 123},  # non-string scalar
+        {"requested_reviewer_principals": "dan"},  # non-list
+    ],
+)
+def test_principal_lists_rejected(over):
+    with pytest.raises(InvalidPullRequestSnapshot):
+        validate_new_pull_request(_valid(**over))
+
+
+# --- G: merged <-> pr_state consistency ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "over",
+    [{"pr_state": "merged", "merged": False}, {"pr_state": "open", "merged": True}],
+)
+def test_merged_pr_state_consistency_enforced(over):
+    with pytest.raises(InvalidPullRequestSnapshot):
+        validate_new_pull_request(_valid(**over))
+
+
+# --- H: self_merge_observed requires merged=True ------------------------------
+
+
+def test_self_merge_requires_merged():
+    f = derive_separation_flags(
+        author_principal="alice",
+        approver_principals=["alice"],
+        merger_principal="alice",
+        merged=False,
+    )
+    assert f["self_merge_observed"] is False  # not merged -> cannot be a self-merge
+
+
+# --- E: merged-protected binds to the DECLARED protected branch ---------------
+
+
+@pytest.mark.db
+async def test_merged_protected_requires_declared_branch_match(pr_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _pr_repo(session, ctx)
+        # Declared protected branch = main. A verified+fresh BP snapshot exists for a NON-declared
+        # branch 'develop'. A PR merged to 'develop' must NOT be 'merged_to_declared_protected_branch'.
+        await _declare_repo(session, ctx, p1, "owner/repo", branch="main")
+        await _seed_verified_bp(session, ctx, p1, "owner/repo", "develop", _now())
+        row = await repo.record_connector_verified_pull_request(
+            project_id=p1, payload=_conn_payload(merged=True, base_branch="develop"), actor="conn"
+        )
+        assert row.merged_to_declared_protected_branch_observed is False
+        # base matches the declared protected branch + verified+fresh BP -> True
+        await _seed_verified_bp(session, ctx, p1, "owner/repo", "main", _now())
+        row2 = await repo.record_connector_verified_pull_request(
+            project_id=p1, payload=_conn_payload(merged=True, base_branch="main"), actor="conn"
+        )
+        assert row2.merged_to_declared_protected_branch_observed is True

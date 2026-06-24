@@ -22,6 +22,7 @@ facts + **structural-only** separation-of-duties flags. Fail-closed and **non-au
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from app.release.ci_evidence import REPO_REF_RE, TOKENISH_RE  # single source of truth
 
@@ -74,6 +75,52 @@ def _is_uuid_str(v) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _is_nonempty_str(v) -> bool:
+    return isinstance(v, str) and bool(v.strip())
+
+
+def parse_iso_timestamp(value):
+    """Parse an ISO-8601 timestamp string to an aware datetime; pass through datetime/None.
+
+    The provider returns ``merged_at`` as a string; persisting it into a ``timestamptz`` column requires
+    a real ``datetime`` (asyncpg rejects strings). Fail-closed on a malformed value.
+    """
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            return datetime.fromisoformat(s)
+        except ValueError as exc:
+            raise InvalidPullRequestSnapshot(f"invalid timestamp: {value!r}") from exc
+    raise InvalidPullRequestSnapshot(f"timestamp must be a string or datetime: {value!r}")
+
+
+def validate_principal_lists(record) -> None:
+    """Fail-closed: identity fields must be strings/lists-of-strings (no list()-coercion of a scalar
+    into a corrupted array, and no dict-shaped elements silently breaking the separation flags)."""
+    for field in ("author_principal", "merger_principal"):
+        v = record.get(field)
+        if v is not None and not _is_nonempty_str(v):
+            raise InvalidPullRequestSnapshot(f"{field} must be a non-empty string or null")
+    for field in ("approver_principals", "requested_reviewer_principals"):
+        vals = record.get(field)
+        if vals is None:
+            continue
+        if not isinstance(vals, list) or not all(_is_nonempty_str(v) for v in vals):
+            raise InvalidPullRequestSnapshot(f"{field} must be a list of non-empty strings")
+    rp = record.get("reviewer_principals")
+    if rp is not None and (
+        not isinstance(rp, list)
+        or not all(isinstance(e, dict) and _is_nonempty_str(e.get("principal")) for e in rp)
+    ):
+        raise InvalidPullRequestSnapshot(
+            "reviewer_principals must be a list of {principal: str, ...}"
+        )
 
 
 def validate_presence_flags(obj) -> None:
@@ -160,6 +207,12 @@ def _validate_pr_shape(record: dict) -> None:
         raise InvalidPullRequestSnapshot(f"invalid pr_state: {record['pr_state']!r}")
     if not isinstance(record["merged"], bool):
         raise InvalidPullRequestSnapshot("merged must be a bool")
+    # merged <-> pr_state consistency (no contradictory evidence): merged iff pr_state == 'merged'.
+    if record["merged"] is True and record["pr_state"] != "merged":
+        raise InvalidPullRequestSnapshot("merged=True requires pr_state='merged'")
+    if record["pr_state"] == "merged" and record["merged"] is not True:
+        raise InvalidPullRequestSnapshot("pr_state='merged' requires merged=True")
+    validate_principal_lists(record)
     if "presence_flags" in record:
         validate_presence_flags(record["presence_flags"])
     if "check_status_summary" in record:
@@ -192,8 +245,12 @@ def validate_connector_pull_request(record: dict) -> None:
 
 
 def _ge_submitted(a, b) -> bool:
-    """True if review ``a`` is at least as late as ``b``. Missing timestamps ⇒ last input wins."""
-    if a is None or b is None:
+    """True if review ``a`` is at least as late as ``b``. A missing ``submitted_at`` (e.g. a PENDING/
+    draft review) never supersedes a real timestamp: a real timestamp always wins over a missing one,
+    and a missing one never overrides — so a null-timestamp draft cannot drop a genuine approval."""
+    if a is None:
+        return False
+    if b is None:
         return True
     return str(a) >= str(b)
 
@@ -222,14 +279,18 @@ def normalize_approvals(reviews):
     return approver_principals, reviewer_principals, len(approver_principals)
 
 
-def derive_separation_flags(*, author_principal, approver_principals, merger_principal) -> dict:
+def derive_separation_flags(
+    *, author_principal, approver_principals, merger_principal, merged: bool = True
+) -> dict:
     """Structural-only separation-of-duties flags (Q3) — **provider-principal equality**, NOT a
     verified UAID-actor-vs-reviewer separation, and NOT §2.2 enforcement. Conservative when the author
-    is unknown (all False — a relationship cannot be asserted)."""
+    is unknown (all False — a relationship cannot be asserted). ``self_merge_observed`` additionally
+    requires ``merged`` — a PR that was never merged cannot be a self-merge."""
     approvers = approver_principals or []
     return {
         "self_approval_observed": bool(author_principal) and author_principal in approvers,
-        "self_merge_observed": bool(author_principal)
+        "self_merge_observed": bool(merged)
+        and bool(author_principal)
         and bool(merger_principal)
         and author_principal == merger_principal,
         "review_separation_observed": bool(author_principal)

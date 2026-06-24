@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from app.release.pr_evidence import normalize_approvals
+from app.release.pr_evidence import normalize_approvals, parse_iso_timestamp
 
 
 class SCMConnectorError(Exception):
@@ -68,6 +68,8 @@ def _summarize_checks(checks: Any, combined_status: Any) -> dict | None:
         summary[state] = summary.get(state, 0) + 1
     if isinstance(combined_status, dict):
         cs = combined_status.get("state")
+        if cs == "error":  # GitHub legacy combined status 'error' is a non-success -> failure tier
+            cs = "failure"
         if cs in ("success", "failure", "pending"):
             summary["combined_state"] = cs
     return summary or None
@@ -139,7 +141,7 @@ def map_github_pull_request(
     return {
         "pr_state": pr_state,
         "merged": merged,
-        "merged_at": pull.get("merged_at"),
+        "merged_at": parse_iso_timestamp(pull.get("merged_at")),
         "merge_commit_sha": pull.get("merge_commit_sha"),
         "base_branch": base.get("ref"),
         "base_sha": base.get("sha"),
@@ -282,28 +284,36 @@ class GitHubSCMConnector:
                         f"github pull-request reviews not available (status {rev_resp.status_code})"
                     )
                 pull, reviews = pr_resp.json(), rev_resp.json()
-                # Requested reviewers: OBSERVED — failure ⇒ observed=false (never a silent empty).
+                # Requested reviewers: OBSERVED — non-200 OR transport failure ⇒ observed=false
+                # (its own except so a transient failure on this OPTIONAL endpoint does NOT abort the
+                # already-complete mandatory evidence; never a silent empty).
                 requested, observed = None, False
-                rr_resp = await client.get(
-                    f"{base_url}/pulls/{pr_number}/requested_reviewers", headers=headers
-                )
-                if rr_resp.status_code == 200:
-                    requested, observed = rr_resp.json(), True
-                # Checks: OPTIONAL observed-only — failure ⇒ check_status_summary=None.
+                try:
+                    rr_resp = await client.get(
+                        f"{base_url}/pulls/{pr_number}/requested_reviewers", headers=headers
+                    )
+                    if rr_resp.status_code == 200:
+                        requested, observed = rr_resp.json(), True
+                except httpx.HTTPError:
+                    requested, observed = None, False
+                # Checks: OPTIONAL observed-only — non-200 OR transport failure ⇒ check_status_summary=None.
                 checks = combined = None
                 head_sha = (pull.get("head") or {}).get("sha") if isinstance(pull, dict) else None
                 if isinstance(head_sha, str):
-                    cr_resp = await client.get(
-                        f"{base_url}/commits/{head_sha}/check-runs", headers=headers
-                    )
-                    if cr_resp.status_code == 200:
-                        checks = cr_resp.json()
-                    cs_resp = await client.get(
-                        f"{base_url}/commits/{head_sha}/status", headers=headers
-                    )
-                    if cs_resp.status_code == 200:
-                        combined = cs_resp.json()
-        except httpx.HTTPError as exc:  # message carries no token/URL
+                    try:
+                        cr_resp = await client.get(
+                            f"{base_url}/commits/{head_sha}/check-runs", headers=headers
+                        )
+                        if cr_resp.status_code == 200:
+                            checks = cr_resp.json()
+                        cs_resp = await client.get(
+                            f"{base_url}/commits/{head_sha}/status", headers=headers
+                        )
+                        if cs_resp.status_code == 200:
+                            combined = cs_resp.json()
+                    except httpx.HTTPError:
+                        checks = combined = None
+        except httpx.HTTPError as exc:  # PR/reviews transport failure ⇒ fail-closed (no snapshot)
             raise SCMConnectorError("github pull-request request failed") from exc
         try:
             return map_github_pull_request(
