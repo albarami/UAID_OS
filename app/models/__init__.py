@@ -31,6 +31,7 @@ from app.models.tenant_api_key import TenantApiKey
 from app.models.organization import Organization
 from app.models.project import Project
 from app.models.project_run import ProjectRun
+from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
 from app.models.readiness_report import ReadinessReportRecord
 from app.models.release_finding import ReleaseFinding
 from app.models.release_finding_event import ReleaseFindingEvent
@@ -62,6 +63,7 @@ __all__ = [
     "CostEvent",
     "Budget",
     "BranchProtectionSnapshot",
+    "PullRequestEvidenceSnapshot",
     "RunCheckpoint",
     "RunCheckpointWrite",
     "RunStep",

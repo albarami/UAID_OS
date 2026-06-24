@@ -13,9 +13,12 @@ Docker-free for the pure validators / approval normalization / separation flags 
 and the no-A5-regression check.
 """
 
+import uuid
 from datetime import datetime, timezone
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.release.pr_evidence import (
     CHECK_STATES,
@@ -172,8 +175,6 @@ def test_check_status_summary_invalid(obj):
 
 
 def test_traceability_refs_shape_valid():
-    import uuid
-
     validate_traceability_refs_shape({})
     validate_traceability_refs_shape(
         {
@@ -283,3 +284,175 @@ def test_derive_separation_flags_unknown_author_is_conservative():
     assert f["self_approval_observed"] is False
     assert f["self_merge_observed"] is False
     assert f["review_separation_observed"] is False  # cannot assert separation w/o a known author
+
+
+# --- DB-backed fixtures -------------------------------------------------------
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def pr_ctx(admin_engine):
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('PrOrg',:s) RETURNING id",
+            s=f"pr-org-{sfx}",
+        )
+        out = {"sfx": sfx}
+        for label in ("t1", "t2"):
+            out[label] = await _scalar(
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"pr-{label}-{sfx}",
+            )
+        for proj, tn in (("p1", "t1"), ("px", "t2")):
+            out[proj] = await _scalar(
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"pr-{proj}-{sfx}",
+            )
+    return out
+
+
+# --- DB-backed: guard (direct SQL refusals) -----------------------------------
+
+_RAW_INSERT = (
+    "INSERT INTO pull_request_evidence_snapshots "
+    "(tenant_id, project_id, provider, repo_ref, pr_number, pr_state, merged, "
+    " approver_principals, approval_count, check_status_summary, presence_flags, "
+    " traceability_refs, provenance) "
+    "VALUES (:t,:p,:provider,:repo_ref,:pr_number,:pr_state,:merged,"
+    " (:approvers)::jsonb,:approval_count,(:checks)::jsonb,(:presence)::jsonb,"
+    " (:trace)::jsonb,:prov)"
+)
+
+
+async def _raw_insert(rls_engine, t1, p1, **over):
+    params = {
+        "t": str(t1),
+        "p": str(p1),
+        "provider": "github",
+        "repo_ref": "owner/repo",
+        "pr_number": 7,
+        "pr_state": "merged",
+        "merged": True,
+        "approvers": "[]",
+        "approval_count": 0,
+        "checks": None,
+        "presence": "{}",
+        "trace": "{}",
+        "prov": "caller_supplied_unverified",
+    }
+    params.update(over)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
+            await conn.execute(text(_RAW_INSERT), params)
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"provider": "gitlab"},  # provider CHECK
+        {"repo_ref": "https://github.com/org/repo"},  # repo_ref URL
+        {"repo_ref": "org/repo/extra"},  # multi-slash
+        {"repo_ref": "owner/ghp_abcdefghijklmnopqrstuvwxyz123456"},  # token denylist
+        {"pr_number": 0},  # pr_number CHECK
+        {"pr_number": -1},
+        {"pr_state": "draft"},  # pr_state CHECK
+        # B-29-8 derived invariants (guard):
+        {"approvers": '["a"]', "approval_count": 0},  # count mismatch
+        {"approvers": '{"a":1}'},  # non-array approver_principals
+        {"checks": '"x"'},  # non-object check_status_summary
+        {"checks": '{"made_up":1}'},  # invalid check-state key
+        {"checks": '{"success":-1}'},  # negative count
+        {"checks": '{"success":1.5}'},  # non-integer count
+        {"checks": '{"combined_state":"flaky"}'},  # invalid combined_state
+        {"presence": '"prose"'},  # non-object presence_flags
+        {"trace": "[]"},  # non-object traceability_refs
+    ],
+)
+async def test_guard_rejects_bad_inserts(pr_ctx, rls_engine, over):
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, p1, **over)
+
+
+@pytest.mark.db
+async def test_guard_accepts_null_check_summary_and_consistent_count(pr_ctx, rls_engine):
+    # B-29-8: NULL check_status_summary accepted; approval_count matching array length accepted.
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1, checks=None)
+    await _raw_insert(
+        rls_engine, t1, p1, approvers='["alice","bob"]', approval_count=2, checks='{"success":3}'
+    )
+
+
+@pytest.mark.db
+async def test_append_only_no_update_delete_truncate(pr_ctx, rls_engine):
+    t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
+            sid = (
+                await conn.execute(text("SELECT id FROM pull_request_evidence_snapshots LIMIT 1"))
+            ).scalar_one()
+    for verb in (
+        "UPDATE pull_request_evidence_snapshots SET pr_state='open' WHERE id=:i",
+        "DELETE FROM pull_request_evidence_snapshots WHERE id=:i",
+        "TRUNCATE pull_request_evidence_snapshots",
+    ):
+        with pytest.raises(Exception):
+            async with rls_engine.connect() as conn:
+                async with conn.begin():
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+                    )
+                    await conn.execute(text(verb), {"i": str(sid)})
+
+
+@pytest.mark.db
+async def test_fk_cross_project_tenant_rejected(pr_ctx, rls_engine):
+    # px belongs to t2, not t1 -> the composite FK has no matching project row.
+    t1, px = pr_ctx["t1"], pr_ctx["px"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, px)
+
+
+@pytest.mark.db
+async def test_catalog_grants_and_rls(admin_engine):
+    async with admin_engine.connect() as c:
+        grants = {
+            r[0]
+            for r in (
+                await c.execute(
+                    text(
+                        "SELECT privilege_type FROM information_schema.role_table_grants "
+                        "WHERE table_name='pull_request_evidence_snapshots' AND grantee='uaid_app'"
+                    )
+                )
+            ).all()
+        }
+        assert grants == {"SELECT", "INSERT"}  # append-only: no UPDATE/DELETE
+        rls = (
+            await c.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                    "WHERE relname='pull_request_evidence_snapshots'"
+                )
+            )
+        ).one()
+        assert rls == (True, True)
