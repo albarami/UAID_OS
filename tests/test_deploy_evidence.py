@@ -401,3 +401,189 @@ async def test_catalog_grants_and_rls(admin_engine):
             )
         ).one()
         assert rls == (True, True)
+
+
+# --- DB-backed: repository + resolver -----------------------------------------
+
+
+def _dt_repo(session, ctx):
+    from app.repositories.deployments import DeploymentTargetRepository
+
+    return DeploymentTargetRepository(session, ctx)
+
+
+def _conn_payload(**over) -> dict:
+    rec = {
+        "provider": "generic_https",
+        "environment": "production",
+        "target_ref": "app.example.com",
+        "reachable": True,
+        "provisioned": True,
+        "target_available": True,
+        "observed_http_status": 200,
+        "observed_at": _NOW,
+    }
+    rec.update(over)
+    return rec
+
+
+async def _declare_env(session, ctx, project_id, domain="app.example.com", production=...):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    if production is ...:
+        production = {"domain": domain}
+    data = {"environments": {"production": production}} if production is not None else {}
+    await IntakeCategoryRepository(session, ctx).declare(
+        project_id=project_id,
+        category="environments_and_deployment_targets",
+        actor="a",
+        data=data,
+        origin="test",
+    )
+
+
+@pytest.mark.db
+async def test_record_connector_caller_latest_counts(dt_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _dt_repo(session, ctx)
+        row = await repo.record_connector_verified_deployment_target(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )
+        assert row.provenance == "connector_verified" and row.target_available is True
+        await repo.record_deployment_target(
+            project_id=p1,
+            payload={
+                "provider": "generic_https",
+                "environment": "production",
+                "target_ref": "app.example.com",
+                "reachable": True,
+                "provisioned": True,
+                "target_available": True,
+            },
+            actor="caller",
+        )
+        assert await repo.count_deployment_target_snapshots(p1) == 2
+        assert await repo.count_connector_verified_deployment_targets(p1) == 1
+
+
+@pytest.mark.db
+async def test_negative_refresh_supersedes_positive_at_repo(dt_ctx):
+    # B-30-9 at the repo layer: a later verified-negative snapshot is the latest for the same target.
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        repo = _dt_repo(session, ctx)
+        await repo.record_connector_verified_deployment_target(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )  # positive/available
+        neg = await repo.record_connector_verified_deployment_target(
+            project_id=p1,
+            payload=_conn_payload(
+                reachable=False, provisioned=False, target_available=False, observed_http_status=None
+            ),
+            actor="conn",
+        )  # transport-fail negative
+        latest = await repo.latest_deployment_target_for_ref(p1, "generic_https", "app.example.com")
+        assert latest.id == neg.id and latest.target_available is False
+
+
+@pytest.mark.db
+async def test_resolver_returns_declared_host(dt_ctx):
+    from app.release.project_repo import resolve_declared_production_target
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _declare_env(session, ctx, p1, domain="app.example.com")
+        assert await resolve_declared_production_target(session, ctx, p1) == "app.example.com"
+
+
+@pytest.mark.db
+async def test_resolver_fail_closed_undeclared(dt_ctx):
+    from app.release.project_repo import resolve_declared_production_target
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p2 = dt_ctx["t1"], dt_ctx["p2"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        assert await resolve_declared_production_target(session, ctx, p2) is None  # never declared
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"domain": ""},  # blank domain
+        {"domain": "app.local"},  # SSRF-unsafe (.local)
+        {"domain": "10.0.0.5"},  # IP literal
+        {"production": {}},  # missing domain
+        {"production": None},  # missing production block (data has no environments)
+        {"production": {"domain": 123}},  # non-string domain
+    ],
+)
+async def test_resolver_fail_closed_bad_data(dt_ctx, kwargs):
+    from app.release.project_repo import resolve_declared_production_target
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    async with tenant_scope(ctx) as session:
+        await _declare_env(session, ctx, p1, **kwargs)
+        assert await resolve_declared_production_target(session, ctx, p1) is None
+
+
+@pytest.mark.db
+async def test_rls_cross_tenant(dt_ctx, rls_engine):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, t2, p1 = dt_ctx["t1"], dt_ctx["t2"], dt_ctx["p1"]
+    async with tenant_scope(TenantContext(t1)) as session:
+        await _dt_repo(session, TenantContext(t1)).record_connector_verified_deployment_target(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            n = (
+                await conn.execute(text("SELECT count(*) FROM deployment_target_snapshots"))
+            ).scalar_one()
+            assert n == 0  # deny-by-default: no GUC set
+    async with tenant_scope(TenantContext(t2)) as session:
+        assert (
+            await _dt_repo(session, TenantContext(t2)).latest_deployment_target_for_ref(
+                p1, "generic_https", "app.example.com"
+            )
+            is None
+        )
+
+
+@pytest.mark.db
+async def test_audit_is_safe_metadata_only(dt_ctx, admin_engine):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
+    ctx = TenantContext(t1)
+    secret_host = "secret-prod.example.com"
+    async with tenant_scope(ctx) as session:
+        row = await _dt_repo(session, ctx).record_connector_verified_deployment_target(
+            project_id=p1, payload=_conn_payload(target_ref=secret_host), actor="conn"
+        )
+        sid = row.id
+    async with admin_engine.connect() as c:
+        payload = (
+            await c.execute(
+                text(
+                    "SELECT payload FROM audit_logs WHERE target=:tg AND tenant_id=:t "
+                    "ORDER BY seq DESC LIMIT 1"
+                ),
+                {"tg": f"deployment_target_snapshot:{sid}", "t": t1},
+            )
+        ).scalar_one()
+    assert secret_host not in str(payload)  # target_ref/domain never audited
+    assert "target_ref" not in payload
