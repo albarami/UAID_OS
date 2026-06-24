@@ -1217,3 +1217,88 @@ async def test_db_guard_still_accepts_integer_count(pr_ctx, rls_engine):
     # Legitimate integer counts continue to pass after the J tightening.
     t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
     await _raw_insert(rls_engine, t1, p1, checks='{"success":3,"failure":0}')
+
+
+# --- Docker-free: GitHubSCMConnector malformed-200-JSON fail-closed (live path) -
+
+
+def _gh_client(malformed_kind):
+    """Build a monkeypatch httpx.AsyncClient whose endpoints return 200 but one chosen endpoint's
+    .json() raises (malformed body). No network."""
+    bodies = {
+        "pr": _gh_pull(),
+        "reviews": _gh_reviews(),
+        "requested": {"users": [{"login": "dan"}], "teams": []},
+        "checks": {"check_runs": [{"status": "completed", "conclusion": "success"}]},
+        "status": {"state": "success"},
+    }
+
+    class _Resp:
+        def __init__(self, kind):
+            self.kind = kind
+            self.status_code = 200
+
+        def json(self):
+            if self.kind == malformed_kind:
+                raise ValueError("not json")
+            return bodies[self.kind]
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, *a, **k):
+            if "requested_reviewers" in url:
+                kind = "requested"
+            elif "/reviews" in url:
+                kind = "reviews"
+            elif "check-runs" in url:
+                kind = "checks"
+            elif url.endswith("/status"):
+                kind = "status"
+            else:
+                kind = "pr"
+            return _Resp(kind)
+
+    return _Client
+
+
+@pytest.mark.parametrize("malformed", ["pr", "reviews"])
+async def test_github_fetch_pr_mandatory_malformed_json_fails_closed(monkeypatch, malformed):
+    import httpx
+
+    from app.release.scm_connector import GitHubSCMConnector, SCMConnectorError
+
+    monkeypatch.setattr(httpx, "AsyncClient", _gh_client(malformed))
+    with pytest.raises(SCMConnectorError):
+        await GitHubSCMConnector("tok").fetch_pull_request(repo_ref="owner/repo", pr_number=7)
+
+
+async def test_github_fetch_pr_optional_requested_malformed_degrades(monkeypatch):
+    import httpx
+
+    from app.release.scm_connector import GitHubSCMConnector
+
+    monkeypatch.setattr(httpx, "AsyncClient", _gh_client("requested"))
+    mapped = await GitHubSCMConnector("tok").fetch_pull_request(repo_ref="owner/repo", pr_number=7)
+    assert mapped["requested_reviewers_observed"] is False
+    assert mapped["requested_reviewer_principals"] == []
+    assert mapped["pr_state"] == "merged"  # mandatory evidence still mapped
+
+
+@pytest.mark.parametrize("malformed", ["checks", "status"])
+async def test_github_fetch_pr_optional_checks_malformed_degrades(monkeypatch, malformed):
+    import httpx
+
+    from app.release.scm_connector import GitHubSCMConnector
+
+    monkeypatch.setattr(httpx, "AsyncClient", _gh_client(malformed))
+    mapped = await GitHubSCMConnector("tok").fetch_pull_request(repo_ref="owner/repo", pr_number=7)
+    assert mapped["check_status_summary"] is None  # malformed check evidence ⇒ not observed
+    assert mapped["pr_state"] == "merged"  # mandatory evidence still mapped

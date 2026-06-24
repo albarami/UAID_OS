@@ -283,10 +283,16 @@ class GitHubSCMConnector:
                     raise SCMConnectorError(
                         f"github pull-request reviews not available (status {rev_resp.status_code})"
                     )
-                pull, reviews = pr_resp.json(), rev_resp.json()
-                # Requested reviewers: OBSERVED — non-200 OR transport failure ⇒ observed=false
-                # (its own except so a transient failure on this OPTIONAL endpoint does NOT abort the
-                # already-complete mandatory evidence; never a silent empty).
+                # Mandatory bodies: a malformed 200 (.json() raises) is fail-closed ⇒ no snapshot.
+                try:
+                    pull, reviews = pr_resp.json(), rev_resp.json()
+                except ValueError as exc:
+                    raise SCMConnectorError(
+                        "github pull-request/reviews response was malformed"
+                    ) from exc
+                # Requested reviewers: OBSERVED — non-200 / transport failure / malformed JSON ⇒
+                # observed=false (its own except so a failure on this OPTIONAL endpoint does NOT abort
+                # the already-complete mandatory evidence; never a silent empty).
                 requested, observed = None, False
                 try:
                     rr_resp = await client.get(
@@ -294,7 +300,7 @@ class GitHubSCMConnector:
                     )
                     if rr_resp.status_code == 200:
                         requested, observed = rr_resp.json(), True
-                except httpx.HTTPError:
+                except (httpx.HTTPError, ValueError):
                     requested, observed = None, False
                 # Checks: OPTIONAL observed-only — non-200 OR transport failure ⇒ check_status_summary=None.
                 checks = combined = None
@@ -311,7 +317,7 @@ class GitHubSCMConnector:
                         )
                         if cs_resp.status_code == 200:
                             combined = cs_resp.json()
-                    except httpx.HTTPError:
+                    except (httpx.HTTPError, ValueError):  # incl. malformed JSON ⇒ not observed
                         checks = combined = None
         except httpx.HTTPError as exc:  # PR/reviews transport failure ⇒ fail-closed (no snapshot)
             raise SCMConnectorError("github pull-request request failed") from exc
