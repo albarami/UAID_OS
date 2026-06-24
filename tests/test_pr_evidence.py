@@ -1065,8 +1065,10 @@ async def test_pr_evidence_does_not_change_a5_report(pr_ctx):
             actor="conn",
         )
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
-    assert before == after  # byte-identical: PR evidence feeds no gate this slice
-    assert after["ruleset_version"] == "slice28.v1"  # NOT bumped
+    assert before == after  # byte-identical: PR evidence feeds no gate (the Slice-29 invariant)
+    # The ruleset reflects the latest slice that touched the A5 engine (Slice 30 bumped it to
+    # slice30.v1); PR evidence still changes nothing — proven by ``before == after`` above.
+    assert after["ruleset_version"] == "slice30.v1"
     assert after["a5_satisfied"] is False
     assert after["can_go_live_autonomously"] is False
 
