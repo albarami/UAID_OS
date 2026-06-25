@@ -246,7 +246,7 @@ slice (local; no network/SSRF; Vault/cloud + operator credential-audience allowl
 regression proves recording evidence flips no gate/readiness); go-live false. Immutable append-only
 `secret_reference_checks` (RLS ENABLE+FORCE; SELECT/INSERT only; migration `0031`; Postgres regex
 `{m,n}` caps at 255, so `reference_name` uses a char-class shape + a separate `char_length BETWEEN 1 AND
-256`).**
+256`). merged via PR #53 (commit `214495c`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
