@@ -701,9 +701,7 @@ async def test_audit_safe_metadata_no_url(mon_ctx, admin_engine):
                 )
             )
         ).all()
-    assert rows and all(
-        "secret-monitor" not in r[0] and "private-status" not in r[0] for r in rows
-    )
+    assert rows and all("secret-monitor" not in r[0] and "private-status" not in r[0] for r in rows)
 
 
 @pytest.mark.db
@@ -728,3 +726,167 @@ async def test_rls_cross_tenant(mon_ctx, rls_engine):
             )
             is None
         )
+
+
+# --- Docker-free: connector (monkeypatched transport — no network) ------------
+
+
+def _install_mock_client(
+    monkeypatch,
+    seen,
+    *,
+    status=200,
+    content_type="application/json",
+    chunks=(b'{"active_monitor_count": 3, "active_alert_rule_count": 2}',),
+    body_forbidden=False,
+    raise_exc=None,
+):
+    import httpx
+
+    class _Resp:
+        status_code = status
+        headers = {"content-type": content_type}
+
+        async def aiter_bytes(self):
+            if body_forbidden:
+                raise AssertionError("body must not be read")
+            for c in chunks:
+                yield c
+
+    class _Stream:
+        async def __aenter__(self):
+            return _Resp()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, **k):
+            seen.update(method=method, url=url, headers=k.get("headers"), ext=k.get("extensions"))
+            if raise_exc is not None:
+                raise raise_exc
+            return _Stream()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+
+
+def test_build_pinned_get_path_ipv6_no_auth():
+    from app.release.monitoring_connector import _build_pinned_get
+
+    url, headers, ext = _build_pinned_get("mon.example.com", "8.8.8.8", "/status")
+    assert url == "https://8.8.8.8/status"  # IPv4, path preserved
+    assert headers["Host"] == "mon.example.com" and ext["sni_hostname"] == "mon.example.com"
+    assert "Authorization" not in headers and "Cookie" not in headers  # B9
+    # IPv6 bracketed (no InvalidURL crash)
+    assert _build_pinned_get("mon.example.com", "2606:4700:4700::1111", "/s")[0] == (
+        "https://[2606:4700:4700::1111]/s"
+    )
+
+
+async def test_probe_valid_active(monkeypatch):
+    from app.release.monitoring_connector import _default_http_probe
+
+    seen = {}
+    _install_mock_client(monkeypatch, seen)
+    obs = await _default_http_probe("mon.example.com", "/status", ["8.8.8.8"])
+    assert obs["response_valid"] and obs["overall_active"] and obs["active_monitor_count"] == 3
+    # B10 pinned shape + B9 no-auth
+    assert (
+        seen["url"] == "https://8.8.8.8/status" and seen["ext"]["sni_hostname"] == "mon.example.com"
+    )
+    assert "Authorization" not in seen["headers"]
+
+
+async def test_probe_valid_inactive_zero_alerts(monkeypatch):
+    from app.release.monitoring_connector import _default_http_probe
+
+    _install_mock_client(
+        monkeypatch, {}, chunks=(b'{"active_monitor_count": 5, "active_alert_rule_count": 0}',)
+    )
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert (
+        obs["response_valid"] and obs["alerts_active"] is False and obs["overall_active"] is False
+    )
+    assert obs["active_alert_rule_count"] == 0  # honest zero from a VALID read
+
+
+async def test_probe_non_200_is_http_error_no_body(monkeypatch):
+    from app.release.monitoring_connector import _default_http_probe
+
+    _install_mock_client(monkeypatch, {}, status=503, body_forbidden=True)
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert obs["failure_kind"] == "http_error" and obs["observed_http_status"] == 503
+    assert obs["active_monitor_count"] is None  # honest unknown (body never read on non-200)
+
+
+async def test_probe_non_json_is_content_type(monkeypatch):
+    from app.release.monitoring_connector import _default_http_probe
+
+    _install_mock_client(monkeypatch, {}, content_type="text/html")
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert obs["failure_kind"] == "content_type" and obs["active_monitor_count"] is None
+
+
+async def test_probe_oversize_is_oversize(monkeypatch):
+    from app.release.monitoring_connector import _default_http_probe
+
+    big = b"x" * (64 * 1024 + 10)
+    _install_mock_client(monkeypatch, {}, chunks=(big,))
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert obs["failure_kind"] == "oversize" and obs["response_valid"] is False
+
+
+async def test_probe_bad_shape_is_malformed(monkeypatch):
+    from app.release.monitoring_connector import _default_http_probe
+
+    _install_mock_client(monkeypatch, {}, chunks=(b'{"unexpected": 1}',))
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert obs["failure_kind"] == "malformed" and obs["active_monitor_count"] is None
+
+
+async def test_probe_transport_error_is_unreachable(monkeypatch):
+    import httpx
+
+    from app.release.monitoring_connector import _default_http_probe
+
+    _install_mock_client(monkeypatch, {}, raise_exc=httpx.ConnectError("boom"))
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert obs["failure_kind"] == "unreachable" and obs["provider_reachable"] is False
+
+
+async def test_connector_rejects_private_resolved_ip():
+    from app.release.monitoring_connector import GenericMonitoringApiConnector
+
+    conn = GenericMonitoringApiConnector(resolve_host=lambda h: ["10.0.0.5"])
+    with pytest.raises(DeploySSRFRejected):
+        await conn.probe_monitoring(host="mon.example.com", path="/s")
+
+
+async def test_connector_dns_failure_is_fail_closed():
+    from app.release.monitoring_connector import GenericMonitoringApiConnector
+
+    def _boom(host):
+        raise OSError("name resolution failed")
+
+    conn = GenericMonitoringApiConnector(resolve_host=_boom)
+    with pytest.raises(DeploySSRFRejected):
+        await conn.probe_monitoring(host="mon.example.com", path="/s")
+
+
+async def test_connector_happy_path_pins_validated_ip(monkeypatch):
+    from app.release.monitoring_connector import GenericMonitoringApiConnector
+
+    seen = {}
+    _install_mock_client(monkeypatch, seen)
+    conn = GenericMonitoringApiConnector(resolve_host=lambda h: ["8.8.8.8"])
+    obs = await conn.probe_monitoring(host="mon.example.com", path="/status")
+    assert obs["overall_active"] is True and seen["url"] == "https://8.8.8.8/status"
