@@ -66,6 +66,8 @@ TOOL_REGISTRY: dict[str, ToolContract] = {
     "deployment.read_target_status": _c(
         "deployment.read_target_status", "deployment", "read_deployment_target"
     ),
+    # Slice 31: broker-gated read; maps to the read-only read_monitoring_status action.
+    "monitoring.read_status": _c("monitoring.read_status", "monitoring", "read_monitoring_status"),
     "source_control.open_pull_request": _c(
         "source_control.open_pull_request",
         "source_control",

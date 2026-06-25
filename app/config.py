@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Slice 30 — deployment-target evidence freshness (its own domain; gate #2 treats verified
     # deployment-target evidence older than this many hours as stale / not-pass).
     deployment_evidence_max_age_hours: int = 24
+    # Slice 31 — monitoring/alerts evidence freshness (its own domain; gate #11 treats verified
+    # monitoring evidence older than this many hours as stale / not-pass).
+    monitoring_evidence_max_age_hours: int = 24
 
 
 settings = Settings()

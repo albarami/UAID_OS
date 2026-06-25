@@ -890,3 +890,116 @@ async def test_connector_happy_path_pins_validated_ip(monkeypatch):
     conn = GenericMonitoringApiConnector(resolve_host=lambda h: ["8.8.8.8"])
     obs = await conn.probe_monitoring(host="mon.example.com", path="/status")
     assert obs["overall_active"] is True and seen["url"] == "https://8.8.8.8/status"
+
+
+# --- DB-backed: broker-gated service ------------------------------------------
+
+
+async def _mon_allow_setup(session, ctx, project_id, agent_id="conn", status_url=_URL):
+    from app.policy.levels import AutonomyLevel
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+
+    await _declare_monitoring(session, ctx, project_id, status_url=status_url)
+    await AutonomyPolicyRepository(session, ctx).upsert(
+        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    )
+    await ToolAllowlistRepository(session, ctx).grant(
+        agent_id=agent_id, tool_name="monitoring.read_status", actor="admin"
+    )
+
+
+@pytest.mark.db
+async def test_refresh_broker_allow_writes_positive_safe_params(mon_ctx, admin_engine):
+    from app.release.monitoring_connector import FakeMonitoringConnector
+    from app.release.monitoring_evidence_service import refresh_monitoring_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = mon_ctx["t1"], mon_ctx["p1"]
+    ctx = TenantContext(t1)
+    secret_url = "https://secret-mon.example.com/private"
+    async with tenant_scope(ctx) as session:
+        await _mon_allow_setup(session, ctx, p1, status_url=secret_url)
+        result = await refresh_monitoring_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeMonitoringConnector(result=observation_valid(3, 2)),
+        )
+        assert result.wrote is True
+        row = await _mon_repo(session, ctx).latest_monitoring_for_ref(
+            p1, "generic_monitoring_api", secret_url
+        )
+        assert row.provenance == "connector_verified" and row.overall_active is True
+    # broker recorded SAFE params only — never the raw URL/host/path (B8).
+    async with admin_engine.connect() as c:
+        rows = (
+            await c.execute(
+                text(
+                    "SELECT params FROM tool_calls WHERE tenant_id=:t "
+                    "AND tool_name='monitoring.read_status'"
+                ),
+                {"t": str(t1)},
+            )
+        ).all()
+    assert rows
+    for (params,) in rows:
+        assert "secret-mon" not in str(params) and "private" not in str(params)
+        assert "status_url" not in (params or {}) and "target_ref" not in (params or {})
+        assert params.get("monitoring_present") is True
+
+
+@pytest.mark.db
+async def test_refresh_writes_verified_negative(mon_ctx):
+    # B-30-9: a safely-attempted failed read writes a verified-NEGATIVE (honest-unknown) snapshot.
+    from app.release.monitoring_connector import FakeMonitoringConnector
+    from app.release.monitoring_evidence_service import refresh_monitoring_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _mon_allow_setup(session, ctx, p1)
+        result = await refresh_monitoring_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeMonitoringConnector(result=observation_http_error(503)),
+        )
+        assert result.wrote is True
+        row = await _mon_repo(session, ctx).latest_monitoring_for_ref(
+            p1, "generic_monitoring_api", _URL
+        )
+        assert row.provenance == "connector_verified"
+        assert row.overall_active is False and row.failure_kind == "http_error"
+        assert row.active_monitor_count is None  # honest unknown, not a fake zero
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("scenario", ["monitoring_unbound", "broker_denied", "ssrf_reject"])
+async def test_refresh_no_write_paths(mon_ctx, scenario):
+    from app.release.monitoring_connector import FakeMonitoringConnector
+    from app.release.monitoring_evidence_service import refresh_monitoring_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        repo = _mon_repo(session, ctx)
+        connector = FakeMonitoringConnector(result=observation_valid(3, 2))
+        if scenario == "monitoring_unbound":
+            pass  # nothing declared
+        elif scenario == "broker_denied":
+            await _declare_monitoring(session, ctx, p1)  # declared, but agent not allowlisted
+        elif scenario == "ssrf_reject":
+            await _mon_allow_setup(session, ctx, p1)
+            connector = FakeMonitoringConnector(error=DeploySSRFRejected("blocked"))
+        result = await refresh_monitoring_evidence(
+            session, ctx, project_id=p1, agent_id="conn", actor="conn", connector=connector
+        )
+        assert result.wrote is False and result.reason == scenario
+        assert await repo.count_connector_verified_monitoring(p1) == 0
