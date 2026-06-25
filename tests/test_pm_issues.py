@@ -155,3 +155,157 @@ def test_connector_path_requires_verified_and_observed_at():
         validate_connector_mapping(_rec(provenance="caller_supplied_unverified"))
     with pytest.raises(InvalidPMMapping):
         validate_connector_mapping(_rec(provenance="connector_verified"))  # no observed_at
+
+
+# --- DB-backed fixtures + guard -----------------------------------------------
+
+import uuid  # noqa: E402
+
+import pytest_asyncio  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def pm_ctx(admin_engine):
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c, "INSERT INTO organizations (name, slug) VALUES ('PmOrg',:s) RETURNING id", s=f"pm-org-{sfx}"
+        )
+        out = {"sfx": sfx}
+        for label in ("t1", "t2"):
+            out[label] = await _scalar(
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org, n=label, s=f"pm-{label}-{sfx}",
+            )
+        for proj, tn in (("p1", "t1"), ("px", "t2")):
+            out[proj] = await _scalar(
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn], s=f"pm-{proj}-{sfx}",
+            )
+    return out
+
+
+_RAW = (
+    "INSERT INTO pm_issue_mappings "
+    "(tenant_id, project_id, external_system, instance_key, external_ref, external_status, "
+    " board_column, title_present, provenance) "
+    "VALUES (:t,:p,:sys,:inst,:ref,:status,:col,:tp,:prov)"
+)
+
+
+async def _raw_insert(rls_engine, t1, p1, **over):
+    params = {
+        "t": str(t1), "p": str(p1), "sys": "jira", "inst": "acme-jira", "ref": "PROJ-1",
+        "status": "In Progress", "col": "in_progress", "tp": True,
+        "prov": "caller_supplied_unverified",
+    }
+    params.update(over)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)})
+            await conn.execute(text(_RAW), params)
+
+
+@pytest.mark.db
+async def test_guard_accepts_valid(pm_ctx, rls_engine):
+    await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["p1"])
+    await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["p1"], status="Frobnicating", col="unmapped")
+    await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["p1"], prov="connector_verified")
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"sys": "trello"},  # not jira
+        {"inst": "ACME"},  # bad instance shape
+        {"ref": "has space"},  # bad ref shape
+        {"ref": "ghp_token"},  # token denylist
+        {"col": "in_review"},  # not a §12.3 column
+        {"prov": "bogus"},  # provenance enum
+    ],
+)
+async def test_guard_rejects_bad(pm_ctx, rls_engine, over):
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["p1"], **over)
+
+
+@pytest.mark.db
+async def test_no_title_or_credential_or_release_issue_column(admin_engine):
+    # B6 + no-secret: structurally there is no title/description/credential/release_issue_id column.
+    async with admin_engine.connect() as c:
+        cols = {
+            r[0]
+            for r in (
+                await c.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name='pm_issue_mappings'"
+                    )
+                )
+            ).all()
+        }
+    assert cols == {
+        "id", "tenant_id", "project_id", "external_system", "instance_key", "external_ref",
+        "external_status", "board_column", "title_present", "provenance", "observed_at", "created_at",
+    }
+    # the forbidden free-text/coupling columns are absent (title_present is a bool presence flag, allowed)
+    assert {"title", "description", "credential", "token", "release_issue_id"}.isdisjoint(cols)
+
+
+@pytest.mark.db
+async def test_append_only_no_update_delete_truncate(pm_ctx, rls_engine):
+    await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["p1"])
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(pm_ctx["t1"])})
+            mid = (await conn.execute(text("SELECT id FROM pm_issue_mappings LIMIT 1"))).scalar_one()
+    for verb in (
+        "UPDATE pm_issue_mappings SET board_column='done' WHERE id=:i",
+        "DELETE FROM pm_issue_mappings WHERE id=:i",
+        "TRUNCATE pm_issue_mappings",
+    ):
+        with pytest.raises(Exception):
+            async with rls_engine.connect() as conn:
+                async with conn.begin():
+                    await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(pm_ctx["t1"])})
+                    await conn.execute(text(verb), {"i": str(mid)})
+
+
+@pytest.mark.db
+async def test_fk_cross_project_tenant_rejected(pm_ctx, rls_engine):
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["px"])  # px is in t2, not t1
+
+
+@pytest.mark.db
+async def test_catalog_grants_and_rls(admin_engine):
+    async with admin_engine.connect() as c:
+        grants = {
+            r[0]
+            for r in (
+                await c.execute(
+                    text(
+                        "SELECT privilege_type FROM information_schema.role_table_grants "
+                        "WHERE table_name='pm_issue_mappings' AND grantee='uaid_app'"
+                    )
+                )
+            ).all()
+        }
+        assert grants == {"SELECT", "INSERT"}
+        rls = (
+            await c.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                    "WHERE relname='pm_issue_mappings'"
+                )
+            )
+        ).one()
+        assert rls == (True, True)
