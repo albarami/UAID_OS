@@ -622,3 +622,35 @@ async def test_service_broker_denied_no_write(src_ctx):
         )
         assert result.wrote == 0
         assert await _src_repo(session, ctx).latest_for_reference(p1, "env", "X") is None
+
+
+# --- DB-backed: store-only — no A5 / readiness impact (the scope guard) --------
+
+
+@pytest.mark.db
+async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
+    # Store-only: recording secret-reference evidence feeds NO gate and does not change the A5 report
+    # or the readiness level; ruleset stays slice31.v1.
+    from app.release.secrets_connector import EnvSecretsManagerConnector
+    from app.release.secrets_verification_service import refresh_secret_reference_evidence
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.readiness import ReadinessRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(src_ctx["t1"])
+    p1 = src_ctx["p1"]
+    monkeypatch.setenv("UAID_REG_TOK", "secret-value")
+    async with tenant_scope(ctx) as session:
+        await _src_allow_setup(session, ctx, p1, [{"manager": "env", "reference_name": "UAID_REG_TOK"}])
+        before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        readiness_before = (await ReadinessRepository(session, ctx).evaluate(p1)).readiness_level
+        result = await refresh_secret_reference_evidence(
+            session, ctx, project_id=p1, agent_id="conn", actor="conn",
+            connector=EnvSecretsManagerConnector(),
+        )
+        assert result.wrote == 1  # evidence WAS written...
+        after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        readiness_after = (await ReadinessRepository(session, ctx).evaluate(p1)).readiness_level
+    assert before == after  # ...yet the A5 report is byte-identical (store-only)
+    assert readiness_before == readiness_after  # and readiness is unchanged
+    assert after["ruleset_version"] == "slice31.v1"  # no ruleset bump
