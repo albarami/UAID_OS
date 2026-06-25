@@ -6,7 +6,8 @@ sufficient evidence); the other partial-context gates (#2/#5/#6/#7/#8/#9/#12) re
 ``insufficient_evidence`` and the sourceless gates (#4/#10/#11/#13) return
 ``no_evidence_source:<subsystem>``. Gates #5/#6 carry finding-count context; gate #7's reason narrows
 to ``no_issue_provenance`` once a frozen release candidate exists; ``ruleset_version`` is
-``slice28.v1``. ``a5_satisfied`` and ``can_go_live_autonomously`` are always false (≥11 gates unmet).
+``slice30.v1`` (Slice 30: gate #2 is now PASS-capable on verified+fresh+available deployment-target
+evidence). ``a5_satisfied`` and ``can_go_live_autonomously`` are always false (≥10 gates unmet).
 Docker-free for the pure engine; ``db`` for the repository (compute-on-read, no persistence).
 """
 
@@ -109,7 +110,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice28.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice30.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",

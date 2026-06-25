@@ -40,7 +40,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice28.v1"
+A5_RULESET_VERSION = "slice30.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -136,6 +136,11 @@ def evaluate_production_autonomy(
     branch_protection_repo_bound: bool = False,
     latest_branch_protection_required_pull_request_reviews: bool | None = None,
     latest_branch_protection_fresh: bool = False,
+    # Slice 30 — gate #2 deployment-target evidence (repo-bound, latest-wins).
+    deployment_target_bound: bool = False,
+    latest_deployment_target_provenance: str | None = None,
+    latest_deployment_target_available: bool | None = None,
+    latest_deployment_target_fresh: bool = False,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -146,14 +151,24 @@ def evaluate_production_autonomy(
     else:
         gate1 = _insufficient(1, "r5_intake_complete", f"readiness_below_r5:{readiness_level}")
 
-    # Gates #2/#8/#9/#12 — partial *context* primitives exist, but no production-autonomy evidence.
-    gate2 = _insufficient(
-        2,
-        "production_deployment_target_available",
-        "environments_declared_but_no_live_target"
-        if environments_declared
-        else "no_environment_declaration_and_no_live_target",
-    )
+    # Gate #2 (Slice 30) — production deployment-target availability, repo-bound latest-wins ladder.
+    # PASSes only on the latest connector_verified + available + fresh snapshot for the CURRENTLY
+    # declared target. ``environments_declared`` is retained as context only (never passes a gate).
+    _gate2_name = "production_deployment_target_available"
+    if not deployment_target_bound:
+        gate2 = _insufficient(2, _gate2_name, "no_environment_declaration")
+    elif latest_deployment_target_provenance is None:
+        gate2 = _insufficient(2, _gate2_name, "environments_declared_but_no_target_evidence")
+    elif latest_deployment_target_provenance != "connector_verified":
+        gate2 = _insufficient(2, _gate2_name, "deployment_target_observed_unverified")
+    elif not latest_deployment_target_fresh:
+        gate2 = _insufficient(2, _gate2_name, "deployment_target_evidence_stale")
+    elif not latest_deployment_target_available:
+        gate2 = _insufficient(2, _gate2_name, "deployment_target_unavailable")
+    else:
+        gate2 = GateResult(
+            2, _gate2_name, STATUS_PASSED, "production_deployment_target_available_verified"
+        )
     gate8 = _insufficient(
         8,
         "no_unapproved_generated_ac_in_critical_gates",

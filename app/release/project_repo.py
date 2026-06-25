@@ -15,11 +15,13 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.release.ci_evidence import REPO_REF_RE, TOKENISH_RE
+from app.release.deploy_evidence import DeploySSRFRejected, validate_target_host
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.tenancy import TenantContext
 
 _REPO_CATEGORY = "existing_assets_and_repositories"
 _SECRETS_CATEGORY = "secrets_and_credentials_manifest"
+_ENV_CATEGORY = "environments_and_deployment_targets"
 # This slice resolves the token from operator env GITHUB_CONNECTOR_TOKEN (D-28-3/9); the project's
 # secrets manifest must name exactly that reference as the credential SOURCE.
 _REQUIRED_MANAGER = "env"
@@ -69,3 +71,34 @@ async def has_declared_credential(
         and e.get("reference_name") == _REQUIRED_REFERENCE_NAME
         for e in refs
     )
+
+
+async def resolve_declared_production_target(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> str | None:
+    """Return the project's declared **production deploy host** (Slice 30, B-30-3) — the FQDN at
+    ``data["environments"]["production"]["domain"]`` of the declared ``environments_and_deployment_targets``
+    category (file 16), or ``None`` (caller fails closed). Fail-closed cases: missing category / status ≠
+    ``declared`` / ``data`` not a dict / missing ``environments`` / missing/non-dict ``production`` block /
+    blank/non-string ``domain`` / domain fails the SSRF host-shape rules (IP literal / localhost / .local /
+    .internal). Used by BOTH the connector (probe time) AND gate #2 (evaluation time) so evidence is bound
+    to the same current declaration."""
+    cat = await IntakeCategoryRepository(session, context).get_category(project_id, _ENV_CATEGORY)
+    if cat is None or cat.status != "declared":
+        return None
+    data = cat.data if isinstance(cat.data, dict) else {}
+    envs = data.get("environments")
+    if not isinstance(envs, dict):
+        return None
+    production = envs.get("production")
+    if not isinstance(production, dict):
+        return None
+    domain = production.get("domain")
+    if not isinstance(domain, str) or not domain.strip():
+        return None
+    host = domain.strip()
+    try:
+        validate_target_host(host)  # SSRF host-shape; unsafe ⇒ fail closed
+    except DeploySSRFRejected:
+        return None
+    return host

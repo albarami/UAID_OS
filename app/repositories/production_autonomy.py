@@ -33,13 +33,14 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.release.project_repo import resolve_declared_repo
+from app.release.project_repo import resolve_declared_production_target, resolve_declared_repo
 from app.release.production_autonomy import (
     ProductionAutonomyReport,
     evaluate_production_autonomy,
 )
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.ci_evidence import CIEvidenceRepository
+from app.repositories.deployments import DeploymentTargetRepository
 from app.repositories.cost import BudgetRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
@@ -57,6 +58,15 @@ def _is_fresh(row) -> bool:
     if row is None or row.observed_at is None:
         return False
     max_age = timedelta(hours=settings.ci_evidence_max_age_hours)
+    return (datetime.now(timezone.utc) - row.observed_at) <= max_age
+
+
+def _is_fresh_deploy(row) -> bool:
+    """Slice 30: deployment-target evidence is fresh iff observed within
+    DEPLOYMENT_EVIDENCE_MAX_AGE_HOURS (its own domain — not CI_EVIDENCE_MAX_AGE_HOURS)."""
+    if row is None or row.observed_at is None:
+        return False
+    max_age = timedelta(hours=settings.deployment_evidence_max_age_hours)
     return (datetime.now(timezone.utc) - row.observed_at) <= max_age
 
 
@@ -100,6 +110,17 @@ class ProductionAutonomyRepository:
         else:
             latest_bp = None
         bp_fresh = _is_fresh(latest_bp)
+        # Slice 30: gate #2 binds to the project's CURRENTLY declared production target (B-30-3) — the
+        # latest snapshot for that exact target, NOT the project-only latest.
+        deploy_host = await resolve_declared_production_target(
+            self.session, self.context, project_id
+        )
+        if deploy_host is not None:
+            latest_dt = await DeploymentTargetRepository(
+                self.session, self.context
+            ).latest_deployment_target_for_ref(project_id, "generic_https", deploy_host)
+        else:
+            latest_dt = None
         latest_frozen = await candidates.latest_frozen(project_id)
         if latest_frozen is not None:
             bound_open = await candidates.bound_open_issue_count(latest_frozen.id)
@@ -159,4 +180,12 @@ class ProductionAutonomyRepository:
                 latest_bp.required_pull_request_reviews if latest_bp is not None else None
             ),
             latest_branch_protection_fresh=bp_fresh,
+            deployment_target_bound=deploy_host is not None,
+            latest_deployment_target_provenance=(
+                latest_dt.provenance if latest_dt is not None else None
+            ),
+            latest_deployment_target_available=(
+                latest_dt.target_available if latest_dt is not None else None
+            ),
+            latest_deployment_target_fresh=_is_fresh_deploy(latest_dt),
         )

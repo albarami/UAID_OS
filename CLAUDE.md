@@ -159,6 +159,35 @@ mirrors `0025`). **Store-only — `production_autonomy.py` UNTOUCHED, ruleset st
 flip / status change; go-live stays false.** Token is operator env-only (`GITHUB_CONNECTOR_TOKEN`), never
 stored/audited/in params; audit is safe-metadata only (never repo_ref/principals/traceability UUIDs/body).
 merged via PR #47 (commit `52a4b958`).**
+**Slice 30 makes A5 gate #2 PASS-capable: a deterministic, tenant-owned deployment-target verification
+store + a broker-gated, SSRF-safe, read-only `generic_https` connector (`app/release/deploy_evidence.py`
+[pure validators + `map_https_probe` + SSRF guard `validate_target_host`/`assert_safe_resolved_ips` +
+the `target_available=(provisioned AND reachable)` invariant], `app/release/deploy_connector.py`
+[DeployTargetConnector protocol + FakeDeployTargetConnector + shipped-but-untested
+GenericHttpsDeployTargetConnector], `app/release/deploy_evidence_service.py` orchestration,
+`app/models/deployment_target_snapshot.py`, `app/repositories/deployments.py`,
+`resolve_declared_production_target` in `app/release/project_repo.py`, migration `0029`, App. B #2 /
+§5.2 / §26.3). The connector resolves the project's OWN declared production target
+(`environments.production.domain` from `environments_and_deployment_targets`, file 16 — **never a caller
+target**), `broker_call`s the read-only `deployment.read_target_status` tool (new A1 read action
+`read_deployment_target`; broker stays decision-only) with **safe params only** (no domain), runs the
+**SSRF guard** (HTTPS+FQDN-only, deny IP-literal/localhost/.local/private/loopback/link-local/multicast/
+reserved/cloud-metadata, DNS-resolve-then-pin) **before any socket**, then `GET https://{domain}/` (path
+`/`, 5.0s, redirects off, no creds; `provisioned = 200–399 ∪ {401,403}`). Per **B-30-9** it writes a
+`connector_verified` snapshot for **every safely-attempted outcome** (positive when serving, verified-NEGATIVE
+when non-serving or transport-fail) so latest-wins gate #2 can't keep a stale passing snapshot; **no write**
+only for target-unbound / SSRF-reject / broker-deny. Immutable append-only `deployment_target_snapshots`
+(RLS; SELECT/INSERT only; the `target_available=(provisioned AND reachable)` invariant + FQDN/enum CHECKs
+are the DB backstop — no guard trigger needed). Gate #2 (`production_autonomy.py` `ruleset_version` →
+`slice30.v1`) evaluates the latest snapshot **for the CURRENTLY declared target** via a latest-wins ladder
+(`no_environment_declaration` → `environments_declared_but_no_target_evidence` →
+`deployment_target_observed_unverified` → `deployment_target_evidence_stale` → `deployment_target_unavailable`
+→ **`passed`** [verified + available + fresh within `DEPLOYMENT_EVIDENCE_MAX_AGE_HOURS`=24]). Gate #2 is the
+**first non-#1/#3 gate that can PASS**; `a5_satisfied` + `can_go_live_autonomously` stay false (≥10 gates
+unmet). **ONLY gate #2 changes** (a no-other-gate-regression test guards the rest); production deploy stays
+A4/A5 human/pre-approved (`spec:485`) — the connector never deploys. No secret/credential used or stored;
+audit + broker params never carry the domain/target_ref. (Implemented on branch
+`feat/slice-30-deployment-target-evidence`, awaiting review — not yet merged.)**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -801,11 +830,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 396 passing (Docker-free); `make test-db` → 416 passing (DB-backed: tenancy,
+  **`make test` → 474 passing (Docker-free); `make test-db` → 461 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -908,8 +937,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 396 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 416 passing
+make test                                  # Docker-free tests (no services) — 474 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 461 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

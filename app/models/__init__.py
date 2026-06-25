@@ -16,6 +16,7 @@ from app.models.base import Base
 from app.models.branch_protection_snapshot import BranchProtectionSnapshot
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
+from app.models.deployment_target_snapshot import DeploymentTargetSnapshot
 from app.models.document import Document
 from app.models.extraction_promotion import ExtractionPromotion
 from app.models.extraction_proposal import ExtractionProposal
@@ -64,6 +65,7 @@ __all__ = [
     "Budget",
     "BranchProtectionSnapshot",
     "PullRequestEvidenceSnapshot",
+    "DeploymentTargetSnapshot",
     "RunCheckpoint",
     "RunCheckpointWrite",
     "RunStep",
