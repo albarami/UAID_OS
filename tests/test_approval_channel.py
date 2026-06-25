@@ -112,27 +112,33 @@ async def an_ctx(admin_engine):
     sfx = uuid.uuid4().hex[:8]
     async with admin_engine.begin() as c:
         org = await _scalar(
-            c, "INSERT INTO organizations (name, slug) VALUES ('AnOrg',:s) RETURNING id", s=f"an-org-{sfx}"
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('AnOrg',:s) RETURNING id",
+            s=f"an-org-{sfx}",
         )
         out = {"sfx": sfx}
         for label in ("t1", "t2"):
             out[label] = await _scalar(
                 c,
                 "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
-                o=org, n=label, s=f"an-{label}-{sfx}",
+                o=org,
+                n=label,
+                s=f"an-{label}-{sfx}",
             )
         for proj, tn in (("p1", "t1"), ("p2", "t1"), ("px", "t2")):
             out[proj] = await _scalar(
                 c,
                 "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
-                t=out[tn], s=f"an-{proj}-{sfx}",
+                t=out[tn],
+                s=f"an-{proj}-{sfx}",
             )
         # a real approval in (t1, p1) — the composite-FK target.
         out["appr"] = await _scalar(
             c,
             "INSERT INTO approvals (tenant_id, project_id, action, risk_tier, requires_explicit_approval,"
             " requested_by, status) VALUES (:t,:p,'deploy_production','high',true,'req','pending') RETURNING id",
-            t=out["t1"], p=out["p1"],
+            t=out["t1"],
+            p=out["p1"],
         )
     return out
 
@@ -146,13 +152,20 @@ _RAW = (
 
 async def _raw_insert(rls_engine, t1, p1, appr, **over):
     params = {
-        "t": str(t1), "p": str(p1), "a": str(appr), "tier": "high",
-        "mode": "realtime", "ch": "dashboard", "st": "delivered",
+        "t": str(t1),
+        "p": str(p1),
+        "a": str(appr),
+        "tier": "high",
+        "mode": "realtime",
+        "ch": "dashboard",
+        "st": "delivered",
     }
     params.update(over)
     async with rls_engine.connect() as conn:
         async with conn.begin():
-            await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)})
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
             await conn.execute(text(_RAW), params)
 
 
@@ -160,8 +173,13 @@ async def _raw_insert(rls_engine, t1, p1, appr, **over):
 async def test_guard_accepts_valid(an_ctx, rls_engine):
     await _raw_insert(rls_engine, an_ctx["t1"], an_ctx["p1"], an_ctx["appr"])
     await _raw_insert(
-        rls_engine, an_ctx["t1"], an_ctx["p1"], an_ctx["appr"],
-        tier="low", mode="digest", st="skipped",
+        rls_engine,
+        an_ctx["t1"],
+        an_ctx["p1"],
+        an_ctx["appr"],
+        tier="low",
+        mode="digest",
+        st="skipped",
     )
 
 
@@ -184,7 +202,9 @@ async def test_guard_rejects_bad(an_ctx, rls_engine, over):
 async def test_composite_fk_rejects_project_mismatch(an_ctx, rls_engine):
     # B3: a notification whose project_id != the approval's project_id violates the composite FK.
     with pytest.raises(Exception):
-        await _raw_insert(rls_engine, an_ctx["t1"], an_ctx["p2"], an_ctx["appr"])  # appr is in p1, not p2
+        await _raw_insert(
+            rls_engine, an_ctx["t1"], an_ctx["p2"], an_ctx["appr"]
+        )  # appr is in p1, not p2
 
 
 @pytest.mark.db
@@ -192,8 +212,12 @@ async def test_append_only_no_update_delete_truncate(an_ctx, rls_engine):
     await _raw_insert(rls_engine, an_ctx["t1"], an_ctx["p1"], an_ctx["appr"])
     async with rls_engine.connect() as conn:
         async with conn.begin():
-            await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(an_ctx["t1"])})
-            nid = (await conn.execute(text("SELECT id FROM approval_notifications LIMIT 1"))).scalar_one()
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(an_ctx["t1"])}
+            )
+            nid = (
+                await conn.execute(text("SELECT id FROM approval_notifications LIMIT 1"))
+            ).scalar_one()
     for verb in (
         "UPDATE approval_notifications SET status='failed' WHERE id=:i",
         "DELETE FROM approval_notifications WHERE id=:i",
@@ -202,7 +226,10 @@ async def test_append_only_no_update_delete_truncate(an_ctx, rls_engine):
         with pytest.raises(Exception):
             async with rls_engine.connect() as conn:
                 async with conn.begin():
-                    await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(an_ctx["t1"])})
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, true)"),
+                        {"t": str(an_ctx["t1"])},
+                    )
                     await conn.execute(text(verb), {"i": str(nid)})
 
 
@@ -230,3 +257,131 @@ async def test_catalog_grants_and_rls(admin_engine):
             )
         ).one()
         assert rls == (True, True)
+
+
+# --- Docker-free: channel adapters --------------------------------------------
+
+
+async def test_dashboard_channel_delivers():
+    from app.approvals.channels.adapter import DashboardChannel
+
+    ch = DashboardChannel()
+    assert ch.name == "dashboard"
+    assert await ch.deliver({"routing_mode": "realtime"}) == "delivered"
+
+
+async def test_fake_channel_status_and_error():
+    from app.approvals.channels.adapter import FakeChannel
+
+    assert await FakeChannel(status="failed").deliver({}) == "failed"
+    with pytest.raises(RuntimeError):
+        await FakeChannel(error=RuntimeError("boom")).deliver({})
+
+
+# --- DB-backed: orchestration (B4/B5) + routing + audit + RLS -----------------
+
+
+def _an_repo(session, ctx):
+    from app.repositories.approval_notifications import ApprovalNotificationRepository
+
+    return ApprovalNotificationRepository(session, ctx)
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("tier,mode", [("high", "realtime"), ("low", "digest")])
+async def test_orchestration_writes_both_rows(an_ctx, admin_engine, tier, mode):
+    # B4/B5: the authoritative path writes BOTH an approval_events row AND an approval_notifications row,
+    # routed by tier; the channel delivery status is recorded.
+    from app.approvals.channels.adapter import FakeChannel
+    from app.approvals.channels.service import request_and_notify_approval
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(an_ctx["t1"])
+    p1 = an_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        approval, notif = await request_and_notify_approval(
+            session,
+            ctx,
+            project_id=p1,
+            action="some_action",
+            risk_tier=tier,
+            requested_by="req",
+            actor="orch",
+            channel=FakeChannel(),
+        )
+        assert (
+            notif.routing_mode == mode
+            and notif.channel == "dashboard"
+            and notif.status == "delivered"
+        )
+        assert (await _an_repo(session, ctx).latest_for_approval(approval.id)).id == notif.id
+    async with admin_engine.connect() as c:
+        n_events = (
+            await c.execute(
+                text("SELECT count(*) FROM approval_events WHERE approval_id=:a"),
+                {"a": str(approval.id)},
+            )
+        ).scalar_one()
+        n_notifs = (
+            await c.execute(
+                text("SELECT count(*) FROM approval_notifications WHERE approval_id=:a"),
+                {"a": str(approval.id)},
+            )
+        ).scalar_one()
+    assert n_events >= 1 and n_notifs == 1  # BOTH rows written
+
+
+@pytest.mark.db
+async def test_audit_safe_metadata(an_ctx, admin_engine):
+    from app.approvals.channels.adapter import FakeChannel
+    from app.approvals.channels.service import request_and_notify_approval
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(an_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        await request_and_notify_approval(
+            session,
+            ctx,
+            project_id=an_ctx["p1"],
+            action="some_action",
+            risk_tier="high",
+            requested_by="req",
+            actor="orch",
+            channel=FakeChannel(),
+        )
+    async with admin_engine.connect() as c:
+        rows = (
+            await c.execute(
+                text(
+                    "SELECT payload::text FROM audit_logs WHERE action='approval.notification_recorded' "
+                    "AND tenant_id=:t"
+                ),
+                {"t": str(an_ctx["t1"])},
+            )
+        ).all()
+    assert rows and all(
+        "realtime" in r[0] and "dashboard" in r[0] for r in rows
+    )  # routing facts present
+
+
+@pytest.mark.db
+async def test_rls_cross_tenant(an_ctx):
+    from app.approvals.channels.adapter import FakeChannel
+    from app.approvals.channels.service import request_and_notify_approval
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, t2, p1 = an_ctx["t1"], an_ctx["t2"], an_ctx["p1"]
+    async with tenant_scope(TenantContext(t1)) as session:
+        _, notif = await request_and_notify_approval(
+            session,
+            TenantContext(t1),
+            project_id=p1,
+            action="some_action",
+            risk_tier="high",
+            requested_by="req",
+            actor="orch",
+            channel=FakeChannel(),
+        )
+        approval_id = notif.approval_id
+    async with tenant_scope(TenantContext(t2)) as session:
+        assert await _an_repo(session, TenantContext(t2)).latest_for_approval(approval_id) is None
