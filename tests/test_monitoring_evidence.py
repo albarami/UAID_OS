@@ -747,10 +747,12 @@ def _install_mock_client(
         status_code = status
         headers = {"content-type": content_type}
 
-        async def aiter_bytes(self):
+        async def aiter_bytes(self, chunk_size=None):
             if body_forbidden:
                 raise AssertionError("body must not be read")
             for c in chunks:
+                # record bytes the connector actually pulled from the stream (boundedness assertion).
+                seen["consumed"] = seen.get("consumed", 0) + len(c)
                 yield c
 
     class _Stream:
@@ -836,13 +838,32 @@ async def test_probe_non_json_is_content_type(monkeypatch):
     assert obs["failure_kind"] == "content_type" and obs["active_monitor_count"] is None
 
 
-async def test_probe_oversize_is_oversize(monkeypatch):
+async def test_probe_oversize_one_chunk_not_retained(monkeypatch):
+    # B11: a single over-cap chunk is rejected BEFORE it is accumulated (pre-check) — oversize, NULL counts.
     from app.release.monitoring_connector import _default_http_probe
+    from app.release.monitoring_evidence import MAX_BODY_BYTES
 
-    big = b"x" * (64 * 1024 + 10)
+    big = b"x" * (MAX_BODY_BYTES + 10)
     _install_mock_client(monkeypatch, {}, chunks=(big,))
     obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
     assert obs["failure_kind"] == "oversize" and obs["response_valid"] is False
+    assert obs["active_monitor_count"] is None and obs["active_alert_rule_count"] is None
+
+
+async def test_probe_oversize_multi_chunk_stops_bounded(monkeypatch):
+    # B11: many small chunks totaling >> cap ⇒ oversize, and the connector stops early — it never
+    # retains more than MAX_BODY_BYTES (proven by bounded consumption: it does NOT drain the full stream).
+    from app.release.monitoring_connector import _READ_CHUNK_BYTES, _default_http_probe
+    from app.release.monitoring_evidence import MAX_BODY_BYTES
+
+    chunk = b"x" * _READ_CHUNK_BYTES
+    n_chunks = (MAX_BODY_BYTES // _READ_CHUNK_BYTES) * 4 + 16  # ~4x the cap available
+    seen = {}
+    _install_mock_client(monkeypatch, seen, chunks=tuple(chunk for _ in range(n_chunks)))
+    obs = await _default_http_probe("mon.example.com", "/s", ["8.8.8.8"])
+    assert obs["failure_kind"] == "oversize" and obs["active_monitor_count"] is None
+    # consumed ≤ cap + one chunk ⇒ the connector stopped at the boundary, never accumulating the stream.
+    assert seen["consumed"] <= MAX_BODY_BYTES + _READ_CHUNK_BYTES
 
 
 async def test_probe_bad_shape_is_malformed(monkeypatch):

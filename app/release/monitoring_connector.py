@@ -43,6 +43,10 @@ from app.release.monitoring_evidence import (
     parse_monitoring_body,
 )
 
+# Explicit per-read transport chunk size (B11): bounds how much a single ``aiter_bytes`` step can hand
+# back, so the bounded read can never jump by an unbounded transport chunk.
+_READ_CHUNK_BYTES = 8192
+
 
 class MonitoringConnector(Protocol):
     async def probe_monitoring(self, *, host: str, path: str) -> dict:
@@ -93,10 +97,13 @@ async def _default_http_probe(host: str, path: str, ips: list[str]) -> dict:
                 if "application/json" not in ctype.lower():
                     return observation_failure("content_type")
                 body = bytearray()
-                async for chunk in resp.aiter_bytes():
+                async for chunk in resp.aiter_bytes(chunk_size=_READ_CHUNK_BYTES):
+                    # B11: bound BEFORE retaining — an over-cap chunk is never accumulated, so the
+                    # retained body can never exceed MAX_BODY_BYTES (the explicit chunk_size also keeps
+                    # each transport read small, so a hostile stream can't hand back an unbounded chunk).
+                    if len(body) + len(chunk) > MAX_BODY_BYTES:
+                        return observation_failure("oversize")
                     body.extend(chunk)
-                    if len(body) > MAX_BODY_BYTES:
-                        return observation_failure("oversize")  # bounded — stop reading
                 try:
                     monitor_count, alert_count = parse_monitoring_body(json.loads(bytes(body)))
                 except (ValueError, MalformedMonitoringBody):

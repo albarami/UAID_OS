@@ -217,8 +217,9 @@ declared `status_url`** (B2) via a latest-wins ladder — `no_monitoring_declara
 `MONITORING_EVIDENCE_MAX_AGE_HOURS`=24). Gate #11 is the **4th** PASS-capable gate (#1/#2/#3/#11); only
 gate #11 changed (no-other-gate-regression test); `a5_satisfied` + `can_go_live_autonomously` stay false
 (≥9 gates unmet). Unauthenticated-only this slice (authenticated providers + operator-controlled
-credential-audience allowlist deferred); SSRF guard reused verbatim from Slice 30. (Implemented on branch
-`feat/slice-31-monitoring-evidence`, awaiting review — not yet merged.)**
+credential-audience allowlist deferred); SSRF guard reused verbatim from Slice 30. The bounded read is
+cap-enforced **before** accumulation (a chunk that would exceed the 64 KiB read cap is never retained) with
+an explicit transport chunk size (B11).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
