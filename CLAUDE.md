@@ -265,7 +265,7 @@ deferred). Records **only** routing facts `(approval_id, risk_tier, routing_mode
 identity approvals are **reused from Slice 27** (on the resolution, not added here). **Store/infra-only —
 `production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`** (gate #12's verified
 approvals complete in Slice 53); a `before==after` + an `is_blocked`-unchanged no-regression test guard it;
-go-live false. A channel ack is **never** an approval / production pre-approval.**
+go-live false. A channel ack is **never** an approval / production pre-approval. merged via PR #55 (commit `e436668`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
