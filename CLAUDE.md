@@ -219,7 +219,7 @@ gate #11 changed (no-other-gate-regression test); `a5_satisfied` + `can_go_live_
 (≥9 gates unmet). Unauthenticated-only this slice (authenticated providers + operator-controlled
 credential-audience allowlist deferred); SSRF guard reused verbatim from Slice 30. The bounded read is
 cap-enforced **before** accumulation (a chunk that would exceed the 64 KiB read cap is never retained) with
-an explicit transport chunk size (B11).**
+an explicit transport chunk size (B11). merged via PR #51 (commit `e77bf7a`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
