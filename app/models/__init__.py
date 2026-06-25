@@ -30,6 +30,7 @@ from app.models.run_checkpoint_write import RunCheckpointWrite
 from app.models.run_step import RunStep
 from app.models.tenant_api_key import TenantApiKey
 from app.models.organization import Organization
+from app.models.monitoring_status_snapshot import MonitoringStatusSnapshot
 from app.models.project import Project
 from app.models.project_run import ProjectRun
 from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
@@ -66,6 +67,7 @@ __all__ = [
     "BranchProtectionSnapshot",
     "PullRequestEvidenceSnapshot",
     "DeploymentTargetSnapshot",
+    "MonitoringStatusSnapshot",
     "RunCheckpoint",
     "RunCheckpointWrite",
     "RunStep",

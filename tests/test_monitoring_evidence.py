@@ -12,9 +12,12 @@ Docker-free for the pure validators / URL+body parsing / observation builders / 
 ``db`` for the store, resolver, DB guard, broker-gated connector, gate #11, and no-other-gate-regression.
 """
 
+import uuid
 from datetime import datetime, timezone
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.release.deploy_evidence import DeploySSRFRejected
 from app.release.monitoring_evidence import (
@@ -269,3 +272,183 @@ def test_ssrf_reuse_rejects_unsafe_host_in_url():
 def test_ssrf_exception_is_reused_from_deploy():
     # the connector reuses the Slice-30 DeploySSRFRejected (shared SSRF primitive) — sanity import.
     assert issubclass(DeploySSRFRejected, Exception)
+
+
+# --- DB-backed fixtures -------------------------------------------------------
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def mon_ctx(admin_engine):
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('MonOrg',:s) RETURNING id",
+            s=f"mon-org-{sfx}",
+        )
+        out = {"sfx": sfx}
+        for label in ("t1", "t2"):
+            out[label] = await _scalar(
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"mon-{label}-{sfx}",
+            )
+        for proj, tn in (("p1", "t1"), ("p2", "t1"), ("px", "t2")):
+            out[proj] = await _scalar(
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"mon-{proj}-{sfx}",
+            )
+    return out
+
+
+# --- DB-backed: guard (direct SQL refusals) -----------------------------------
+
+_RAW_INSERT = (
+    "INSERT INTO monitoring_status_snapshots "
+    "(tenant_id, project_id, provider, target_ref, provider_reachable, response_valid, "
+    " observed_http_status, failure_kind, active_monitor_count, active_alert_rule_count, "
+    " monitoring_active, alerts_active, overall_active, provenance) "
+    "VALUES (:t,:p,:provider,:target_ref,:reachable,:valid,:status,:fk,:mc,:ac,"
+    " :mon,:al,:overall,:prov)"
+)
+
+
+async def _raw_insert(rls_engine, t1, p1, **over):
+    params = {
+        "t": str(t1),
+        "p": str(p1),
+        "provider": "generic_monitoring_api",
+        "target_ref": "https://mon.example.com/status",
+        "reachable": True,
+        "valid": True,
+        "status": 200,
+        "fk": None,
+        "mc": 3,
+        "ac": 2,
+        "mon": True,
+        "al": True,
+        "overall": True,
+        "prov": "caller_supplied_unverified",
+    }
+    params.update(over)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
+            await conn.execute(text(_RAW_INSERT), params)
+
+
+# failed-read column packs (read-state honesty)
+_UNREACHABLE = dict(reachable=False, valid=False, status=None, fk="unreachable", mc=None, ac=None, mon=False, al=False, overall=False)
+_HTTP_ERROR = dict(reachable=True, valid=False, status=503, fk="http_error", mc=None, ac=None, mon=False, al=False, overall=False)
+_MALFORMED = dict(reachable=True, valid=False, status=200, fk="malformed", mc=None, ac=None, mon=False, al=False, overall=False)
+
+
+@pytest.mark.db
+async def test_guard_accepts_valid_and_each_failure_kind(mon_ctx, rls_engine):
+    t1, p1 = mon_ctx["t1"], mon_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1)  # valid active
+    await _raw_insert(rls_engine, t1, p1, mc=3, ac=0, mon=True, al=False, overall=False)  # valid inactive
+    await _raw_insert(rls_engine, t1, p1, **_UNREACHABLE)
+    await _raw_insert(rls_engine, t1, p1, **_HTTP_ERROR)
+    await _raw_insert(rls_engine, t1, p1, **_MALFORMED)
+    await _raw_insert(rls_engine, t1, p1, prov="connector_verified")  # both tiers writable
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"provider": "datadog"},  # provider CHECK
+        {"target_ref": "http://mon.example.com/x"},  # not https
+        {"target_ref": "https://u@mon.example.com/x"},  # userinfo char
+        {"target_ref": "https://mon.example.com/ghp_token"},  # token denylist
+        {"status": 600},  # http status range
+        {"fk": "boom"},  # failure_kind CHECK
+        {"mc": 40000},  # count > 32767 (smallint/CHECK)
+        # read-state honesty (B6) — valid read requires status=200 + counts:
+        {"valid": True, "status": 204},
+        {"valid": True, "mc": None},
+        {"valid": True, "fk": "malformed", "status": 200},  # valid must have null failure_kind
+        # failed read must have NULL counts:
+        {"reachable": True, "valid": False, "status": 503, "fk": "http_error", "mc": 0, "ac": 0, "mon": False, "al": False, "overall": False},
+        # per-failure_kind:
+        {"reachable": True, "valid": False, "status": 200, "fk": "unreachable", "mc": None, "ac": None, "mon": False, "al": False, "overall": False},  # unreachable needs status NULL + reachable false
+        {"reachable": True, "valid": False, "status": 200, "fk": "http_error", "mc": None, "ac": None, "mon": False, "al": False, "overall": False},  # http_error needs status<>200
+        {"reachable": True, "valid": False, "status": 503, "fk": "malformed", "mc": None, "ac": None, "mon": False, "al": False, "overall": False},  # malformed needs status=200
+        # overall_active invariant:
+        {"overall": False},  # but mon+al True
+    ],
+)
+async def test_guard_rejects_bad_inserts(mon_ctx, rls_engine, over):
+    t1, p1 = mon_ctx["t1"], mon_ctx["p1"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, p1, **over)
+
+
+@pytest.mark.db
+async def test_append_only_no_update_delete_truncate(mon_ctx, rls_engine):
+    t1, p1 = mon_ctx["t1"], mon_ctx["p1"]
+    await _raw_insert(rls_engine, t1, p1)
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
+            sid = (
+                await conn.execute(text("SELECT id FROM monitoring_status_snapshots LIMIT 1"))
+            ).scalar_one()
+    for verb in (
+        "UPDATE monitoring_status_snapshots SET response_valid=false WHERE id=:i",
+        "DELETE FROM monitoring_status_snapshots WHERE id=:i",
+        "TRUNCATE monitoring_status_snapshots",
+    ):
+        with pytest.raises(Exception):
+            async with rls_engine.connect() as conn:
+                async with conn.begin():
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+                    )
+                    await conn.execute(text(verb), {"i": str(sid)})
+
+
+@pytest.mark.db
+async def test_fk_cross_project_tenant_rejected(mon_ctx, rls_engine):
+    t1, px = mon_ctx["t1"], mon_ctx["px"]
+    with pytest.raises(Exception):
+        await _raw_insert(rls_engine, t1, px)
+
+
+@pytest.mark.db
+async def test_catalog_grants_and_rls(admin_engine):
+    async with admin_engine.connect() as c:
+        grants = {
+            r[0]
+            for r in (
+                await c.execute(
+                    text(
+                        "SELECT privilege_type FROM information_schema.role_table_grants "
+                        "WHERE table_name='monitoring_status_snapshots' AND grantee='uaid_app'"
+                    )
+                )
+            ).all()
+        }
+        assert grants == {"SELECT", "INSERT"}
+        rls = (
+            await c.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                    "WHERE relname='monitoring_status_snapshots'"
+                )
+            )
+        ).one()
+        assert rls == (True, True)
