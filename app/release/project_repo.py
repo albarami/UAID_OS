@@ -78,6 +78,38 @@ async def has_declared_credential(
     )
 
 
+async def resolve_declared_secret_references(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> list[tuple[str, str]]:
+    """Return ALL declared ``(manager, reference_name)`` references from the project's
+    ``secrets_and_credentials_manifest`` (Slice 32, B5) — the **canonical persisted category shape only**:
+    ``data["references"]`` (list of ``{manager, reference_name}``) **or** a top-level
+    ``{manager, reference_name}`` (the ``has_declared_credential`` read pattern). Template-YAML
+    normalization (``secret_manager``/``secrets[]``) is out of scope. Fail-closed: undeclared / not
+    ``declared`` / malformed entries are skipped. **Never a secret value** — only the names."""
+    cat = await IntakeCategoryRepository(session, context).get_category(
+        project_id, _SECRETS_CATEGORY
+    )
+    if cat is None or cat.status != "declared":
+        return []
+    data = cat.data if isinstance(cat.data, dict) else {}
+    refs = data["references"] if isinstance(data.get("references"), list) else [data]
+    out: list[tuple[str, str]] = []
+    for entry in refs:
+        if not isinstance(entry, dict):
+            continue
+        manager = entry.get("manager")
+        reference_name = entry.get("reference_name")
+        if (
+            isinstance(manager, str)
+            and manager
+            and isinstance(reference_name, str)
+            and reference_name
+        ):
+            out.append((manager, reference_name))
+    return out
+
+
 async def resolve_declared_production_target(
     session: AsyncSession, context: TenantContext, project_id: uuid.UUID
 ) -> str | None:
