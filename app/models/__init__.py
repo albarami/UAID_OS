@@ -33,6 +33,7 @@ from app.models.organization import Organization
 from app.models.monitoring_status_snapshot import MonitoringStatusSnapshot
 from app.models.project import Project
 from app.models.project_run import ProjectRun
+from app.models.secret_reference_check import SecretReferenceCheck
 from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
 from app.models.readiness_report import ReadinessReportRecord
 from app.models.release_finding import ReleaseFinding
@@ -68,6 +69,7 @@ __all__ = [
     "PullRequestEvidenceSnapshot",
     "DeploymentTargetSnapshot",
     "MonitoringStatusSnapshot",
+    "SecretReferenceCheck",
     "RunCheckpoint",
     "RunCheckpointWrite",
     "RunStep",

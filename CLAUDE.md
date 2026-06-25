@@ -220,6 +220,33 @@ gate #11 changed (no-other-gate-regression test); `a5_satisfied` + `can_go_live_
 credential-audience allowlist deferred); SSRF guard reused verbatim from Slice 30. The bounded read is
 cap-enforced **before** accumulation (a chunk that would exceed the 64 KiB read cap is never retained) with
 an explicit transport chunk size (B11). merged via PR #51 (commit `e77bf7a`).**
+**Slice 32 adds a deterministic, tenant-owned secrets-reference verifier (`app/release/secrets_verification.py`
+[pure validators + honesty outcome model + bounded manager/reference-name shapes + `build_env_outcome`],
+`app/release/secrets_connector.py` [`SecretsManagerConnector` protocol + `FakeSecretsManagerConnector` +
+local `EnvSecretsManagerConnector`], `app/release/secrets_verification_service.py` orchestration,
+`app/repositories/secrets_verification.py`, `resolve_declared_secret_references` in `project_repo.py`,
+model `secret_reference_checks`, migration `0031`, R5 App. A l.2968 / §26.3 / spec:1094) — the "secrets
+available" evidence class for R5 + gate #2 deploy-readiness. The broker-gated verifier resolves the
+project's OWN declared `secrets_and_credentials_manifest` references (**canonical persisted shape only** —
+`{manager, reference_name}` or `{references:[…]}`; template-YAML normalization out of scope, B5), calls
+`broker_call` for the read-only `secrets.verify_reference` tool (new A1 action `verify_secret_reference`,
+distinct from the mutating mandatory-approval `change_secrets`) with **safe params** (`{manager,
+reference_present:true}` — the key is `reference_present`, NOT `secret_present`, which the sanitizer would
+redact, B3), and writes a `connector_verified` `secret_reference_checks` row per reference recording **only**
+`(manager, reference_name, outcome, resolved)`. **ZERO secret-value leakage (B4/B6):** no value is
+stored/logged/audited/persisted/returned/bound — the schema has **no value column** (structural), and the
+`env` connector inspects the value transiently in-process **only** to compute non-emptiness
+(`bool((os.environ.get(name) or "").strip())`) then discards it. **Honesty (B1/B2):** `outcome ∈
+{resolved, not_found, unsupported_manager, probe_error}` with DB-enforced `resolved=(outcome='resolved')`;
+`manager` is bounded safe text with the DB rule `manager<>'env' ⟹ unsupported_manager+unresolved` (a
+non-`env` manager is honestly unsupported, never "missing"); `reference_name` is a bounded shape that
+ACCEPTS legit names like `prod/db_password`/`app/api_key` (no value denylist on the name). `env`-only this
+slice (local; no network/SSRF; Vault/cloud + operator credential-audience allowlist deferred). **Store-only
+— `production_autonomy.py`/`readiness.py` UNTOUCHED, `ruleset_version` stays `slice31.v1`** (a `before==after`
+regression proves recording evidence flips no gate/readiness); go-live false. Immutable append-only
+`secret_reference_checks` (RLS ENABLE+FORCE; SELECT/INSERT only; migration `0031`; Postgres regex
+`{m,n}` caps at 255, so `reference_name` uses a char-class shape + a separate `char_length BETWEEN 1 AND
+256`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -862,11 +889,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 548 passing (Docker-free); `make test-db` → 503 passing (DB-backed: tenancy,
+  **`make test` → 584 passing (Docker-free); `make test-db` → 525 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -969,8 +996,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 548 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 503 passing
+make test                                  # Docker-free tests (no services) — 584 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 525 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

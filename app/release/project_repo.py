@@ -20,6 +20,7 @@ from app.release.monitoring_evidence import (
     InvalidMonitoringSnapshot,
     parse_and_validate_status_url,
 )
+from app.release.secrets_verification import is_valid_manager, is_valid_reference_name
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.tenancy import TenantContext
 
@@ -76,6 +77,38 @@ async def has_declared_credential(
         and e.get("reference_name") == _REQUIRED_REFERENCE_NAME
         for e in refs
     )
+
+
+async def resolve_declared_secret_references(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> list[tuple[str, str]]:
+    """Return ALL declared ``(manager, reference_name)`` references from the project's
+    ``secrets_and_credentials_manifest`` (Slice 32, B5) — the **canonical persisted category shape only**:
+    ``data["references"]`` (list of ``{manager, reference_name}``) **or** a top-level
+    ``{manager, reference_name}`` (the ``has_declared_credential`` read pattern). Template-YAML
+    normalization (``secret_manager``/``secrets[]``) is out of scope. Fail-closed: undeclared / not
+    ``declared`` / malformed entries are skipped. **Never a secret value** — only the names."""
+    cat = await IntakeCategoryRepository(session, context).get_category(
+        project_id, _SECRETS_CATEGORY
+    )
+    if cat is None or cat.status != "declared":
+        return []
+    data = cat.data if isinstance(cat.data, dict) else {}
+    refs = data["references"] if isinstance(data.get("references"), list) else [data]
+    out: list[tuple[str, str]] = []
+    for entry in refs:
+        if not isinstance(entry, dict):
+            continue
+        manager = entry.get("manager")
+        reference_name = entry.get("reference_name")
+        # Fail closed (D-32-10): skip entries that do not match the Slice-32 bounded shapes — the
+        # upstream category validator permits short strings but does NOT enforce MANAGER_RE /
+        # REFERENCE_NAME_RE, so a malformed persisted manager/name must never reach the broker or the
+        # DB write. A VALID-shape but unsupported manager (e.g. ``vault``) is kept here and recorded
+        # downstream as ``unsupported_manager`` (B1) — only malformed shapes are dropped.
+        if is_valid_manager(manager) and is_valid_reference_name(reference_name):
+            out.append((manager, reference_name))
+    return out
 
 
 async def resolve_declared_production_target(
