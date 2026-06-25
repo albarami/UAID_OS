@@ -16,12 +16,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.release.ci_evidence import REPO_REF_RE, TOKENISH_RE
 from app.release.deploy_evidence import DeploySSRFRejected, validate_target_host
+from app.release.monitoring_evidence import (
+    InvalidMonitoringSnapshot,
+    parse_and_validate_status_url,
+)
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.tenancy import TenantContext
 
 _REPO_CATEGORY = "existing_assets_and_repositories"
 _SECRETS_CATEGORY = "secrets_and_credentials_manifest"
 _ENV_CATEGORY = "environments_and_deployment_targets"
+_MONITORING_CATEGORY = "operations_observability_support"
 # This slice resolves the token from operator env GITHUB_CONNECTOR_TOKEN (D-28-3/9); the project's
 # secrets manifest must name exactly that reference as the credential SOURCE.
 _REQUIRED_MANAGER = "env"
@@ -102,3 +107,35 @@ async def resolve_declared_production_target(
     except DeploySSRFRejected:
         return None
     return host
+
+
+async def resolve_declared_monitoring_target(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> tuple[str, str, str] | None:
+    """Return ``(status_url, host, path)`` from the project's declared
+    ``operations_observability_support`` (file 22) ``data["monitoring"]`` block (Slice 31, D-31-3), or
+    ``None`` (caller fails closed). ``status_url`` is the full declared URL — the binding key (B2) — and
+    is validated HTTPS-only / no-userinfo-query-fragment / port-443 / SSRF-safe-FQDN-host /
+    normalized-bounded-path (``parse_and_validate_status_url``). **Unauthenticated-only (B9):** no
+    credential is read or returned. Fail-closed: missing category / status ≠ ``declared`` / ``data`` not
+    a dict / missing/non-dict ``monitoring`` / ``provider`` ≠ ``generic_monitoring_api`` / blank/non-string
+    or invalid ``status_url``. Used by BOTH the connector (read time) AND gate #11 (evaluation time)."""
+    cat = await IntakeCategoryRepository(session, context).get_category(
+        project_id, _MONITORING_CATEGORY
+    )
+    if cat is None or cat.status != "declared":
+        return None
+    data = cat.data if isinstance(cat.data, dict) else {}
+    monitoring = data.get("monitoring")
+    if not isinstance(monitoring, dict):
+        return None
+    if monitoring.get("provider") != "generic_monitoring_api":
+        return None
+    status_url = monitoring.get("status_url")
+    if not isinstance(status_url, str):
+        return None
+    try:
+        host, path = parse_and_validate_status_url(status_url)
+    except InvalidMonitoringSnapshot:
+        return None
+    return status_url, host, path

@@ -42,6 +42,8 @@ MATRIX: dict[str, AuthorityRule] = {
     "read_pull_requests": _r(L.A1),
     # Slice 30: read-only deployment-target status probe (generic_https). A read, never a deploy.
     "read_deployment_target": _r(L.A1),
+    # Slice 31: read-only monitoring/alerts status read (generic_monitoring_api). A read, never a write.
+    "read_monitoring_status": _r(L.A1),
     "create_draft_prd": _r(L.A1),
     "create_project_tasks": _r(L.A1),
     "create_repository": _r(L.A2),
