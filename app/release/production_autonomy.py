@@ -1,13 +1,14 @@
-"""A5 production-autonomy evaluator skeleton (Slice 21 + 22 + 23 + 24 + 25 + 26 + 28, spec §5.1 + App. B) — pure.
+"""A5 production-autonomy evaluator skeleton (Slice 21..26 + 28 + 30 + 31, spec §5.1 + App. B) — pure.
 
 Scores the **13 Appendix-B A5 gates** and emits a ``ProductionAutonomyReport`` that is **fail-closed
 and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``context`` dict
 (default ``{}``, serialized on every gate):
 
-- **Gate #1 (R5 intake complete)** passes when readiness is ``R5``; **gate #3 (branch protection)** is
-  now **PASS-capable** (Slice 28) — see below. No other gate can pass yet.
-- The **seven** partial-context gates (#2, #5, #6, #7, #8, #9, #12) return ``insufficient_evidence``:
-  the system has a *primitive* (env declaration; **Slice-23 security findings store, #5**;
+- **Gate #1 (R5 intake complete)** passes at ``R5``; **gate #2 (deployment target, Slice 30)**, **gate #3
+  (branch protection, Slice 28)**, and **gate #11 (monitoring/alerts, Slice 31)** are **PASS-capable**
+  — each via a binding-bound, latest-wins, connector_verified + fresh ladder (see below).
+- The **six** partial-context gates (#5, #6, #7, #8, #9, #12) return ``insufficient_evidence``:
+  the system has a *primitive* (**Slice-23 security findings store, #5**;
   **Slice-23 shortcut findings store, #6**; **Slice-22 risk-acceptance store, #7**; AC provenance;
   cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
   they never pass. #5/#6 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
@@ -24,14 +25,21 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   protection-enabled + PR-reviews + ≥1 required check + fresh. It is the **first non-#1 gate that can
   PASS**; counts are context only; the report carries ``branch_protection_repo_bound`` (never raw
   ``repo_ref``).
-- The **four** sourceless gates (#4, #10, #11, #13) return ``no_evidence_source:<subsystem>`` —
-  they await Phase 5/6 evidence subsystems.
+- **Gate #11 (monitoring/alerts active — PASS-capable, Slice 31):** evaluates the latest snapshot for
+  the project's **currently declared** monitoring ``status_url`` (B2) via a latest-wins ladder —
+  ``no_monitoring_declaration`` → ``monitoring_declared_but_no_evidence`` →
+  ``monitoring_observed_unverified`` → ``monitoring_evidence_stale`` → ``monitoring_evidence_unreadable``
+  (a verified+fresh but unreadable provider — **honest, never "inactive"**, B4) →
+  ``monitoring_or_alerts_inactive`` → **``passed``** when the latest is ``connector_verified`` +
+  valid-read + ``overall_active`` + fresh. Context carries the read-state (never a URL/host).
+- The **three** sourceless gates (#4, #10, #13) return ``no_evidence_source:<subsystem>`` — they await
+  Phase 5/6 evidence subsystems.
 
-``a5_satisfied`` is true only if **all 13** gates pass (still impossible — ≥11 gates remain unmet even
-with gate #1 and gate #3 passing). ``can_go_live_autonomously`` is **hard-false always** — go-live
+``a5_satisfied`` is true only if **all 13** gates pass (still impossible — ≥9 gates remain unmet even
+with gates #1/#2/#3/#11 passing). ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice28.v1``.
+``slice31.v1``.
 """
 
 from __future__ import annotations
@@ -40,7 +48,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice30.v1"
+A5_RULESET_VERSION = "slice31.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -141,6 +149,13 @@ def evaluate_production_autonomy(
     latest_deployment_target_provenance: str | None = None,
     latest_deployment_target_available: bool | None = None,
     latest_deployment_target_fresh: bool = False,
+    # Slice 31 — gate #11 monitoring/alerts evidence (binding-bound, latest-wins).
+    monitoring_bound: bool = False,
+    latest_monitoring_provenance: str | None = None,
+    latest_monitoring_response_valid: bool | None = None,
+    latest_monitoring_overall_active: bool | None = None,
+    latest_monitoring_fresh: bool = False,
+    latest_monitoring_failure_kind: str | None = None,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -276,6 +291,37 @@ def evaluate_production_autonomy(
             _gate3_ctx,
         )
 
+    # Slice 31: gate #11 is PASS-capable. The "latest" inputs are the snapshot for the project's
+    # CURRENTLY DECLARED monitoring status_url (B2 — bound at evaluation time); the ladder is keyed
+    # ONLY off that latest snapshot. A connector_verified + valid-read + active + fresh snapshot
+    # PASSES; everything else fails closed. **Honesty (B4):** an unreadable verified+fresh snapshot is
+    # ``monitoring_evidence_unreadable`` — NEVER "inactive". Context carries the read-state (no URL/host).
+    _gate11_name = "monitoring_and_alerts_active"
+    _gate11_ctx = {
+        "monitoring_bound": monitoring_bound,
+        "latest_monitoring_provenance": latest_monitoring_provenance,
+        "latest_monitoring_response_valid": latest_monitoring_response_valid,
+        "latest_monitoring_overall_active": latest_monitoring_overall_active,
+        "latest_monitoring_failure_kind": latest_monitoring_failure_kind,
+    }
+    if not monitoring_bound:
+        gate11 = _insufficient(11, _gate11_name, "no_monitoring_declaration", _gate11_ctx)
+    elif latest_monitoring_provenance is None:
+        gate11 = _insufficient(11, _gate11_name, "monitoring_declared_but_no_evidence", _gate11_ctx)
+    elif latest_monitoring_provenance != "connector_verified":
+        gate11 = _insufficient(11, _gate11_name, "monitoring_observed_unverified", _gate11_ctx)
+    elif not latest_monitoring_fresh:
+        gate11 = _insufficient(11, _gate11_name, "monitoring_evidence_stale", _gate11_ctx)
+    elif not latest_monitoring_response_valid:
+        # B4: the provider was unreadable — do NOT claim alerts are inactive.
+        gate11 = _insufficient(11, _gate11_name, "monitoring_evidence_unreadable", _gate11_ctx)
+    elif not latest_monitoring_overall_active:
+        gate11 = _insufficient(11, _gate11_name, "monitoring_or_alerts_inactive", _gate11_ctx)
+    else:
+        gate11 = GateResult(
+            11, _gate11_name, STATUS_PASSED, "monitoring_and_alerts_active_verified", _gate11_ctx
+        )
+
     # Gates with no evidence source at all (await Phase 5/6 subsystems).
     gates = [
         gate1,
@@ -288,7 +334,7 @@ def evaluate_production_autonomy(
         gate8,
         gate9,
         _no_source(10, "rollback_verified", "rollback_verification"),
-        _no_source(11, "monitoring_and_alerts_active", "monitoring"),
+        gate11,
         gate12,
         _no_source(13, "emergency_stop_rollback_authority", "emergency_stop"),
     ]

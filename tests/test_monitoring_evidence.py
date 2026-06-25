@@ -1003,3 +1003,148 @@ async def test_refresh_no_write_paths(mon_ctx, scenario):
         )
         assert result.wrote is False and result.reason == scenario
         assert await repo.count_connector_verified_monitoring(p1) == 0
+
+
+# --- Gate #11 (the deliverable): ladder + no-other-gate-regression -------------
+
+_VERIFIED_ACTIVE = dict(
+    monitoring_bound=True,
+    latest_monitoring_provenance="connector_verified",
+    latest_monitoring_fresh=True,
+    latest_monitoring_response_valid=True,
+    latest_monitoring_overall_active=True,
+)
+
+
+def _mon_eval(**over):
+    from app.release.production_autonomy import evaluate_production_autonomy
+
+    base = dict(readiness_level="R5")
+    base.update(over)
+    return evaluate_production_autonomy("p", **base).to_dict()
+
+
+def _g11(d):
+    return next(g for g in d["gates"] if g["number"] == 11)
+
+
+@pytest.mark.parametrize(
+    "inputs,reason",
+    [
+        ({}, "no_monitoring_declaration"),
+        ({"monitoring_bound": True}, "monitoring_declared_but_no_evidence"),
+        (
+            {
+                "monitoring_bound": True,
+                "latest_monitoring_provenance": "caller_supplied_unverified",
+            },
+            "monitoring_observed_unverified",
+        ),
+        (
+            {
+                "monitoring_bound": True,
+                "latest_monitoring_provenance": "connector_verified",
+                "latest_monitoring_fresh": False,
+            },
+            "monitoring_evidence_stale",
+        ),
+        (
+            {
+                "monitoring_bound": True,
+                "latest_monitoring_provenance": "connector_verified",
+                "latest_monitoring_fresh": True,
+                "latest_monitoring_response_valid": False,
+                "latest_monitoring_failure_kind": "http_error",
+            },
+            "monitoring_evidence_unreadable",  # B4: NEVER "inactive" when unreadable
+        ),
+        (
+            {
+                "monitoring_bound": True,
+                "latest_monitoring_provenance": "connector_verified",
+                "latest_monitoring_fresh": True,
+                "latest_monitoring_response_valid": True,
+                "latest_monitoring_overall_active": False,
+            },
+            "monitoring_or_alerts_inactive",
+        ),
+    ],
+)
+def test_gate11_ladder(inputs, reason):
+    g = _g11(_mon_eval(**inputs))
+    assert g["status"] == "insufficient_evidence" and g["reason"] == reason
+
+
+def test_gate11_passes_on_verified_valid_active_fresh():
+    assert _g11(_mon_eval(**_VERIFIED_ACTIVE))["status"] == "passed"
+
+
+def test_gate11_unreadable_is_not_inactive():
+    # B4 honesty: an unreadable verified+fresh read must not be reported as alerts-inactive.
+    g = _g11(
+        _mon_eval(
+            monitoring_bound=True,
+            latest_monitoring_provenance="connector_verified",
+            latest_monitoring_fresh=True,
+            latest_monitoring_response_valid=False,
+            latest_monitoring_failure_kind="content_type",
+        )
+    )
+    assert g["reason"] == "monitoring_evidence_unreadable"
+    assert g["reason"] != "monitoring_or_alerts_inactive"
+
+
+def test_gate11_only_no_other_gate_regression():
+    # The Slice-31 deliverable guard: passing gate #11 changes ONLY gate #11; every other gate is
+    # byte-identical, go-live + a5 stay false, ruleset is slice31.v1.
+    before = _mon_eval()  # no monitoring evidence
+    after = _mon_eval(**_VERIFIED_ACTIVE)  # gate #11 passes
+    bg = {g["number"]: g for g in before["gates"]}
+    ag = {g["number"]: g for g in after["gates"]}
+    for n in range(1, 14):
+        if n == 11:
+            assert bg[n]["status"] == "insufficient_evidence" and ag[n]["status"] == "passed"
+        else:
+            assert bg[n] == ag[n], n  # byte-identical — no other gate moved
+    assert before["ruleset_version"] == after["ruleset_version"] == "slice31.v1"
+    assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
+
+
+@pytest.mark.db
+async def test_gate11_db_passes_then_negative_supersedes(mon_ctx):
+    from app.release.monitoring_connector import FakeMonitoringConnector
+    from app.release.monitoring_evidence_service import refresh_monitoring_evidence
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _mon_allow_setup(session, ctx, p1)
+        # 1) verified valid + active + fresh ⇒ gate #11 PASSES (the first DB pass).
+        await refresh_monitoring_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeMonitoringConnector(result=observation_valid(3, 2)),
+        )
+        rep = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        assert _g11(rep)["status"] == "passed"
+        assert rep["a5_satisfied"] is False and rep["can_go_live_autonomously"] is False
+        # 2) a later failed read supersedes ⇒ gate #11 STOPS passing, honest unreadable (B-30-9/B4).
+        await refresh_monitoring_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeMonitoringConnector(result=observation_http_error(503)),
+        )
+        rep2 = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        g = _g11(rep2)
+        assert (
+            g["status"] == "insufficient_evidence"
+            and g["reason"] == "monitoring_evidence_unreadable"
+        )

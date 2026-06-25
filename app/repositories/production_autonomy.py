@@ -1,10 +1,10 @@
-"""Tenant-scoped A5 production-autonomy repository (Slice 21 + 22 + 23 + 24 + 25 + 26 + 28) — compute-on-read, no persist.
+"""Tenant-scoped A5 production-autonomy repository (Slice 21..26 + 28 + 30 + 31) — compute-on-read, no persist.
 
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
 migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
-``can_go_live_autonomously`` hard-false — even though gate #3 is now PASS-capable, ≥11 gates remain
-unmet. Run inside ``tenant_scope`` (GUC set).
+``can_go_live_autonomously`` hard-false — even though gates #2/#3/#11 are now PASS-capable, ≥9 gates
+remain unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
 - gate #1: the **current** readiness level via ``ReadinessRepository.evaluate`` (no persisted
@@ -22,8 +22,15 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gate #3 (Slice 26 + 28): the latest ``branch_protection_snapshots`` row **for the project's currently
   declared repo/branch** (``resolve_declared_repo`` + ``latest_branch_protection_for_repo``) plus
   freshness (``CI_EVIDENCE_MAX_AGE_HOURS``). Gate #3 **PASSes** on repo-bound + ``connector_verified`` +
-  protection-active + fresh evidence (the first non-#1 gate that can pass); undeclared/malformed ⇒
-  ``branch_protection_repo_unbound``.
+  protection-active + fresh evidence; undeclared/malformed ⇒ ``branch_protection_repo_unbound``;
+- gate #2 (Slice 30): the latest ``deployment_target_snapshots`` row for the **currently declared
+  production target** (``resolve_declared_production_target`` + ``latest_deployment_target_for_ref``)
+  plus ``DEPLOYMENT_EVIDENCE_MAX_AGE_HOURS`` freshness — PASSes on verified + available + fresh;
+- gate #11 (Slice 31): the latest ``monitoring_status_snapshots`` row for the **currently declared
+  monitoring status_url** (``resolve_declared_monitoring_target`` + ``latest_monitoring_for_ref``) plus
+  ``MONITORING_EVIDENCE_MAX_AGE_HOURS`` freshness — PASSes on ``connector_verified`` + valid-read +
+  ``overall_active`` + fresh; an unreadable verified+fresh read is ``monitoring_evidence_unreadable``
+  (never "inactive", B4).
 Nothing here authorizes go-live.
 """
 
@@ -33,7 +40,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.release.project_repo import resolve_declared_production_target, resolve_declared_repo
+from app.release.project_repo import (
+    resolve_declared_monitoring_target,
+    resolve_declared_production_target,
+    resolve_declared_repo,
+)
 from app.release.production_autonomy import (
     ProductionAutonomyReport,
     evaluate_production_autonomy,
@@ -41,6 +52,7 @@ from app.release.production_autonomy import (
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.ci_evidence import CIEvidenceRepository
 from app.repositories.deployments import DeploymentTargetRepository
+from app.repositories.monitoring_evidence import MonitoringEvidenceRepository
 from app.repositories.cost import BudgetRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
@@ -67,6 +79,15 @@ def _is_fresh_deploy(row) -> bool:
     if row is None or row.observed_at is None:
         return False
     max_age = timedelta(hours=settings.deployment_evidence_max_age_hours)
+    return (datetime.now(timezone.utc) - row.observed_at) <= max_age
+
+
+def _is_fresh_monitoring(row) -> bool:
+    """Slice 31: monitoring evidence is fresh iff observed within MONITORING_EVIDENCE_MAX_AGE_HOURS
+    (its own domain)."""
+    if row is None or row.observed_at is None:
+        return False
+    max_age = timedelta(hours=settings.monitoring_evidence_max_age_hours)
     return (datetime.now(timezone.utc) - row.observed_at) <= max_age
 
 
@@ -121,6 +142,17 @@ class ProductionAutonomyRepository:
             ).latest_deployment_target_for_ref(project_id, "generic_https", deploy_host)
         else:
             latest_dt = None
+        # Slice 31: gate #11 binds to the project's CURRENTLY declared monitoring status_url (B2) — the
+        # latest snapshot for that exact status_url, NOT the project-only latest.
+        monitoring = await resolve_declared_monitoring_target(
+            self.session, self.context, project_id
+        )
+        if monitoring is not None:
+            latest_mon = await MonitoringEvidenceRepository(
+                self.session, self.context
+            ).latest_monitoring_for_ref(project_id, "generic_monitoring_api", monitoring[0])
+        else:
+            latest_mon = None
         latest_frozen = await candidates.latest_frozen(project_id)
         if latest_frozen is not None:
             bound_open = await candidates.bound_open_issue_count(latest_frozen.id)
@@ -188,4 +220,18 @@ class ProductionAutonomyRepository:
                 latest_dt.target_available if latest_dt is not None else None
             ),
             latest_deployment_target_fresh=_is_fresh_deploy(latest_dt),
+            monitoring_bound=monitoring is not None,
+            latest_monitoring_provenance=(
+                latest_mon.provenance if latest_mon is not None else None
+            ),
+            latest_monitoring_response_valid=(
+                latest_mon.response_valid if latest_mon is not None else None
+            ),
+            latest_monitoring_overall_active=(
+                latest_mon.overall_active if latest_mon is not None else None
+            ),
+            latest_monitoring_fresh=_is_fresh_monitoring(latest_mon),
+            latest_monitoring_failure_kind=(
+                latest_mon.failure_kind if latest_mon is not None else None
+            ),
         )

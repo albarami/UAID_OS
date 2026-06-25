@@ -1,14 +1,14 @@
-"""A5 production-autonomy evaluator tests (Slice 21–28, Appendix B).
+"""A5 production-autonomy evaluator tests (Slice 21–31, Appendix B).
 
-Fail-closed and **non-authorizing**: **gate #1 (R5 intake)** passes at R5 and **gate #3 (branch
-protection, Slice 28)** is PASS-capable (repo-bound latest-wins ladder; passes on verified + fresh +
-sufficient evidence); the other partial-context gates (#2/#5/#6/#7/#8/#9/#12) return
-``insufficient_evidence`` and the sourceless gates (#4/#10/#11/#13) return
-``no_evidence_source:<subsystem>``. Gates #5/#6 carry finding-count context; gate #7's reason narrows
-to ``no_issue_provenance`` once a frozen release candidate exists; ``ruleset_version`` is
-``slice30.v1`` (Slice 30: gate #2 is now PASS-capable on verified+fresh+available deployment-target
-evidence). ``a5_satisfied`` and ``can_go_live_autonomously`` are always false (≥10 gates unmet).
-Docker-free for the pure engine; ``db`` for the repository (compute-on-read, no persistence).
+Fail-closed and **non-authorizing**: **gate #1 (R5 intake)** passes at R5; **gates #2 (deployment
+target, Slice 30), #3 (branch protection, Slice 28), and #11 (monitoring/alerts, Slice 31)** are
+PASS-capable (each a binding-bound latest-wins ladder; passes on connector_verified + fresh +
+sufficient evidence). The other partial-context gates (#5/#6/#7/#8/#9/#12) return
+``insufficient_evidence`` and the sourceless gates (#4/#10/#13) return ``no_evidence_source:<subsystem>``.
+Gates #5/#6 carry finding-count context; gate #7's reason narrows to ``no_issue_provenance`` once a
+frozen release candidate exists; ``ruleset_version`` is ``slice31.v1``. ``a5_satisfied`` and
+``can_go_live_autonomously`` are always false (≥9 gates unmet). Docker-free for the pure engine; ``db``
+for the repository (compute-on-read, no persistence).
 """
 
 import uuid
@@ -33,8 +33,12 @@ from app.release.production_autonomy import (
 # (see test_gate3_ladder_and_pass / test_gate3_pass_count_depends_on_r5). It still appears in
 # PARTIAL_GATES below because this pure-engine baseline passes no branch-protection evidence, so the
 # no-evidence default remains insufficient_evidence.
-PARTIAL_GATES = {2, 3, 5, 6, 7, 8, 9, 12}
-SOURCELESS_GATES = {4, 10, 11, 13}
+# Slice 30: gate #2 (deployment target) became PASS-capable; Slice 31: gate #11 (monitoring/alerts)
+# became PASS-capable. Both still appear in PARTIAL_GATES because this baseline passes no
+# deployment/monitoring evidence, so the no-evidence default is insufficient_evidence
+# (no_environment_declaration / no_monitoring_declaration).
+PARTIAL_GATES = {2, 3, 5, 6, 7, 8, 9, 11, 12}
+SOURCELESS_GATES = {4, 10, 13}
 
 
 def _eval(readiness_level="R5", **ctx):
@@ -110,7 +114,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice30.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice31.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",

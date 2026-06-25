@@ -6,7 +6,9 @@ endpoints are fail-closed; requested-reviewers is observed (``requested_reviewer
 optional observed-only (``check_status_summary`` nullable). Identity facts are normalized
 (latest-review-per-principal) and separation-of-duties flags are structural-only (provider-principal
 equality — NOT a verified UAID-actor separation). Store-only: no A5 gate flip, no ``production_autonomy``
-edit, ruleset stays ``slice28.v1``.
+edit (the PR-evidence store does not touch ``production_autonomy``; the ruleset has since advanced to
+``slice31.v1`` via later slices — the invariant here is that PR evidence leaves the report unchanged,
+``before == after``).
 
 Docker-free for the pure validators / approval normalization / separation flags / connector mapping;
 ``db`` for the store, traceability + merged-protected validation, DB guard, broker-gated connector,
@@ -1066,9 +1068,9 @@ async def test_pr_evidence_does_not_change_a5_report(pr_ctx):
         )
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
     assert before == after  # byte-identical: PR evidence feeds no gate (the Slice-29 invariant)
-    # The ruleset reflects the latest slice that touched the A5 engine (Slice 30 bumped it to
-    # slice30.v1); PR evidence still changes nothing — proven by ``before == after`` above.
-    assert after["ruleset_version"] == "slice30.v1"
+    # The ruleset reflects the latest slice that touched the A5 engine (Slice 31 bumped it to
+    # slice31.v1); PR evidence still changes nothing — proven by ``before == after`` above.
+    assert after["ruleset_version"] == "slice31.v1"
     assert after["a5_satisfied"] is False
     assert after["can_go_live_autonomously"] is False
 
