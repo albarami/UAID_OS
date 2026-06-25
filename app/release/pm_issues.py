@@ -64,6 +64,8 @@ JIRA_STATUS_MAP = {
 
 EXTERNAL_REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 INSTANCE_KEY_RE = re.compile(r"^[a-z0-9_.:-]{1,64}$")
+# Jira project key (uppercase), e.g. ``PROJ`` (B4 declared shape).
+PROJECT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _MAX_STATUS_LEN = 256
 
 REQUIRED_FIELDS = (
@@ -90,6 +92,10 @@ def is_valid_external_ref(ref) -> bool:
 
 def is_valid_instance_key(key) -> bool:
     return isinstance(key, str) and INSTANCE_KEY_RE.fullmatch(key) is not None
+
+
+def is_valid_project_key(key) -> bool:
+    return isinstance(key, str) and PROJECT_KEY_RE.fullmatch(key) is not None
 
 
 def map_board_column(jira_status) -> str:

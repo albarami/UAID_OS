@@ -174,20 +174,25 @@ async def pm_ctx(admin_engine):
     sfx = uuid.uuid4().hex[:8]
     async with admin_engine.begin() as c:
         org = await _scalar(
-            c, "INSERT INTO organizations (name, slug) VALUES ('PmOrg',:s) RETURNING id", s=f"pm-org-{sfx}"
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('PmOrg',:s) RETURNING id",
+            s=f"pm-org-{sfx}",
         )
         out = {"sfx": sfx}
         for label in ("t1", "t2"):
             out[label] = await _scalar(
                 c,
                 "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
-                o=org, n=label, s=f"pm-{label}-{sfx}",
+                o=org,
+                n=label,
+                s=f"pm-{label}-{sfx}",
             )
         for proj, tn in (("p1", "t1"), ("px", "t2")):
             out[proj] = await _scalar(
                 c,
                 "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
-                t=out[tn], s=f"pm-{proj}-{sfx}",
+                t=out[tn],
+                s=f"pm-{proj}-{sfx}",
             )
     return out
 
@@ -202,14 +207,22 @@ _RAW = (
 
 async def _raw_insert(rls_engine, t1, p1, **over):
     params = {
-        "t": str(t1), "p": str(p1), "sys": "jira", "inst": "acme-jira", "ref": "PROJ-1",
-        "status": "In Progress", "col": "in_progress", "tp": True,
+        "t": str(t1),
+        "p": str(p1),
+        "sys": "jira",
+        "inst": "acme-jira",
+        "ref": "PROJ-1",
+        "status": "In Progress",
+        "col": "in_progress",
+        "tp": True,
         "prov": "caller_supplied_unverified",
     }
     params.update(over)
     async with rls_engine.connect() as conn:
         async with conn.begin():
-            await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)})
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
+            )
             await conn.execute(text(_RAW), params)
 
 
@@ -253,8 +266,18 @@ async def test_no_title_or_credential_or_release_issue_column(admin_engine):
             ).all()
         }
     assert cols == {
-        "id", "tenant_id", "project_id", "external_system", "instance_key", "external_ref",
-        "external_status", "board_column", "title_present", "provenance", "observed_at", "created_at",
+        "id",
+        "tenant_id",
+        "project_id",
+        "external_system",
+        "instance_key",
+        "external_ref",
+        "external_status",
+        "board_column",
+        "title_present",
+        "provenance",
+        "observed_at",
+        "created_at",
     }
     # the forbidden free-text/coupling columns are absent (title_present is a bool presence flag, allowed)
     assert {"title", "description", "credential", "token", "release_issue_id"}.isdisjoint(cols)
@@ -265,8 +288,12 @@ async def test_append_only_no_update_delete_truncate(pm_ctx, rls_engine):
     await _raw_insert(rls_engine, pm_ctx["t1"], pm_ctx["p1"])
     async with rls_engine.connect() as conn:
         async with conn.begin():
-            await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(pm_ctx["t1"])})
-            mid = (await conn.execute(text("SELECT id FROM pm_issue_mappings LIMIT 1"))).scalar_one()
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(pm_ctx["t1"])}
+            )
+            mid = (
+                await conn.execute(text("SELECT id FROM pm_issue_mappings LIMIT 1"))
+            ).scalar_one()
     for verb in (
         "UPDATE pm_issue_mappings SET board_column='done' WHERE id=:i",
         "DELETE FROM pm_issue_mappings WHERE id=:i",
@@ -275,7 +302,10 @@ async def test_append_only_no_update_delete_truncate(pm_ctx, rls_engine):
         with pytest.raises(Exception):
             async with rls_engine.connect() as conn:
                 async with conn.begin():
-                    await conn.execute(text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(pm_ctx["t1"])})
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, true)"),
+                        {"t": str(pm_ctx["t1"])},
+                    )
                     await conn.execute(text(verb), {"i": str(mid)})
 
 
@@ -309,3 +339,234 @@ async def test_catalog_grants_and_rls(admin_engine):
             )
         ).one()
         assert rls == (True, True)
+
+
+# --- Docker-free: connector ---------------------------------------------------
+
+
+async def test_fake_connector_returns_observations_no_title():
+    from app.release.pm_connector import FakeIssueTrackerConnector
+
+    obs = [{"external_ref": "PROJ-1", "external_status": "In Progress", "title_present": True}]
+    out = await FakeIssueTrackerConnector(result=obs).fetch_issues(
+        instance_key="acme-jira", project_key="PROJ"
+    )
+    assert out == obs and all("title" not in o or o.get("title") is None for o in out)
+    with pytest.raises(RuntimeError):
+        await FakeIssueTrackerConnector(error=RuntimeError("boom")).fetch_issues(
+            instance_key="a", project_key="P"
+        )
+
+
+# --- DB-backed: repository + resolver + service -------------------------------
+
+
+def _pm_repo(session, ctx):
+    from app.repositories.pm_issues import PMIssueMappingRepository
+
+    return PMIssueMappingRepository(session, ctx)
+
+
+def _conn_payload(**over):
+    from datetime import datetime, timezone
+
+    p = {
+        "external_system": "jira",
+        "instance_key": "acme-jira",
+        "external_ref": "PROJ-1",
+        "external_status": "In Progress",
+        "board_column": "in_progress",
+        "title_present": True,
+        "observed_at": datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc),
+    }
+    p.update(over)
+    return p
+
+
+async def _declare_jira(session, ctx, project_id, jira=None):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    jira = jira if jira is not None else {"project_key": "PROJ", "instance_key": "acme-jira"}
+    await IntakeCategoryRepository(session, ctx).declare(
+        project_id=project_id,
+        category="tool_access_manifest",
+        actor="a",
+        data={"jira": jira},
+        origin="test",
+    )
+
+
+@pytest.mark.db
+async def test_record_latest_for_ref_idempotent(pm_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(pm_ctx["t1"])
+    p1 = pm_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        repo = _pm_repo(session, ctx)
+        await repo.record_connector_verified_mapping(
+            project_id=p1, payload=_conn_payload(), actor="c"
+        )
+        await repo.record_connector_verified_mapping(
+            project_id=p1,
+            payload=_conn_payload(external_status="Done", board_column="done"),
+            actor="c",
+        )
+        latest = await repo.latest_for_ref(p1, "jira", "acme-jira", "PROJ-1")
+        assert latest.board_column == "done"  # latest-wins, not the first
+        assert len(await repo.list_latest_for_project(p1)) == 1  # deduped per ref
+
+
+@pytest.mark.db
+async def test_resolver_returns_declared_jira(pm_ctx):
+    from app.release.project_repo import resolve_declared_pm_project
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(pm_ctx["t1"])
+    p1 = pm_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _declare_jira(session, ctx, p1)
+        assert await resolve_declared_pm_project(session, ctx, p1) == ("acme-jira", "PROJ")
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "jira",
+    [
+        {"project_key": "PROJ"},  # missing instance_key
+        {"instance_key": "acme-jira"},  # missing project_key
+        {"project_key": "proj", "instance_key": "acme-jira"},  # bad project_key (lowercase)
+        {"project_key": "PROJ", "instance_key": "BAD KEY"},  # bad instance_key
+    ],
+)
+async def test_resolver_fail_closed_bad(pm_ctx, jira):
+    from app.release.project_repo import resolve_declared_pm_project
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(pm_ctx["t1"])
+    p1 = pm_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _declare_jira(session, ctx, p1, jira=jira)
+        assert await resolve_declared_pm_project(session, ctx, p1) is None
+
+
+async def _pm_allow_setup(session, ctx, project_id, agent_id="conn"):
+    from app.policy.levels import AutonomyLevel
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+
+    await _declare_jira(session, ctx, project_id)
+    await AutonomyPolicyRepository(session, ctx).upsert(
+        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    )
+    await ToolAllowlistRepository(session, ctx).grant(
+        agent_id=agent_id, tool_name="pm.read_issues", actor="admin"
+    )
+
+
+@pytest.mark.db
+async def test_service_broker_allow_writes_mappings_safe_params(pm_ctx, admin_engine):
+    from app.release.pm_connector import FakeIssueTrackerConnector
+    from app.release.pm_sync_service import sync_pm_issues
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pm_ctx["t1"], pm_ctx["p1"]
+    ctx = TenantContext(t1)
+    obs = [
+        {"external_ref": "PROJ-1", "external_status": "In Progress", "title_present": True},
+        {
+            "external_ref": "PROJ-2",
+            "external_status": "Frobnicating",
+            "title_present": False,
+        },  # -> unmapped
+        {
+            "external_ref": "bad ref",
+            "external_status": "Done",
+            "title_present": True,
+        },  # malformed -> skipped
+    ]
+    async with tenant_scope(ctx) as session:
+        await _pm_allow_setup(session, ctx, p1)
+        result = await sync_pm_issues(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeIssueTrackerConnector(result=obs),
+        )
+        assert result.wrote == 2 and result.observed == 3 and result.skipped == 1
+        repo = _pm_repo(session, ctx)
+        assert (
+            await repo.latest_for_ref(p1, "jira", "acme-jira", "PROJ-1")
+        ).board_column == "in_progress"
+        assert (
+            await repo.latest_for_ref(p1, "jira", "acme-jira", "PROJ-2")
+        ).board_column == "unmapped"
+    # safe broker params: no project_key/instance_key/credential in tool_calls.params.
+    async with admin_engine.connect() as c:
+        params = (
+            await c.execute(
+                text(
+                    "SELECT params::text FROM tool_calls WHERE tenant_id=:t AND tool_name='pm.read_issues'"
+                ),
+                {"t": str(t1)},
+            )
+        ).all()
+    assert params
+    for (p,) in params:
+        assert "PROJ" not in p and "acme-jira" not in p and "project_present" in p
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("scenario", ["pm_unbound", "broker_denied"])
+async def test_service_no_write_paths(pm_ctx, scenario):
+    from app.release.pm_connector import FakeIssueTrackerConnector
+    from app.release.pm_sync_service import sync_pm_issues
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(pm_ctx["t1"])
+    p1 = pm_ctx["p1"]
+    obs = [{"external_ref": "PROJ-1", "external_status": "Done", "title_present": True}]
+    async with tenant_scope(ctx) as session:
+        if scenario == "broker_denied":
+            await _declare_jira(session, ctx, p1)  # declared, but agent not allowlisted
+        result = await sync_pm_issues(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeIssueTrackerConnector(result=obs),
+        )
+        assert result.wrote == 0 and result.reason == scenario
+        assert (
+            await _pm_repo(session, ctx).latest_for_ref(p1, "jira", "acme-jira", "PROJ-1") is None
+        )
+
+
+@pytest.mark.db
+async def test_no_a5_impact_before_equals_after(pm_ctx):
+    from app.release.pm_connector import FakeIssueTrackerConnector
+    from app.release.pm_sync_service import sync_pm_issues
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(pm_ctx["t1"])
+    p1 = pm_ctx["p1"]
+    obs = [{"external_ref": "PROJ-1", "external_status": "In Progress", "title_present": True}]
+    async with tenant_scope(ctx) as session:
+        await _pm_allow_setup(session, ctx, p1)
+        before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        result = await sync_pm_issues(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeIssueTrackerConnector(result=obs),
+        )
+        assert result.wrote == 1  # mappings WERE written...
+        after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+    assert before == after  # ...yet the A5 report is byte-identical (no release_issues created)
+    assert after["ruleset_version"] == "slice31.v1"
