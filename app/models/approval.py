@@ -42,6 +42,9 @@ class Approval(Base, TimestampMixin):
         ),
         # Enables the composite FK from approval_events(approval_id, tenant_id).
         UniqueConstraint("id", "tenant_id"),
+        # Slice 33 (additive): enables the composite FK from
+        # approval_notifications(approval_id, project_id, tenant_id) — DB-proves project consistency.
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_approvals_id_project_tenant"),
         CheckConstraint(
             f"status IN ({', '.join(repr(s) for s in _STATUSES)})", name="status_valid"
         ),
