@@ -190,6 +190,35 @@ audit + broker params never carry the domain/target_ref. The live `generic_https
 connection to the **validated resolved IP** (IPv6 bracketed) with `Host`/TLS-SNI = the hostname
 (anti-rebind), streams **status-only** (no response body read), and normalizes DNS failures to a
 fail-closed SSRF refusal. merged via PR #49 (commit `200c460`).**
+**Slice 31 makes A5 gate #11 PASS-capable: a deterministic, tenant-owned monitoring/alerts
+verification connector (`app/release/monitoring_evidence.py` [pure validators + read-state honesty model +
+`parse_and_validate_status_url` + bounded JSON `parse_monitoring_body` + observation builders],
+`app/release/monitoring_connector.py` [`MonitoringConnector` protocol + `FakeMonitoringConnector` +
+shipped-but-untested `GenericMonitoringApiConnector` + `_default_http_probe`],
+`app/release/monitoring_evidence_service.py` orchestration, `app/repositories/monitoring_evidence.py`,
+`resolve_declared_monitoring_target` in `project_repo.py`, model `monitoring_status_snapshots`, migration
+`0030`, App. B #11 / §26.3/§26.6). The connector resolves the project's OWN declared monitoring
+`status_url` (`operations_observability_support` file 22 — `data.monitoring.{provider,status_url}`,
+validated HTTPS/no-userinfo-query-fragment/port-443/SSRF-safe-FQDN-host/normalized-bounded-path; **never a
+caller URL**), calls `broker_call` for the read-only `monitoring.read_status` tool (new A1 action
+`read_monitoring_status`; broker decision-only) with **safe params only** (`provider`/`monitoring_present`,
+never the URL), performs a **connect-time-pinned** (`https://{validated_ip}{normalized_path}`, Host/SNI=
+hostname, IPv6 bracketed, never logged/persisted — B10), **unauthenticated** (no `Authorization`/credential
+— B9), **bounded** (≤64 KiB, counts-only, no names) JSON read, and writes a `connector_verified`
+`monitoring_status_snapshots` row for **every safely-attempted outcome** (B-30-9). **Read-state honesty
+(B4/B6) is DB-enforced:** a failed/malformed read is NOT "0 monitors / 0 alerts" — `response_valid=False` +
+a `failure_kind ∈ {unreachable,http_error,content_type,oversize,malformed}` + **NULL** counts; a valid read
+requires 200 + non-null counts (`0..32767`, B7) + consistent active-booleans. Gate #11
+(`production_autonomy` `ruleset_version` → `slice31.v1`) evaluates the latest snapshot **for the CURRENTLY
+declared `status_url`** (B2) via a latest-wins ladder — `no_monitoring_declaration` →
+`monitoring_declared_but_no_evidence` → `monitoring_observed_unverified` → `monitoring_evidence_stale` →
+`monitoring_evidence_unreadable` (a verified+fresh but unreadable provider — **never "inactive"**, B4) →
+`monitoring_or_alerts_inactive` → **`passed`** (verified + valid-read + `overall_active` + fresh within
+`MONITORING_EVIDENCE_MAX_AGE_HOURS`=24). Gate #11 is the **4th** PASS-capable gate (#1/#2/#3/#11); only
+gate #11 changed (no-other-gate-regression test); `a5_satisfied` + `can_go_live_autonomously` stay false
+(≥9 gates unmet). Unauthenticated-only this slice (authenticated providers + operator-controlled
+credential-audience allowlist deferred); SSRF guard reused verbatim from Slice 30. (Implemented on branch
+`feat/slice-31-monitoring-evidence`, awaiting review — not yet merged.)**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -832,11 +861,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 474 passing (Docker-free); `make test-db` → 461 passing (DB-backed: tenancy,
+  **`make test` → 548 passing (Docker-free); `make test-db` → 503 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -939,8 +968,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 474 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 461 passing
+make test                                  # Docker-free tests (no services) — 548 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 503 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
