@@ -469,3 +469,156 @@ async def test_rls_cross_tenant(src_ctx):
             )
             is None
         )
+
+
+# --- Docker-free: connector ---------------------------------------------------
+
+
+async def test_env_connector_resolved_absent_and_value_never_returned(monkeypatch):
+    from app.release.secrets_connector import EnvSecretsManagerConnector
+
+    conn = EnvSecretsManagerConnector()
+    monkeypatch.setenv("UAID_TEST_SECRET_REF", "super-secret-value-12345")
+    obs = await conn.verify_reference(manager="env", reference_name="UAID_TEST_SECRET_REF")
+    assert obs == {"outcome": "resolved", "resolved": True}  # exactly — no value key
+    assert "super-secret" not in str(obs)  # the value never appears in the return
+    monkeypatch.delenv("UAID_TEST_SECRET_REF", raising=False)
+    assert await conn.verify_reference(manager="env", reference_name="UAID_TEST_SECRET_REF") == {
+        "outcome": "not_found",
+        "resolved": False,
+    }
+
+
+async def test_env_connector_empty_is_not_found(monkeypatch):
+    from app.release.secrets_connector import EnvSecretsManagerConnector
+
+    monkeypatch.setenv("UAID_TEST_EMPTY_REF", "   ")  # whitespace-only ⇒ not resolved
+    obs = await EnvSecretsManagerConnector().verify_reference(
+        manager="env", reference_name="UAID_TEST_EMPTY_REF"
+    )
+    assert obs == {"outcome": "not_found", "resolved": False}
+
+
+async def test_env_connector_unsupported_manager_no_lookup():
+    from app.release.secrets_connector import EnvSecretsManagerConnector
+
+    obs = await EnvSecretsManagerConnector().verify_reference(manager="vault", reference_name="x")
+    assert obs == {"outcome": "unsupported_manager", "resolved": False}
+
+
+# --- DB-backed: broker-gated service ------------------------------------------
+
+
+async def _src_allow_setup(session, ctx, project_id, references, agent_id="conn"):
+    from app.policy.levels import AutonomyLevel
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+
+    await _declare_secrets(session, ctx, project_id, references)
+    await AutonomyPolicyRepository(session, ctx).upsert(
+        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    )
+    await ToolAllowlistRepository(session, ctx).grant(
+        agent_id=agent_id, tool_name="secrets.verify_reference", actor="admin"
+    )
+
+
+@pytest.mark.db
+async def test_service_broker_allow_writes_per_reference(src_ctx, monkeypatch, admin_engine):
+    from app.release.secrets_connector import EnvSecretsManagerConnector
+    from app.release.secrets_verification_service import refresh_secret_reference_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = src_ctx["t1"], src_ctx["p1"]
+    ctx = TenantContext(t1)
+    monkeypatch.setenv("UAID_SVC_TOK", "the-real-secret-value")
+    async with tenant_scope(ctx) as session:
+        await _src_allow_setup(
+            session,
+            ctx,
+            p1,
+            [
+                {"manager": "env", "reference_name": "UAID_SVC_TOK"},  # resolved
+                {"manager": "env", "reference_name": "UAID_SVC_MISSING"},  # not_found
+                {"manager": "vault", "reference_name": "db/pw"},
+            ],  # unsupported_manager
+        )
+        result = await refresh_secret_reference_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=EnvSecretsManagerConnector(),
+        )
+        assert result.wrote == 3 and result.references == 3
+        repo = _src_repo(session, ctx)
+        assert (await repo.latest_for_reference(p1, "env", "UAID_SVC_TOK")).resolved is True
+        assert (
+            await repo.latest_for_reference(p1, "env", "UAID_SVC_MISSING")
+        ).outcome == "not_found"
+        assert (
+            await repo.latest_for_reference(p1, "vault", "db/pw")
+        ).outcome == "unsupported_manager"
+    # B3 + zero-leak: broker params carry reference_present (un-redacted) and no value/reference_name.
+    async with admin_engine.connect() as c:
+        params = (
+            await c.execute(
+                text(
+                    "SELECT params::text FROM tool_calls WHERE tenant_id=:t "
+                    "AND tool_name='secrets.verify_reference'"
+                ),
+                {"t": str(t1)},
+            )
+        ).all()
+    assert params
+    for (p,) in params:
+        assert (
+            "reference_present" in p
+            and "the-real-secret-value" not in p
+            and "UAID_SVC_TOK" not in p
+        )
+
+
+@pytest.mark.db
+async def test_service_secrets_unbound_no_write(src_ctx):
+    from app.release.secrets_connector import FakeSecretsManagerConnector
+    from app.release.secrets_verification_service import refresh_secret_reference_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(src_ctx["t1"])
+    p1 = src_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        result = await refresh_secret_reference_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeSecretsManagerConnector(),
+        )
+        assert result.wrote == 0 and result.reason == "secrets_unbound"
+        assert await _src_repo(session, ctx).count_resolved(p1) == 0
+
+
+@pytest.mark.db
+async def test_service_broker_denied_no_write(src_ctx):
+    from app.release.secrets_connector import FakeSecretsManagerConnector
+    from app.release.secrets_verification_service import refresh_secret_reference_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(src_ctx["t1"])
+    p1 = src_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        # declared, but the agent is NOT allowlisted for secrets.verify_reference ⇒ broker denies.
+        await _declare_secrets(session, ctx, p1, [{"manager": "env", "reference_name": "X"}])
+        result = await refresh_secret_reference_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeSecretsManagerConnector(result={"outcome": "resolved", "resolved": True}),
+        )
+        assert result.wrote == 0
+        assert await _src_repo(session, ctx).latest_for_reference(p1, "env", "X") is None

@@ -68,6 +68,11 @@ TOOL_REGISTRY: dict[str, ToolContract] = {
     ),
     # Slice 31: broker-gated read; maps to the read-only read_monitoring_status action.
     "monitoring.read_status": _c("monitoring.read_status", "monitoring", "read_monitoring_status"),
+    # Slice 32: broker-gated read; maps to the read-only verify_secret_reference action
+    # (distinct from the mutating, mandatory-approval change_secrets).
+    "secrets.verify_reference": _c(
+        "secrets.verify_reference", "secrets", "verify_secret_reference"
+    ),
     "source_control.open_pull_request": _c(
         "source_control.open_pull_request",
         "source_control",

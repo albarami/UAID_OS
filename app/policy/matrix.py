@@ -44,6 +44,9 @@ MATRIX: dict[str, AuthorityRule] = {
     "read_deployment_target": _r(L.A1),
     # Slice 31: read-only monitoring/alerts status read (generic_monitoring_api). A read, never a write.
     "read_monitoring_status": _r(L.A1),
+    # Slice 32: read-only secret-reference existence check (verify exists, spec:1094). A read, never a
+    # rotation/mutation (that is the mandatory-approval change_secrets below).
+    "verify_secret_reference": _r(L.A1),
     "create_draft_prd": _r(L.A1),
     "create_project_tasks": _r(L.A1),
     "create_repository": _r(L.A2),
