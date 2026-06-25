@@ -1089,3 +1089,71 @@ async def test_dns_failure_is_fail_closed_ssrf():
     conn = GenericHttpsDeployTargetConnector(resolve_host=_boom)
     with pytest.raises(DeploySSRFRejected):
         await conn.probe_target(host="app.example.com")
+
+
+# --- B1/B2: IPv6 pinned URL must be bracketed (no InvalidURL crash) ------------
+
+
+def test_b1_build_pinned_get_brackets_ipv6():
+    from app.release.deploy_connector import _build_pinned_get
+
+    url, headers, extensions = _build_pinned_get("app.example.com", "2606:4700:4700::1111")
+    assert url == "https://[2606:4700:4700::1111]/"  # bracketed IPv6 literal
+    assert headers["Host"] == "app.example.com"
+    assert extensions["sni_hostname"] == "app.example.com"
+    # IPv4 stays unbracketed
+    assert _build_pinned_get("app.example.com", "8.8.8.8")[0] == "https://8.8.8.8/"
+
+
+async def test_b2_default_http_probe_ipv6_bracketed_no_body(monkeypatch):
+    import httpx
+
+    from app.release.deploy_connector import _default_http_probe
+
+    seen = {}
+
+    class _Resp:
+        status_code = 200
+
+        @property
+        def content(self):
+            raise AssertionError("response body must not be read")
+
+    class _Stream:
+        async def __aenter__(self):
+            return _Resp()
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, **k):
+            seen["url"] = url
+            return _Stream()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    status = await _default_http_probe("app.example.com", ["2606:4700:4700::1111"])
+    assert status == 200
+    assert seen["url"] == "https://[2606:4700:4700::1111]/"  # bracketed, no InvalidURL
+
+
+async def test_b1_connector_accepts_public_ipv6_without_crash():
+    from app.release.deploy_connector import GenericHttpsDeployTargetConnector
+
+    async def _probe(host, ips):
+        return 200
+
+    conn = GenericHttpsDeployTargetConnector(
+        resolve_host=lambda h: ["2606:4700:4700::1111"], http_probe=_probe
+    )
+    obs = await conn.probe_target(host="app.example.com")  # public IPv6 -> observation, no crash
+    assert obs["target_available"] is True

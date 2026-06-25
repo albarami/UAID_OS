@@ -25,6 +25,7 @@ transport/TLS/timeout ⇒ unreachable negative. The live HTTP call exists only i
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Protocol
 
 from app.release.deploy_evidence import (
@@ -51,8 +52,14 @@ def _default_resolve(host: str) -> list[str]:
 
 def _build_pinned_get(host: str, ip: str) -> tuple[str, dict, dict]:
     """Build the (url, headers, extensions) for a connect-time-pinned GET (B1): connect to the validated
-    ``ip`` while preserving ``host`` for the Host header and TLS SNI/cert verification."""
-    url = f"https://{ip}/"
+    ``ip`` while preserving ``host`` for the Host header and TLS SNI/cert verification. **IPv6 literals
+    are bracketed** (``https://[::1]/``) so the colons are not parsed as a port (else ``httpx.InvalidURL``,
+    which is NOT an ``HTTPError``, would escape and crash a safely-resolved IPv6 probe)."""
+    try:
+        host_part = f"[{ip}]" if ipaddress.ip_address(ip).version == 6 else ip
+    except ValueError:
+        host_part = ip
+    url = f"https://{host_part}/"
     headers = {"Host": host, "User-Agent": "uaid-deploy-verify/1.0", "Accept": "*/*"}
     extensions = {"sni_hostname": host}
     return url, headers, extensions
