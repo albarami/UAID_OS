@@ -10,7 +10,7 @@ protection-enabled + **fresh** snapshot for the same repo — B-29-2); **validat
 existence/kind/project against ``release_issues`` + ``intake_artifacts`` (B-29-3); persist an immutable
 row + an audit entry with **safe metadata only** (ids/provider/pr_number/state/booleans/provenance —
 never ``repo_ref``, principals, the check-name list, traceability UUIDs, or any URL/token). Store-only:
-**no A5 gate flip, no ``production_autonomy`` change, ruleset stays ``slice28.v1``.** Run inside
+**no A5 gate flip, no ``production_autonomy`` change (this store does not touch the ruleset).** Run inside
 ``tenant_scope``; ``actor`` is an untrusted caller label.
 """
 

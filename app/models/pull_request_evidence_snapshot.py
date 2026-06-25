@@ -9,7 +9,7 @@ the path; the DB allows both). ``repo_ref`` reuses the Slice-26/28 ``owner/repo`
 is **observed-only** (nullable, NOT required-check satisfaction); ``merged_to_declared_protected_branch_observed``
 is a cross-referenced observation (true only when verified branch-protection evidence backs it);
 ``approval_count`` is DB-enforced ``= jsonb_array_length(approver_principals)``. These snapshots **never
-flip an A5 gate** (store-only — ``production_autonomy`` is untouched, ruleset stays ``slice28.v1``).
+flip an A5 gate** (store-only — ``production_autonomy`` is untouched by this store).
 """
 
 import uuid
