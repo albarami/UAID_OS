@@ -385,3 +385,50 @@ async def test_rls_cross_tenant(an_ctx):
         approval_id = notif.approval_id
     async with tenant_scope(TenantContext(t2)) as session:
         assert await _an_repo(session, TenantContext(t2)).latest_for_approval(approval_id) is None
+
+
+# --- DB-backed: no-regression + no-A5-impact (store/infra-only guards) ---------
+
+
+@pytest.mark.db
+async def test_no_regression_is_blocked_unchanged(an_ctx):
+    # The notification layer does NOT change approval-engine/broker behavior: a pending mandatory
+    # approval is blocked; APPROVED unblocks — identical to a direct ApprovalRepository path.
+    from app.approvals.channels.adapter import FakeChannel
+    from app.approvals.channels.service import request_and_notify_approval
+    from app.repositories.approvals import ApprovalRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(an_ctx["t1"])
+    p1 = an_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        approval, notif = await request_and_notify_approval(
+            session, ctx, project_id=p1, action="deploy_production", risk_tier="high",
+            requested_by="req", actor="orch", channel=FakeChannel(),
+        )
+        assert notif.routing_mode == "realtime"  # the notification was emitted...
+        repo = ApprovalRepository(session, ctx)
+        assert await repo.is_blocked(project_id=p1, action="deploy_production") is True  # ...still blocked
+        await repo.approve(approval_id=approval.id, actor="approver")
+        assert await repo.is_blocked(project_id=p1, action="deploy_production") is False  # APPROVED unblocks
+
+
+@pytest.mark.db
+async def test_no_a5_impact_before_equals_after(an_ctx):
+    # Store/infra-only: requesting+notifying an approval does not change the A5 report; ruleset slice31.v1.
+    from app.approvals.channels.adapter import FakeChannel
+    from app.approvals.channels.service import request_and_notify_approval
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(an_ctx["t1"])
+    p1 = an_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        await request_and_notify_approval(
+            session, ctx, project_id=p1, action="some_action", risk_tier="high",
+            requested_by="req", actor="orch", channel=FakeChannel(),
+        )
+        after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+    assert before == after  # no gate flip
+    assert after["ruleset_version"] == "slice31.v1"
