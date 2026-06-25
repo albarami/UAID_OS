@@ -641,11 +641,17 @@ async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
     p1 = src_ctx["p1"]
     monkeypatch.setenv("UAID_REG_TOK", "secret-value")
     async with tenant_scope(ctx) as session:
-        await _src_allow_setup(session, ctx, p1, [{"manager": "env", "reference_name": "UAID_REG_TOK"}])
+        await _src_allow_setup(
+            session, ctx, p1, [{"manager": "env", "reference_name": "UAID_REG_TOK"}]
+        )
         before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
         readiness_before = (await ReadinessRepository(session, ctx).evaluate(p1)).readiness_level
         result = await refresh_secret_reference_evidence(
-            session, ctx, project_id=p1, agent_id="conn", actor="conn",
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
             connector=EnvSecretsManagerConnector(),
         )
         assert result.wrote == 1  # evidence WAS written...
@@ -654,3 +660,103 @@ async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
     assert before == after  # ...yet the A5 report is byte-identical (store-only)
     assert readiness_before == readiness_after  # and readiness is unchanged
     assert after["ruleset_version"] == "slice31.v1"  # no ruleset bump
+
+
+# --- DB-backed: malformed-reference skipping (D-32-10 fail-closed) -------------
+
+
+@pytest.mark.db
+async def test_resolver_skips_malformed_keeps_valid_and_unsupported(src_ctx):
+    # D-32-10: malformed shapes (uppercase manager, spaced name, missing field) are SKIPPED, but a
+    # valid-shape-yet-unsupported manager ('vault') is KEPT (recorded unsupported downstream, B1).
+    from app.release.project_repo import resolve_declared_secret_references
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(src_ctx["t1"])
+    p1 = src_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _declare_secrets(
+            session,
+            ctx,
+            p1,
+            [
+                {"manager": "env", "reference_name": "VALID_TOK"},  # valid → kept
+                {"manager": "vault", "reference_name": "db/pw"},  # valid shape, unsupported → kept
+                {"manager": "ENV", "reference_name": "x"},  # invalid manager shape → skipped
+                {"manager": "env", "reference_name": "bad name"},  # invalid name shape → skipped
+                {"manager": "env"},  # missing reference_name → skipped
+            ],
+        )
+        refs = await resolve_declared_secret_references(session, ctx, p1)
+        assert set(refs) == {
+            ("env", "VALID_TOK"),
+            ("vault", "db/pw"),
+        }  # only the two valid-shape refs
+
+
+@pytest.mark.db
+async def test_resolver_skips_malformed_top_level(src_ctx):
+    from app.release.project_repo import resolve_declared_secret_references
+    from app.repositories.intake_categories import IntakeCategoryRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(src_ctx["t1"])
+    p1 = src_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        # top-level (no references[]) malformed manager — categories accepts the short string, the
+        # resolver must skip it (no row, no broker).
+        await IntakeCategoryRepository(session, ctx).declare(
+            project_id=p1,
+            category="secrets_and_credentials_manifest",
+            actor="a",
+            data={"manager": "ENV", "reference_name": "x"},
+            origin="test",
+        )
+        assert await resolve_declared_secret_references(session, ctx, p1) == []
+
+
+@pytest.mark.db
+async def test_service_skips_malformed_no_broker_no_abort(src_ctx, monkeypatch, admin_engine):
+    # Mixed valid + malformed: the service processes ONLY the valid ref, never brokers a malformed one,
+    # and does not abort.
+    from app.release.secrets_connector import EnvSecretsManagerConnector
+    from app.release.secrets_verification_service import refresh_secret_reference_evidence
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = src_ctx["t1"], src_ctx["p1"]
+    ctx = TenantContext(t1)
+    monkeypatch.setenv("UAID_OK_TOK", "v")
+    async with tenant_scope(ctx) as session:
+        await _src_allow_setup(
+            session,
+            ctx,
+            p1,
+            [
+                {"manager": "env", "reference_name": "UAID_OK_TOK"},  # valid
+                {"manager": "ENV", "reference_name": "x"},  # malformed → skipped
+                {"manager": "env", "reference_name": "bad name"},  # malformed → skipped
+            ],
+        )
+        result = await refresh_secret_reference_evidence(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=EnvSecretsManagerConnector(),
+        )
+        assert result.references == 1 and result.wrote == 1  # only the valid ref; no abort
+        rows = await _src_repo(session, ctx).list_latest_for_project(p1)
+        assert {(r.manager, r.reference_name) for r in rows} == {("env", "UAID_OK_TOK")}
+    # exactly ONE broker tool_call — the malformed refs never reached the broker.
+    async with admin_engine.connect() as c:
+        n = (
+            await c.execute(
+                text(
+                    "SELECT count(*) FROM tool_calls WHERE tenant_id=:t "
+                    "AND tool_name='secrets.verify_reference'"
+                ),
+                {"t": str(t1)},
+            )
+        ).scalar_one()
+    assert n == 1

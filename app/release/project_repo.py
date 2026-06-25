@@ -20,6 +20,7 @@ from app.release.monitoring_evidence import (
     InvalidMonitoringSnapshot,
     parse_and_validate_status_url,
 )
+from app.release.secrets_verification import is_valid_manager, is_valid_reference_name
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.tenancy import TenantContext
 
@@ -100,12 +101,12 @@ async def resolve_declared_secret_references(
             continue
         manager = entry.get("manager")
         reference_name = entry.get("reference_name")
-        if (
-            isinstance(manager, str)
-            and manager
-            and isinstance(reference_name, str)
-            and reference_name
-        ):
+        # Fail closed (D-32-10): skip entries that do not match the Slice-32 bounded shapes — the
+        # upstream category validator permits short strings but does NOT enforce MANAGER_RE /
+        # REFERENCE_NAME_RE, so a malformed persisted manager/name must never reach the broker or the
+        # DB write. A VALID-shape but unsupported manager (e.g. ``vault``) is kept here and recorded
+        # downstream as ``unsupported_manager`` (B1) — only malformed shapes are dropped.
+        if is_valid_manager(manager) and is_valid_reference_name(reference_name):
             out.append((manager, reference_name))
     return out
 
