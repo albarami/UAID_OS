@@ -348,16 +348,48 @@ async def _raw_insert(rls_engine, t1, p1, **over):
 
 
 # failed-read column packs (read-state honesty)
-_UNREACHABLE = dict(reachable=False, valid=False, status=None, fk="unreachable", mc=None, ac=None, mon=False, al=False, overall=False)
-_HTTP_ERROR = dict(reachable=True, valid=False, status=503, fk="http_error", mc=None, ac=None, mon=False, al=False, overall=False)
-_MALFORMED = dict(reachable=True, valid=False, status=200, fk="malformed", mc=None, ac=None, mon=False, al=False, overall=False)
+_UNREACHABLE = dict(
+    reachable=False,
+    valid=False,
+    status=None,
+    fk="unreachable",
+    mc=None,
+    ac=None,
+    mon=False,
+    al=False,
+    overall=False,
+)
+_HTTP_ERROR = dict(
+    reachable=True,
+    valid=False,
+    status=503,
+    fk="http_error",
+    mc=None,
+    ac=None,
+    mon=False,
+    al=False,
+    overall=False,
+)
+_MALFORMED = dict(
+    reachable=True,
+    valid=False,
+    status=200,
+    fk="malformed",
+    mc=None,
+    ac=None,
+    mon=False,
+    al=False,
+    overall=False,
+)
 
 
 @pytest.mark.db
 async def test_guard_accepts_valid_and_each_failure_kind(mon_ctx, rls_engine):
     t1, p1 = mon_ctx["t1"], mon_ctx["p1"]
     await _raw_insert(rls_engine, t1, p1)  # valid active
-    await _raw_insert(rls_engine, t1, p1, mc=3, ac=0, mon=True, al=False, overall=False)  # valid inactive
+    await _raw_insert(
+        rls_engine, t1, p1, mc=3, ac=0, mon=True, al=False, overall=False
+    )  # valid inactive
     await _raw_insert(rls_engine, t1, p1, **_UNREACHABLE)
     await _raw_insert(rls_engine, t1, p1, **_HTTP_ERROR)
     await _raw_insert(rls_engine, t1, p1, **_MALFORMED)
@@ -380,11 +412,51 @@ async def test_guard_accepts_valid_and_each_failure_kind(mon_ctx, rls_engine):
         {"valid": True, "mc": None},
         {"valid": True, "fk": "malformed", "status": 200},  # valid must have null failure_kind
         # failed read must have NULL counts:
-        {"reachable": True, "valid": False, "status": 503, "fk": "http_error", "mc": 0, "ac": 0, "mon": False, "al": False, "overall": False},
+        {
+            "reachable": True,
+            "valid": False,
+            "status": 503,
+            "fk": "http_error",
+            "mc": 0,
+            "ac": 0,
+            "mon": False,
+            "al": False,
+            "overall": False,
+        },
         # per-failure_kind:
-        {"reachable": True, "valid": False, "status": 200, "fk": "unreachable", "mc": None, "ac": None, "mon": False, "al": False, "overall": False},  # unreachable needs status NULL + reachable false
-        {"reachable": True, "valid": False, "status": 200, "fk": "http_error", "mc": None, "ac": None, "mon": False, "al": False, "overall": False},  # http_error needs status<>200
-        {"reachable": True, "valid": False, "status": 503, "fk": "malformed", "mc": None, "ac": None, "mon": False, "al": False, "overall": False},  # malformed needs status=200
+        {
+            "reachable": True,
+            "valid": False,
+            "status": 200,
+            "fk": "unreachable",
+            "mc": None,
+            "ac": None,
+            "mon": False,
+            "al": False,
+            "overall": False,
+        },  # unreachable needs status NULL + reachable false
+        {
+            "reachable": True,
+            "valid": False,
+            "status": 200,
+            "fk": "http_error",
+            "mc": None,
+            "ac": None,
+            "mon": False,
+            "al": False,
+            "overall": False,
+        },  # http_error needs status<>200
+        {
+            "reachable": True,
+            "valid": False,
+            "status": 503,
+            "fk": "malformed",
+            "mc": None,
+            "ac": None,
+            "mon": False,
+            "al": False,
+            "overall": False,
+        },  # malformed needs status=200
         # overall_active invariant:
         {"overall": False},  # but mon+al True
     ],
@@ -452,3 +524,207 @@ async def test_catalog_grants_and_rls(admin_engine):
             )
         ).one()
         assert rls == (True, True)
+
+
+# --- DB-backed: repository + resolver -----------------------------------------
+
+
+def _mon_repo(session, ctx):
+    from app.repositories.monitoring_evidence import MonitoringEvidenceRepository
+
+    return MonitoringEvidenceRepository(session, ctx)
+
+
+def _conn_payload(obs=None, target_ref=_URL, **over):
+    obs = obs if obs is not None else observation_valid(3, 2)
+    payload = {
+        "provider": "generic_monitoring_api",
+        "target_ref": target_ref,
+        **obs,
+        "observed_at": _NOW,
+    }
+    payload.update(over)
+    return payload
+
+
+async def _declare_monitoring(
+    session, ctx, project_id, status_url=_URL, provider="generic_monitoring_api"
+):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    monitoring = {}
+    if provider is not None:
+        monitoring["provider"] = provider
+    if status_url is not None:
+        monitoring["status_url"] = status_url
+    await IntakeCategoryRepository(session, ctx).declare(
+        project_id=project_id,
+        category="operations_observability_support",
+        actor="a",
+        data={"monitoring": monitoring},
+        origin="test",
+    )
+
+
+@pytest.mark.db
+async def test_record_connector_caller_latest_count(mon_ctx):
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        repo = _mon_repo(session, ctx)
+        row = await repo.record_connector_verified_monitoring(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )
+        assert row.provenance == "connector_verified" and row.overall_active is True
+        await repo.record_monitoring(
+            project_id=p1,
+            payload={
+                "provider": "generic_monitoring_api",
+                "target_ref": _URL,
+                **observation_valid(2, 1),
+            },
+            actor="caller",
+        )
+        assert await repo.count_connector_verified_monitoring(p1) == 1
+        latest = await repo.latest_monitoring(p1)
+        assert latest is not None
+
+
+@pytest.mark.db
+async def test_negative_refresh_supersedes_positive_at_repo(mon_ctx):
+    # B-30-9 at the repo layer: a later verified failed-read is the latest for the same target_ref.
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        repo = _mon_repo(session, ctx)
+        await repo.record_connector_verified_monitoring(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )  # valid + active
+        neg = await repo.record_connector_verified_monitoring(
+            project_id=p1, payload=_conn_payload(obs=observation_unreachable()), actor="conn"
+        )  # honest failed read
+        latest = await repo.latest_monitoring_for_ref(p1, "generic_monitoring_api", _URL)
+        assert latest.id == neg.id
+        assert (
+            latest.overall_active is False and latest.active_monitor_count is None
+        )  # honest unknown
+
+
+@pytest.mark.db
+async def test_latest_for_ref_binding_change_invalidates(mon_ctx):
+    # B2: a snapshot for one status_url does NOT satisfy a lookup for a different declared status_url.
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    old = "https://mon.example.com/old"
+    new = "https://mon.example.com/new"
+    async with tenant_scope(ctx) as session:
+        repo = _mon_repo(session, ctx)
+        await repo.record_connector_verified_monitoring(
+            project_id=p1, payload=_conn_payload(target_ref=old), actor="conn"
+        )
+        assert await repo.latest_monitoring_for_ref(p1, "generic_monitoring_api", old) is not None
+        assert await repo.latest_monitoring_for_ref(p1, "generic_monitoring_api", new) is None
+
+
+@pytest.mark.db
+async def test_resolver_returns_declared_target(mon_ctx):
+    from app.release.project_repo import resolve_declared_monitoring_target
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _declare_monitoring(session, ctx, p1, status_url="https://mon.example.com/status")
+        assert await resolve_declared_monitoring_target(session, ctx, p1) == (
+            "https://mon.example.com/status",
+            "mon.example.com",
+            "/status",
+        )
+
+
+@pytest.mark.db
+async def test_resolver_fail_closed_undeclared(mon_ctx):
+    from app.release.project_repo import resolve_declared_monitoring_target
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        assert await resolve_declared_monitoring_target(session, ctx, mon_ctx["p2"]) is None
+
+
+@pytest.mark.db
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"status_url": None},  # missing status_url
+        {"status_url": "http://mon.example.com/x"},  # not https
+        {"status_url": "https://10.0.0.1/x"},  # SSRF host
+        {"provider": "datadog"},  # wrong provider
+        {"provider": None},  # missing provider
+    ],
+)
+async def test_resolver_fail_closed_bad_data(mon_ctx, kwargs):
+    from app.release.project_repo import resolve_declared_monitoring_target
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    async with tenant_scope(ctx) as session:
+        await _declare_monitoring(session, ctx, p1, **kwargs)
+        assert await resolve_declared_monitoring_target(session, ctx, p1) is None
+
+
+@pytest.mark.db
+async def test_audit_safe_metadata_no_url(mon_ctx, admin_engine):
+    # B8: the audit payload must NEVER carry target_ref / URL / host / path.
+    from app.tenancy import TenantContext, tenant_scope
+
+    ctx = TenantContext(mon_ctx["t1"])
+    p1 = mon_ctx["p1"]
+    secret_url = "https://super-secret-monitor.example.com/private-status"
+    async with tenant_scope(ctx) as session:
+        await _mon_repo(session, ctx).record_connector_verified_monitoring(
+            project_id=p1, payload=_conn_payload(target_ref=secret_url), actor="conn"
+        )
+    # audit_logs is not directly readable by uaid_app (SECURITY DEFINER writer) — read as admin.
+    async with admin_engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT payload::text FROM audit_logs WHERE action='monitoring.status_verified'"
+                )
+            )
+        ).all()
+    assert rows and all(
+        "secret-monitor" not in r[0] and "private-status" not in r[0] for r in rows
+    )
+
+
+@pytest.mark.db
+async def test_rls_cross_tenant(mon_ctx, rls_engine):
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, t2, p1 = mon_ctx["t1"], mon_ctx["t2"], mon_ctx["p1"]
+    async with tenant_scope(TenantContext(t1)) as session:
+        await _mon_repo(session, TenantContext(t1)).record_connector_verified_monitoring(
+            project_id=p1, payload=_conn_payload(), actor="conn"
+        )
+    async with rls_engine.connect() as conn:
+        async with conn.begin():
+            n = (
+                await conn.execute(text("SELECT count(*) FROM monitoring_status_snapshots"))
+            ).scalar_one()
+            assert n == 0  # deny-by-default: no GUC set
+    async with tenant_scope(TenantContext(t2)) as session:
+        assert (
+            await _mon_repo(session, TenantContext(t2)).latest_monitoring_for_ref(
+                p1, "generic_monitoring_api", _URL
+            )
+            is None
+        )
