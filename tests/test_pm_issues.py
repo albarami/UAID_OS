@@ -396,6 +396,18 @@ async def _declare_jira(session, ctx, project_id, jira=None):
     )
 
 
+async def _declare_jira_credential(session, ctx, project_id):
+    from app.repositories.intake_categories import IntakeCategoryRepository
+
+    await IntakeCategoryRepository(session, ctx).declare(
+        project_id=project_id,
+        category="secrets_and_credentials_manifest",
+        actor="a",
+        data={"references": [{"manager": "env", "reference_name": "JIRA_CONNECTOR_TOKEN"}]},
+        origin="test",
+    )
+
+
 @pytest.mark.db
 async def test_record_latest_for_ref_idempotent(pm_ctx):
     from app.tenancy import TenantContext, tenant_scope
@@ -456,6 +468,7 @@ async def _pm_allow_setup(session, ctx, project_id, agent_id="conn"):
     from app.repositories.tools import ToolAllowlistRepository
 
     await _declare_jira(session, ctx, project_id)
+    await _declare_jira_credential(session, ctx, project_id)
     await AutonomyPolicyRepository(session, ctx).upsert(
         project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
     )
@@ -530,7 +543,9 @@ async def test_service_no_write_paths(pm_ctx, scenario):
     obs = [{"external_ref": "PROJ-1", "external_status": "Done", "title_present": True}]
     async with tenant_scope(ctx) as session:
         if scenario == "broker_denied":
-            await _declare_jira(session, ctx, p1)  # declared, but agent not allowlisted
+            # project + credential declared (so the flow reaches the broker), but agent not allowlisted.
+            await _declare_jira(session, ctx, p1)
+            await _declare_jira_credential(session, ctx, p1)
         result = await sync_pm_issues(
             session,
             ctx,
@@ -570,3 +585,66 @@ async def test_no_a5_impact_before_equals_after(pm_ctx):
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
     assert before == after  # ...yet the A5 report is byte-identical (no release_issues created)
     assert after["ruleset_version"] == "slice31.v1"
+
+
+@pytest.mark.db
+async def test_service_credential_unbound_no_broker_no_write(pm_ctx, admin_engine):
+    # B4/B1: Jira project declared + agent allowlisted, but NO JIRA_CONNECTOR_TOKEN credential ⇒ the
+    # service fails closed BEFORE the broker call (no tool_call) and writes nothing.
+    from app.policy.levels import AutonomyLevel
+    from app.release.pm_connector import FakeIssueTrackerConnector
+    from app.release.pm_sync_service import sync_pm_issues
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.tools import ToolAllowlistRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, p1 = pm_ctx["t1"], pm_ctx["p1"]
+    ctx = TenantContext(t1)
+    obs = [{"external_ref": "PROJ-1", "external_status": "Done", "title_present": True}]
+    async with tenant_scope(ctx) as session:
+        await _declare_jira(session, ctx, p1)  # project declared, but NO credential
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=p1, autonomy_level=int(AutonomyLevel.A5), actor="a"
+        )
+        await ToolAllowlistRepository(session, ctx).grant(
+            agent_id="conn", tool_name="pm.read_issues", actor="admin"
+        )
+        result = await sync_pm_issues(
+            session,
+            ctx,
+            project_id=p1,
+            agent_id="conn",
+            actor="conn",
+            connector=FakeIssueTrackerConnector(result=obs),
+        )
+        assert result.reason == "credential_unbound" and result.wrote == 0
+        assert (
+            await _pm_repo(session, ctx).latest_for_ref(p1, "jira", "acme-jira", "PROJ-1") is None
+        )
+    # no broker call happened (returned before broker) — no pm.read_issues tool_call for this tenant.
+    async with admin_engine.connect() as c:
+        n = (
+            await c.execute(
+                text(
+                    "SELECT count(*) FROM tool_calls WHERE tenant_id=:t AND tool_name='pm.read_issues'"
+                ),
+                {"t": str(t1)},
+            )
+        ).scalar_one()
+    assert n == 0
+
+
+@pytest.mark.db
+async def test_rls_cross_tenant(pm_ctx):
+    # a mapping written under t1 is invisible under t2 (RLS isolation).
+    from app.tenancy import TenantContext, tenant_scope
+
+    t1, t2, p1 = pm_ctx["t1"], pm_ctx["t2"], pm_ctx["p1"]
+    async with tenant_scope(TenantContext(t1)) as session:
+        await _pm_repo(session, TenantContext(t1)).record_connector_verified_mapping(
+            project_id=p1, payload=_conn_payload(), actor="c"
+        )
+    async with tenant_scope(TenantContext(t2)) as session:
+        repo = _pm_repo(session, TenantContext(t2))
+        assert await repo.latest_for_ref(p1, "jira", "acme-jira", "PROJ-1") is None
+        assert await repo.list_latest_for_project(p1) == []

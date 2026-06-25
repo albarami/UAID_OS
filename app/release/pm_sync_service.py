@@ -1,7 +1,8 @@
 """PM / issue-tracker sync orchestration (Slice 34) — broker-gated, fail-closed, store-only.
 
 ``sync_pm_issues``: resolve the project's OWN declared Jira project (`resolve_declared_pm_project`, B4) →
-broker decision with **safe params** (`{provider:'jira', project_present:true}` — never the project key /
+require a declared reference-only ``JIRA_CONNECTOR_TOKEN`` credential (`has_declared_jira_credential`; missing
+⇒ audited ``credential_unbound``, no broker call / no write) → broker decision with **safe params** (`{provider:'jira', project_present:true}` — never the project key /
 instance key / credential) → fetch observed issues via the injected connector (Fake in tests; live adapter
 deferred) → derive the §12.3 ``board_column`` (`map_board_column`, ``unmapped`` fail-closed) → write an
 immutable ``connector_verified`` ``pm_issue_mappings`` row per item (idempotent latest-wins). **Creates no
@@ -22,7 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record as audit_record
 from app.release.pm_connector import IssueTrackerConnector
 from app.release.pm_issues import InvalidPMMapping, map_board_column
-from app.release.project_repo import resolve_declared_pm_project
+from app.release.project_repo import (
+    has_declared_jira_credential,
+    resolve_declared_pm_project,
+)
 from app.repositories.pm_issues import PMIssueMappingRepository
 from app.tenancy import TenantContext
 from app.tools.broker import BrokerDecision, broker_call
@@ -36,7 +40,7 @@ class PMSyncResult:
     wrote: int
     observed: int
     skipped: int
-    reason: str  # "observed" | "pm_unbound" | "broker_denied"
+    reason: str  # "observed" | "pm_unbound" | "credential_unbound" | "broker_denied"
 
 
 async def _audit_failure(
@@ -68,6 +72,12 @@ async def sync_pm_issues(
         await _audit_failure(session, actor, project_id, "pm_unbound")
         return PMSyncResult(wrote=0, observed=0, skipped=0, reason="pm_unbound")
     instance_key, project_key = resolved
+
+    # B4: the project must declare a usable JIRA_CONNECTOR_TOKEN reference (reference-only; the value is
+    # operator-env). Fail-closed BEFORE the broker call / any fetch — no broker attempt, no write.
+    if not await has_declared_jira_credential(session, context, project_id):
+        await _audit_failure(session, actor, project_id, "credential_unbound")
+        return PMSyncResult(wrote=0, observed=0, skipped=0, reason="credential_unbound")
 
     decision = await broker_call(
         session,
