@@ -186,8 +186,10 @@ are the DB backstop — no guard trigger needed). Gate #2 (`production_autonomy.
 **first non-#1/#3 gate that can PASS**; `a5_satisfied` + `can_go_live_autonomously` stay false (≥10 gates
 unmet). **ONLY gate #2 changes** (a no-other-gate-regression test guards the rest); production deploy stays
 A4/A5 human/pre-approved (`spec:485`) — the connector never deploys. No secret/credential used or stored;
-audit + broker params never carry the domain/target_ref. (Implemented on branch
-`feat/slice-30-deployment-target-evidence`, awaiting review — not yet merged.)**
+audit + broker params never carry the domain/target_ref. The live `generic_https` connector pins the
+connection to the **validated resolved IP** (IPv6 bracketed) with `Host`/TLS-SNI = the hostname
+(anti-rebind), streams **status-only** (no response body read), and normalizes DNS failures to a
+fail-closed SSRF refusal. merged via PR #49 (commit `200c460`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
