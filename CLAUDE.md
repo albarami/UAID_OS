@@ -247,6 +247,25 @@ regression proves recording evidence flips no gate/readiness); go-live false. Im
 `secret_reference_checks` (RLS ENABLE+FORCE; SELECT/INSERT only; migration `0031`; Postgres regex
 `{m,n}` caps at 255, so `reference_name` uses a char-class shape + a separate `char_length BETWEEN 1 AND
 256`). merged via PR #53 (commit `214495c`).**
+**Slice 33 adds a communication / approval channel (`app/approvals/channels/routing.py` [pure tier-only
+router + notification validators], `app/approvals/channels/adapter.py` [`ApprovalChannel` protocol +
+`FakeChannel` + `DashboardChannel`], `app/approvals/channels/service.py` [`ApprovalNotificationService` +
+the authoritative `request_and_notify_approval`], `app/repositories/approval_notifications.py`, model
+`approval_notifications`, migration `0032`, §18.2 / §26.3) — wiring the Slice-4 approval engine to a human
+surface. The **tier-only** router (D-33-1; **no `human_approval_policy` read** this slice) routes `{low,
+medium} → digest`, `{high, production} → realtime`; `digest` is a routing **label** only (D-33-7 — no
+scheduler / `daily_digest_time` builder). The one authoritative `request_and_notify_approval` calls
+`ApprovalRepository.request` (**UNTOUCHED**) then `ApprovalNotificationService.notify_for_approval`, writing
+**both** an `approval_events` and an immutable append-only `approval_notifications` row via the channel
+(`dashboard` only — no external I/O, surfaced by the existing read API; slack/teams/email/ticketing
+deferred). Records **only** routing facts `(approval_id, risk_tier, routing_mode, channel, status)` —
+**NO recipient/URL/credential column** (no secret material, structural). Migration `0032` also adds the
+**additive** `UNIQUE(id, project_id, tenant_id)` on `approvals` (Slice-6/14b pattern) so the composite FK
+`(approval_id, project_id, tenant_id) → approvals` **DB-proves** project/tenant consistency. Verified-
+identity approvals are **reused from Slice 27** (on the resolution, not added here). **Store/infra-only —
+`production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`** (gate #12's verified
+approvals complete in Slice 53); a `before==after` + an `is_blocked`-unchanged no-regression test guard it;
+go-live false. A channel ack is **never** an approval / production pre-approval.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -889,11 +908,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 584 passing (Docker-free); `make test-db` → 525 passing (DB-backed: tenancy,
+  **`make test` → 601 passing (Docker-free); `make test-db` → 542 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -996,8 +1015,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 584 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 525 passing
+make test                                  # Docker-free tests (no services) — 601 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 542 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
