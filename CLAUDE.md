@@ -266,6 +266,27 @@ identity approvals are **reused from Slice 27** (on the resolution, not added he
 `production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`** (gate #12's verified
 approvals complete in Slice 53); a `before==after` + an `is_blocked`-unchanged no-regression test guard it;
 go-live false. A channel ack is **never** an approval / production pre-approval. merged via PR #55 (commit `e436668`).**
+**Slice 34 adds a project-management / issue-tracker connector (`app/release/pm_issues.py` [pure validators +
+`map_board_column` Jira-status→§12.3-column + shapes], `app/release/pm_connector.py` [`IssueTrackerConnector`
+protocol + `FakeIssueTrackerConnector`; live Jira adapter **deferred**], `app/release/pm_sync_service.py`
+[`sync_pm_issues`], `app/repositories/pm_issues.py`, `resolve_declared_pm_project` + `has_declared_jira_credential`
+in `project_repo.py`, model `pm_issue_mappings`, migration `0033`, §12.3 / §26.3) — reflecting external **Jira**
+PM issues into the platform, **mapping-only** (Slice 24 `release_issues` reuse where applicable). The broker-gated
+connector resolves the project's OWN declared `tool_access_manifest.jira` `{project_key, instance_key}` (file 18;
+`instance_key` = an operator alias, **never a URL/host**) + the reference-only `JIRA_CONNECTOR_TOKEN` credential,
+calls `broker_call` for the read-only `pm.read_issues` tool (new A1 action `read_project_management_issues`,
+distinct from the mutating `pm.create_issue`) with **safe params** (`provider`/`project_present`, never the
+project/instance key), and writes a `connector_verified` `pm_issue_mappings` row per item recording **only**
+observed facts `(external_ref, external_status, board_column, title_present)`. **No secret material / no
+title-text** — the schema has **no title/description/credential/`release_issue_id` column** (structural).
+Jira-status → §12.3 `board_column` via `map_board_column`; an unknown status ⇒ **`unmapped`** (honest fail-closed,
+never guessed; raw `external_status` kept). **`connector_verified` = OBSERVATION-verified, NOT issue-provenance-
+complete** (gate #7 adequacy is not provided — a synced issue is never provenance-verified-complete, Slice 47).
+Idempotent **latest-wins** keyed by `(tenant, project, external_system, instance_key, external_ref)`; a malformed
+observation is **skipped** (never aborts the sync). **STORE/INFRA-ONLY — creates NO `release_issues`;
+`release_issues`/`production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`** (a `before==after`
+regression guards it); read-only (never writes back to Jira); go-live false. Migration `0033` additive; immutable
+append-only `pm_issue_mappings` (RLS ENABLE+FORCE; SELECT/INSERT only).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -908,11 +929,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 601 passing (Docker-free); `make test-db` → 542 passing (DB-backed: tenancy,
+  **`make test` → 639 passing (Docker-free); `make test-db` → 563 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1015,8 +1036,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 601 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 542 passing
+make test                                  # Docker-free tests (no services) — 639 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 563 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

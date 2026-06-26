@@ -73,6 +73,9 @@ TOOL_REGISTRY: dict[str, ToolContract] = {
     "secrets.verify_reference": _c(
         "secrets.verify_reference", "secrets", "verify_secret_reference"
     ),
+    # Slice 34: broker-gated read; maps to the read-only read_project_management_issues action
+    # (distinct from the mutating pm.create_issue).
+    "pm.read_issues": _c("pm.read_issues", "project_management", "read_project_management_issues"),
     "source_control.open_pull_request": _c(
         "source_control.open_pull_request",
         "source_control",

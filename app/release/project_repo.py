@@ -20,6 +20,7 @@ from app.release.monitoring_evidence import (
     InvalidMonitoringSnapshot,
     parse_and_validate_status_url,
 )
+from app.release.pm_issues import is_valid_instance_key, is_valid_project_key
 from app.release.secrets_verification import is_valid_manager, is_valid_reference_name
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.tenancy import TenantContext
@@ -28,6 +29,8 @@ _REPO_CATEGORY = "existing_assets_and_repositories"
 _SECRETS_CATEGORY = "secrets_and_credentials_manifest"
 _ENV_CATEGORY = "environments_and_deployment_targets"
 _MONITORING_CATEGORY = "operations_observability_support"
+_TOOL_ACCESS_CATEGORY = "tool_access_manifest"
+_JIRA_REFERENCE_NAME = "JIRA_CONNECTOR_TOKEN"
 # This slice resolves the token from operator env GITHUB_CONNECTOR_TOKEN (D-28-3/9); the project's
 # secrets manifest must name exactly that reference as the credential SOURCE.
 _REQUIRED_MANAGER = "env"
@@ -172,3 +175,49 @@ async def resolve_declared_monitoring_target(
     except InvalidMonitoringSnapshot:
         return None
     return status_url, host, path
+
+
+async def resolve_declared_pm_project(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> tuple[str, str] | None:
+    """Return ``(instance_key, project_key)`` from the project's declared ``tool_access_manifest`` Jira
+    block (Slice 34, B4) — ``data["jira"] = {project_key, instance_key}`` — or ``None`` (caller fails
+    closed). ``instance_key`` is an **operator alias** (``is_valid_instance_key``), never a URL/host;
+    ``project_key`` is a bounded Jira key (``is_valid_project_key``). Fail-closed: missing category / status
+    ≠ ``declared`` / ``data`` not a dict / missing/non-dict ``jira`` / invalid keys."""
+    cat = await IntakeCategoryRepository(session, context).get_category(
+        project_id, _TOOL_ACCESS_CATEGORY
+    )
+    if cat is None or cat.status != "declared":
+        return None
+    data = cat.data if isinstance(cat.data, dict) else {}
+    jira = data.get("jira")
+    if not isinstance(jira, dict):
+        return None
+    instance_key = jira.get("instance_key")
+    project_key = jira.get("project_key")
+    if not is_valid_instance_key(instance_key) or not is_valid_project_key(project_key):
+        return None
+    return instance_key, project_key
+
+
+async def has_declared_jira_credential(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> bool:
+    """True iff the project's ``secrets_and_credentials_manifest`` names a usable, reference-only Jira
+    credential ``{manager:'env', reference_name:'JIRA_CONNECTOR_TOKEN'}`` (top-level or in ``references[]``).
+    The token value resolves from operator env; the reference is the SOURCE. Fail-closed — mirrors
+    ``has_declared_credential`` (Slice 28)."""
+    cat = await IntakeCategoryRepository(session, context).get_category(
+        project_id, _SECRETS_CATEGORY
+    )
+    if cat is None or cat.status != "declared":
+        return False
+    data = cat.data if isinstance(cat.data, dict) else {}
+    refs = data["references"] if isinstance(data.get("references"), list) else [data]
+    return any(
+        isinstance(e, dict)
+        and e.get("manager") == _REQUIRED_MANAGER
+        and e.get("reference_name") == _JIRA_REFERENCE_NAME
+        for e in refs
+    )
