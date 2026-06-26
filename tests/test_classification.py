@@ -699,3 +699,41 @@ async def test_latest_for_document_returns_newest(cls_ctx):
         assert latest.id == second.id
         rows = await repo.list_for_project(cls_ctx["p1"])
         assert len(rows) >= 2
+
+
+@pytest.mark.db
+async def test_no_a5_or_readiness_impact_before_equals_after(cls_ctx):
+    # Store/infra-only: recording AND reviewing a classification flips no A5 gate and no
+    # readiness level (ruleset unchanged). Mirrors the Slice 32/33/34 no-impact guard.
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.readiness import ReadinessRepository
+
+    ctx = TenantContext(cls_ctx["t1"])
+    p1 = cls_ctx["p1"]
+    fake = FakeLLMClient(response_text=_cls_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        before_pa = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        before_level = (
+            await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        ).readiness_level
+        repo = ClassificationRepository(session, ctx)
+        row = await repo.classify(
+            project_id=p1,
+            document_id=cls_ctx["doc1"],
+            model="test-model",
+            llm_client=fake,
+            classified_by="classifier-agent",
+            price_card=_CARD,
+        )
+        assert row.outcome == "succeeded"  # a classification WAS recorded + reviewed...
+        await repo.review_classification(
+            classification_id=row.id, decision="approved", reviewed_by="human-reviewer"
+        )
+        after_pa = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        after_level = (
+            await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        ).readiness_level
+    # ...yet neither the A5 report nor the readiness level changed.
+    assert before_pa == after_pa
+    assert after_pa["ruleset_version"] == "slice31.v1"
+    assert before_level == after_level
