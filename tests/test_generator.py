@@ -33,6 +33,10 @@ from app.intake.generator import (
     validate_independence,
     validate_requested_artifact_type,
 )
+from app.llm.client import FakeLLMClient
+from app.llm.pricing import ModelPrice
+from app.repositories.generator import GeneratedArtifactRepository
+from app.tenancy import TenantContext, tenant_scope
 
 # --- Docker-free: §6.3 artifact-type vocabulary (B3 — requested, no `unknown`) ----
 
@@ -586,3 +590,262 @@ async def test_db_rls_cross_tenant_invisible(rls_engine, gen_ctx):
             )
         ).scalar_one()
         assert n == 0
+
+
+# --- DB-backed: generate pipeline + approval lifecycle (FakeLLMClient) -----------
+
+_CARD = {
+    "test-model": ModelPrice(input_usd_per_1k=Decimal("0.003"), output_usd_per_1k=Decimal("0.015"))
+}
+
+
+def _gen_resp(title="Export PRD", body="The system shall export evidence."):
+    import json
+
+    return json.dumps({"title": title, "body": body})
+
+
+async def _llm_cost_count(session, tenant, project):
+    return (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM cost_events WHERE tenant_id=:t AND project_id=:p "
+                "AND source_system='llm'"
+            ),
+            {"t": tenant, "p": project},
+        )
+    ).scalar_one()
+
+
+def _gen_kwargs(ctx, **over):
+    kw = dict(
+        project_id=ctx["p1"],
+        document_id=ctx["doc1"],
+        artifact_type="prd",
+        model="test-model",
+        generated_by="gen-agent",
+        generator_prompt_family="generator.v1",
+        generator_model_route=None,
+        price_card=_CARD,
+    )
+    kw.update(over)
+    return kw
+
+
+@pytest.mark.db
+async def test_generate_happy_path_records_succeeded_and_cost(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        row = await GeneratedArtifactRepository(session, ctx).generate(
+            llm_client=fake, **_gen_kwargs(gen_ctx)
+        )
+        assert row.outcome == "succeeded"
+        assert row.artifact_type == "prd"
+        assert row.authorship_status == "system_authored_unapproved"
+        assert row.generated_by == "gen-agent"
+        assert row.generator_prompt_family == "generator.v1"
+        assert row.title == "Export PRD"
+        assert row.cost_external_ref is not None
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p1"]) == 1
+    assert fake.calls
+
+
+@pytest.mark.db
+async def test_generate_rejects_unsupported_artifact_type_before_provider(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        with pytest.raises(ValueError):
+            await GeneratedArtifactRepository(session, ctx).generate(
+                llm_client=fake, **_gen_kwargs(gen_ctx, artifact_type="not_a_type")
+            )
+        assert fake.calls == [], "no provider call for an unsupported requested type"
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p1"]) == 0
+
+
+@pytest.mark.db
+async def test_generate_wrong_project_document_before_provider(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        with pytest.raises(ValueError):
+            await GeneratedArtifactRepository(session, ctx).generate(
+                llm_client=fake,
+                **_gen_kwargs(gen_ctx, document_id=gen_ctx["doc_p2"]),  # p2's doc
+            )
+        assert fake.calls == []
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p1"]) == 0
+
+
+@pytest.mark.db
+async def test_generate_injection_refused_no_call_no_cost(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        row = await GeneratedArtifactRepository(session, ctx).generate(
+            llm_client=fake, **_gen_kwargs(gen_ctx, document_id=gen_ctx["doc_susp"])
+        )
+        assert row.outcome == "refused_injection"
+        assert row.title is None
+        assert row.cost_external_ref is None
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p1"]) == 0
+    assert fake.calls == []
+
+
+@pytest.mark.db
+async def test_generate_blocked_by_budget_no_call(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        row = await GeneratedArtifactRepository(session, ctx).generate(
+            llm_client=fake,
+            **_gen_kwargs(gen_ctx, project_id=gen_ctx["p2"], document_id=gen_ctx["doc_p2"]),
+        )
+        assert row.outcome == "blocked_by_budget"
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p2"]) == 0
+    assert fake.calls == []
+
+
+@pytest.mark.db
+async def test_generate_invalid_tokens_failed_no_cost(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=0, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        row = await GeneratedArtifactRepository(session, ctx).generate(
+            llm_client=fake, **_gen_kwargs(gen_ctx)
+        )
+        assert row.outcome == "failed"
+        assert row.cost_external_ref is None
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p1"]) == 0
+    assert fake.calls
+
+
+@pytest.mark.db
+async def test_generate_parse_failure_still_records_cost(gen_ctx):
+    # B2: a valid-token response that fails to parse still incurs and records cost.
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text="not json at all", input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        row = await GeneratedArtifactRepository(session, ctx).generate(
+            llm_client=fake, **_gen_kwargs(gen_ctx)
+        )
+        assert row.outcome == "failed"
+        assert row.cost_external_ref is not None
+        assert row.input_tokens == 10
+        assert await _llm_cost_count(session, gen_ctx["t1"], gen_ctx["p1"]) == 1
+
+
+@pytest.mark.db
+async def test_review_artifact_human_owner_and_marking(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        repo = GeneratedArtifactRepository(session, ctx)
+        row = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        approved = await repo.review_artifact(
+            generated_artifact_id=row.id,
+            decision="approve",
+            approved_by="human-owner",
+            approval_basis="human_owner",
+            reviewer_role="product_owner",
+            reviewer_authority="po_authority",
+        )
+        assert approved.authorship_status == "system_authored_human_approved"
+        marking = await repo.authorship_marking(row.id)
+        assert marking["authorship_status"] == "system_authored_human_approved"
+        assert marking["generated_by"] == "gen-agent"
+        assert marking["approved_by"] == "human-owner"
+        assert marking["approved_at"] is not None
+
+
+@pytest.mark.db
+async def test_review_artifact_independent_and_rejections(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        repo = GeneratedArtifactRepository(session, ctx)
+        # happy independent (distinct prompt family)
+        row = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        approved = await repo.review_artifact(
+            generated_artifact_id=row.id,
+            decision="approve",
+            approved_by="ind-reviewer",
+            approval_basis="independent_agent_lineage",
+            reviewer_prompt_family="reviewer.v1",
+            reviewer_role="independent_reviewer",
+            reviewer_authority="ind_authority",
+        )
+        assert approved.authorship_status == "system_authored_independent_approved"
+        # same prompt family ⇒ rejected
+        r2 = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        with pytest.raises(ValueError):
+            await repo.review_artifact(
+                generated_artifact_id=r2.id,
+                decision="approve",
+                approved_by="ind-reviewer",
+                approval_basis="independent_agent_lineage",
+                reviewer_prompt_family="generator.v1",
+                reviewer_role="independent_reviewer",
+                reviewer_authority="ind_authority",
+            )
+        # deferred basis ⇒ rejected
+        with pytest.raises(ValueError):
+            await repo.review_artifact(
+                generated_artifact_id=r2.id,
+                decision="approve",
+                approved_by="ind-reviewer",
+                approval_basis="domain_authority",
+                reviewer_role="x",
+                reviewer_authority="y",
+            )
+        # self-approval ⇒ rejected
+        with pytest.raises(ValueError):
+            await repo.review_artifact(
+                generated_artifact_id=r2.id,
+                decision="approve",
+                approved_by="gen-agent",
+                approval_basis="human_owner",
+                reviewer_authority="po",
+            )
+
+
+@pytest.mark.db
+async def test_review_artifact_dispute(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        repo = GeneratedArtifactRepository(session, ctx)
+        row = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        disputed = await repo.review_artifact(
+            generated_artifact_id=row.id, decision="dispute", approved_by="reviewer"
+        )
+        assert disputed.authorship_status == "disputed"
+
+
+@pytest.mark.db
+async def test_latest_for_and_list(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        repo = GeneratedArtifactRepository(session, ctx)
+        await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        second = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        latest = await repo.latest_for(gen_ctx["p1"], gen_ctx["doc1"], "prd")
+        assert latest.id == second.id
+        rows = await repo.list_for_project(gen_ctx["p1"])
+        assert len(rows) >= 2
+
+
+@pytest.mark.db
+async def test_request_artifact_approval_creates_subject_scoped_approval(gen_ctx):
+    ctx = TenantContext(gen_ctx["t1"])
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        repo = GeneratedArtifactRepository(session, ctx)
+        row = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        approval = await repo.request_artifact_approval(
+            generated_artifact_id=row.id, requested_by="coordinator"
+        )
+        assert approval.subject_ref == f"generated_artifact:{row.id}"
+        assert approval.action == "intake.approve_generated_artifact"
