@@ -7,7 +7,13 @@ reviewer), DB-guard shape-by-outcome, accepted-doc pinning, RLS, append-only,
 no-A5/readiness `before==after`. ALL tests use FakeLLMClient — no live provider.
 """
 
+import hashlib
+import uuid
+from decimal import Decimal
+
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.intake.classifier import (
     AUTHORITY_TIERS,
@@ -153,3 +159,308 @@ def test_validate_review_transition_is_one_way():
     ):
         with pytest.raises(ValueError):
             validate_review_transition(old, new)
+
+
+# --- DB-backed: model + migration 0034 guard / RLS ---------------------------
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def cls_ctx(admin_engine):
+    """t1 has p1 (with budget); t2 has px. p1 has an accepted + a quarantined doc."""
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('ClsOrg',:s) RETURNING id",
+            s=f"cls-org-{sfx}",
+        )
+        out = {"sfx": sfx}
+        for label in ("t1", "t2"):
+            out[label] = await _scalar(
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"cls-{label}-{sfx}",
+            )
+        for proj, tn in (("p1", "t1"), ("px", "t2")):
+            out[proj] = await _scalar(
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"cls-{proj}-{sfx}",
+            )
+
+        async def _doc(tenant, project, content, status):
+            return await _scalar(
+                c,
+                "INSERT INTO documents (tenant_id, project_id, filename, content_type, source, "
+                "content, content_hash, size_bytes, status) "
+                "VALUES (:t,:p,'f.txt','text/plain','manual',:c,:h,:sz,:st) RETURNING id",
+                t=tenant,
+                p=project,
+                c=content,
+                h="sha256:" + hashlib.sha256(content.encode()).hexdigest(),
+                sz=len(content.encode()),
+                st=status,
+            )
+
+        out["doc1"] = await _doc(out["t1"], out["p1"], "the system shall log in", "accepted")
+        out["doc_quar"] = await _doc(out["t1"], out["p1"], "quarantined body", "quarantined")
+        out["doc_px"] = await _doc(out["t2"], out["px"], "other project doc", "accepted")
+        await c.execute(
+            text(
+                "INSERT INTO budgets (tenant_id, project_id, max_total_cost_usd) VALUES (:t,:p,:m)"
+            ),
+            {"t": str(out["t1"]), "p": str(out["p1"]), "m": Decimal("100")},
+        )
+    return out
+
+
+_SUCCEEDED = dict(
+    model="test-model",
+    provider="fake",
+    prompt_version="classify.v1",
+    input_tokens=10,
+    output_tokens=20,
+    outcome="succeeded",
+    cost_external_ref="document_classification:x:provider_request",
+    proposed_document_type="policy",
+    proposed_authority_tier="authoritative",
+    evidence_quote="the system shall log in",
+    review_status="pending",
+    classified_by="classifier-agent",
+    reviewed_by=None,
+    reviewed_at=None,
+)
+
+_INSERT = text(
+    "INSERT INTO document_classifications (tenant_id, project_id, document_id, model, provider, "
+    "prompt_version, input_tokens, output_tokens, outcome, cost_external_ref, "
+    "proposed_document_type, proposed_authority_tier, evidence_quote, review_status, "
+    "classified_by, reviewed_by, reviewed_at) VALUES (:tenant_id,:project_id,:document_id,:model,"
+    ":provider,:prompt_version,:input_tokens,:output_tokens,:outcome,:cost_external_ref,"
+    ":proposed_document_type,:proposed_authority_tier,:evidence_quote,:review_status,"
+    ":classified_by,:reviewed_by,:reviewed_at) RETURNING id"
+)
+
+
+async def _ins(conn, ctx, *, document="doc1", **over):
+    row = dict(_SUCCEEDED)
+    row.update(over)
+    row.update(tenant_id=str(ctx["t1"]), project_id=str(ctx["p1"]), document_id=str(ctx[document]))
+    return (await conn.execute(_INSERT, row)).scalar_one()
+
+
+@pytest.mark.db
+async def test_db_succeeded_row_inserts(admin_engine, cls_ctx):
+    async with admin_engine.begin() as c:
+        cid = await _ins(c, cls_ctx)
+    assert cid is not None
+
+
+@pytest.mark.db
+async def test_db_accepted_document_required(admin_engine, cls_ctx):
+    # A non-accepted (quarantined) source document is refused by the DB trigger.
+    with pytest.raises(Exception, match="is not accepted"):
+        async with admin_engine.begin() as c:
+            await _ins(c, cls_ctx, document="doc_quar")
+
+
+@pytest.mark.db
+async def test_db_bad_outcome_enum_rejected(admin_engine, cls_ctx):
+    with pytest.raises(Exception, match="outcome_valid"):
+        async with admin_engine.begin() as c:
+            await _ins(c, cls_ctx, outcome="bogus")
+
+
+@pytest.mark.db
+async def test_db_bad_document_type_enum_rejected(admin_engine, cls_ctx):
+    with pytest.raises(Exception, match="proposed_document_type_valid"):
+        async with admin_engine.begin() as c:
+            await _ins(c, cls_ctx, proposed_document_type="not_a_type")
+
+
+@pytest.mark.db
+async def test_db_succeeded_requires_proposed_fields(admin_engine, cls_ctx):
+    with pytest.raises(Exception, match="succeeded classification requires"):
+        async with admin_engine.begin() as c:
+            await _ins(c, cls_ctx, proposed_document_type=None)
+
+
+@pytest.mark.db
+async def test_db_refused_injection_shape(admin_engine, cls_ctx):
+    # Proper no-call shape inserts.
+    async with admin_engine.begin() as c:
+        await _ins(
+            c,
+            cls_ctx,
+            outcome="refused_injection",
+            input_tokens=None,
+            output_tokens=None,
+            cost_external_ref=None,
+            proposed_document_type=None,
+            proposed_authority_tier=None,
+            evidence_quote=None,
+            review_status="not_applicable",
+        )
+    # A no-call outcome carrying proposed/cost fields is refused.
+    with pytest.raises(Exception, match="must have null tokens"):
+        async with admin_engine.begin() as c:
+            await _ins(
+                c,
+                cls_ctx,
+                outcome="blocked_by_budget",
+                input_tokens=None,
+                output_tokens=None,
+                cost_external_ref=None,
+                proposed_document_type="policy",  # illegal for a no-call outcome
+                proposed_authority_tier=None,
+                evidence_quote=None,
+                review_status="not_applicable",
+            )
+
+
+@pytest.mark.db
+async def test_db_failed_cost_duality(admin_engine, cls_ctx):
+    # (a) parse/evidence failure AFTER a valid-token response: cost + tokens set.
+    async with admin_engine.begin() as c:
+        await _ins(
+            c,
+            cls_ctx,
+            outcome="failed",
+            proposed_document_type=None,
+            proposed_authority_tier=None,
+            evidence_quote=None,
+            review_status="not_applicable",
+        )
+    # (b) provider exception / invalid tokens: cost + tokens both null.
+    async with admin_engine.begin() as c:
+        await _ins(
+            c,
+            cls_ctx,
+            outcome="failed",
+            input_tokens=None,
+            output_tokens=None,
+            cost_external_ref=None,
+            proposed_document_type=None,
+            proposed_authority_tier=None,
+            evidence_quote=None,
+            review_status="not_applicable",
+        )
+    # (c) inconsistent: cost set but tokens null is refused.
+    with pytest.raises(Exception, match="both set or both null"):
+        async with admin_engine.begin() as c:
+            await _ins(
+                c,
+                cls_ctx,
+                outcome="failed",
+                input_tokens=None,
+                output_tokens=None,
+                proposed_document_type=None,
+                proposed_authority_tier=None,
+                evidence_quote=None,
+                review_status="not_applicable",
+            )
+
+
+@pytest.mark.db
+async def test_db_review_one_way_and_distinct_reviewer(admin_engine, cls_ctx):
+    async with admin_engine.begin() as c:
+        cid = await _ins(c, cls_ctx)
+    # self-review (reviewer == classifier) refused.
+    with pytest.raises(Exception, match="distinct from classified_by"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "UPDATE document_classifications SET review_status='approved', "
+                    "reviewed_by='classifier-agent', reviewed_at=clock_timestamp() WHERE id=:i"
+                ),
+                {"i": str(cid)},
+            )
+    # distinct reviewer approves.
+    async with admin_engine.begin() as c:
+        await c.execute(
+            text(
+                "UPDATE document_classifications SET review_status='approved', "
+                "reviewed_by='human-reviewer', reviewed_at=clock_timestamp() WHERE id=:i"
+            ),
+            {"i": str(cid)},
+        )
+    # terminal -> terminal refused.
+    with pytest.raises(Exception, match="not allowed"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text("UPDATE document_classifications SET review_status='rejected' WHERE id=:i"),
+                {"i": str(cid)},
+            )
+
+
+@pytest.mark.db
+async def test_db_identity_columns_immutable(admin_engine, cls_ctx):
+    async with admin_engine.begin() as c:
+        cid = await _ins(c, cls_ctx)
+    with pytest.raises(Exception, match="are immutable"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text("UPDATE document_classifications SET outcome='failed' WHERE id=:i"),
+                {"i": str(cid)},
+            )
+
+
+@pytest.mark.db
+async def test_db_no_delete_no_truncate(admin_engine, cls_ctx):
+    async with admin_engine.begin() as c:
+        cid = await _ins(c, cls_ctx)
+    with pytest.raises(Exception, match="does not allow DELETE"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text("DELETE FROM document_classifications WHERE id=:i"), {"i": str(cid)}
+            )
+
+
+@pytest.mark.db
+async def test_db_rls_cross_tenant_invisible(rls_engine, cls_ctx):
+    ctx = cls_ctx
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(ctx["t1"])}
+        )
+        cid = (
+            await conn.execute(
+                _INSERT,
+                {
+                    **_SUCCEEDED,
+                    "tenant_id": str(ctx["t1"]),
+                    "project_id": str(ctx["p1"]),
+                    "document_id": str(ctx["doc1"]),
+                },
+            )
+        ).scalar_one()
+        await conn.commit()
+    # a different tenant cannot see it (RLS).
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(ctx["t2"])}
+        )
+        n = (
+            await conn.execute(
+                text("SELECT count(*) FROM document_classifications WHERE id=:i"), {"i": str(cid)}
+            )
+        ).scalar_one()
+        assert n == 0
+    # the owning tenant can.
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(ctx["t1"])}
+        )
+        n = (
+            await conn.execute(
+                text("SELECT count(*) FROM document_classifications WHERE id=:i"), {"i": str(cid)}
+            )
+        ).scalar_one()
+        assert n == 1
