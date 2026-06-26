@@ -342,7 +342,7 @@ guarantee** — B5). **STRICTLY STORE/INFRA-ONLY (B2) — NO spine write, NO pro
 unchanged regression guards it); a generated artifact is **never binding before independent approval** (§7.1) and
 **never enters the spine** this slice (approved-AC → spine `acceptance_criterion` promotion via the reused
 `add_artifact` is a deferred follow-up); go-live false. Migration `0035` additive; the `generated_artifacts` guard
-mirrors the Slice-35 `document_classifications` pattern.**
+mirrors the Slice-35 `document_classifications` pattern. merged via PR #61 (commit `03f73b9`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
