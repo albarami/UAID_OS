@@ -313,6 +313,36 @@ guarantee** — no denylist this slice). **STORE/INFRA-ONLY — `production_auto
 ruleset stays `slice31.v1`** (a `before==after` + readiness-level-unchanged regression guards it); a
 classification is inert + **never authoritative / auto-promoted**; go-live false. Migration `0034` additive;
 the `document_classifications` guard mirrors the Slice-14a `extraction_proposals` pattern. merged via PR #59 (commit `006ea7e`).**
+**Slice 36 adds a deterministic-gated, LLM-assisted canonical-artifact generator under §7 spec-authorship
+independence (`app/intake/generator.py` [pure: §6.3 15-value `ARTIFACT_TYPES` (a REQUESTED target, NO
+`unknown` — validated up front), the §7.2 6-value `AUTHORSHIP_STATUSES`, the narrowed §7.3 `APPROVAL_BASES`
+(`human_owner`/`independent_agent_lineage`; `domain_authority`+`reference_oracle` DEFERRED+fail-closed-refused),
+`validate_independence`/`validate_authorship_transition`/`parse_generated_artifact`], `app/repositories/generator.py`
+[`GeneratedArtifactRepository.generate` + `request_artifact_approval` + `review_artifact` + `authorship_marking`
++ reads], model `generated_artifacts`, migration `0035`, §6.3/§6.5/§7/§26.2) — closing the §26.2 "canonical
+artifact generator" (Track B, **off the A5 critical path**). The generator is an **LLM call** (Slice-35 inert
+model — **NO tool broker**) reusing the Slice-35 injection-safe/budget-gated/incurred-cost pipeline. `generate`
+validates the **requested** `artifact_type` first → resolves an **accepted same-project** document (Slice-35
+wrong-project gate) → injection hard-refuse → budget preflight → FakeLLM (live adapter shipped-untested) →
+fail-closed token accounting → **incurred-cost metering BEFORE parse** (parse failure keeps cost — B2) →
+persists one **inert, NON-BINDING** §6.3 draft (`outcome ∈ {succeeded,refused_injection,blocked_by_budget,failed}`)
+stamped **`system_authored_unapproved`** (§7.2) with the generator lineage (§7.4). `review_artifact` applies the
+**§7.3 independence rules**: the approver must be **distinct from the generator**; `human_owner` needs
+`reviewer_authority`; `independent_agent_lineage` needs a `reviewer_prompt_family` **distinct from the
+generator's** + role + authority; the deferred bases are refused; one-way `system_authored_unapproved →
+{*_approved, disputed}`. **`*_approved` is independence-evidence-recorded, NOT verified** (actor labels
+caller-supplied-unverified). `authorship_marking` recovers the §7.4 marking; `request_artifact_approval` opens a
+subject-scoped (`generated_artifact:<id>`) approval. `generated_artifacts` is tenant-owned, RLS ENABLE+FORCE;
+SELECT/INSERT/UPDATE, **no DELETE/TRUNCATE**; a DB guard enforces accepted-doc pinning + shape-by-outcome (incl.
+the failed-cost duality) + INSERT-only `system_authored_unapproved` + content/identity/generator-lineage
+immutability + the §7.3 authorship guard (deferred bases forbidden by the `approval_basis` CHECK + guard). Stored
+`title`/`body` **may contain source-derived sensitive material** (audit/logs never carry it; **no no-secret
+guarantee** — B5). **STRICTLY STORE/INFRA-ONLY (B2) — NO spine write, NO promotion: `production_autonomy.py`/
+`readiness.py` UNTOUCHED, bit-stable** (a `before==after` + readiness-level-unchanged + `intake_artifacts`-count-
+unchanged regression guards it); a generated artifact is **never binding before independent approval** (§7.1) and
+**never enters the spine** this slice (approved-AC → spine `acceptance_criterion` promotion via the reused
+`add_artifact` is a deferred follow-up); go-live false. Migration `0035` additive; the `generated_artifacts` guard
+mirrors the Slice-35 `document_classifications` pattern.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -955,11 +985,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 651 passing (Docker-free); `make test-db` → 587 passing (DB-backed: tenancy,
+  **`make test` → 664 passing (Docker-free); `make test-db` → 616 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1062,8 +1092,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 651 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 587 passing
+make test                                  # Docker-free tests (no services) — 664 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 616 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

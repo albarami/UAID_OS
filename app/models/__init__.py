@@ -19,6 +19,7 @@ from app.models.cost_event import CostEvent
 from app.models.deployment_target_snapshot import DeploymentTargetSnapshot
 from app.models.document import Document
 from app.models.document_classification import DocumentClassification
+from app.models.generated_artifact import GeneratedArtifact
 from app.models.extraction_promotion import ExtractionPromotion
 from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_run import ExtractionRun
@@ -80,6 +81,7 @@ __all__ = [
     "RunStep",
     "Document",
     "DocumentClassification",
+    "GeneratedArtifact",
     "ExtractionRun",
     "ExtractionProposal",
     "ExtractionPromotion",
