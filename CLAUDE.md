@@ -312,7 +312,7 @@ The stored `evidence_quote` is a **bounded verbatim excerpt** (audit/logs never 
 guarantee** — no denylist this slice). **STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py` UNTOUCHED,
 ruleset stays `slice31.v1`** (a `before==after` + readiness-level-unchanged regression guards it); a
 classification is inert + **never authoritative / auto-promoted**; go-live false. Migration `0034` additive;
-the `document_classifications` guard mirrors the Slice-14a `extraction_proposals` pattern.**
+the `document_classifications` guard mirrors the Slice-14a `extraction_proposals` pattern. merged via PR #59 (commit `006ea7e`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
