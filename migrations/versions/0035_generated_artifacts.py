@@ -251,6 +251,14 @@ def upgrade() -> None:
                                 'reviewer_authority';
                         END IF;
                     END IF;
+                ELSIF NEW.authorship_status = 'disputed' THEN
+                    IF NEW.approval_basis IS NOT NULL OR NEW.approved_by IS NOT NULL
+                    OR NEW.approved_at IS NOT NULL OR NEW.reviewer_role IS NOT NULL
+                    OR NEW.reviewer_prompt_family IS NOT NULL OR NEW.reviewer_authority IS NOT NULL
+                    OR NEW.reviewer_model_route IS NOT NULL THEN
+                        RAISE EXCEPTION 'disputed generated artifact must have null '
+                            'approval/reviewer evidence';
+                    END IF;
                 END IF;
             ELSE
                 IF OLD.authorship_status IN ('system_authored_human_approved',

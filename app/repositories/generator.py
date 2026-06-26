@@ -232,15 +232,19 @@ class GeneratedArtifactRepository(TenantScopedRepository):
         )
         validate_authorship_transition(row.authorship_status, target)
         row.authorship_status = target
-        row.approved_by = approved_by
-        row.approved_at = datetime.now(timezone.utc)
         if target == "disputed":
+            # disputed is status-only — NO approval/reviewer evidence on the row (PLAN §3.3);
+            # the disputing actor is recorded in the audit event only.
+            row.approved_by = None
+            row.approved_at = None
             row.approval_basis = None
             row.reviewer_role = None
             row.reviewer_prompt_family = None
             row.reviewer_authority = None
             row.reviewer_model_route = None
         else:
+            row.approved_by = approved_by
+            row.approved_at = datetime.now(timezone.utc)
             row.approval_basis = approval_basis
             row.reviewer_role = reviewer_role
             row.reviewer_prompt_family = reviewer_prompt_family

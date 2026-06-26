@@ -557,6 +557,18 @@ async def test_db_content_identity_immutable(admin_engine, gen_ctx):
 
 
 @pytest.mark.db
+async def test_db_disputed_must_have_null_evidence(admin_engine, gen_ctx):
+    # disputed is status-only — the DB guard rejects any approval/reviewer evidence (PLAN §3.3).
+    now = datetime.now(timezone.utc)
+    with pytest.raises(Exception, match="disputed generated artifact must have null"):
+        async with admin_engine.begin() as c:
+            gid = await _ins(c, gen_ctx)
+            await _approve_update(
+                c, gid, authorship_status="disputed", approved_by="reviewer", approved_at=now
+            )
+
+
+@pytest.mark.db
 async def test_db_no_delete_no_truncate(admin_engine, gen_ctx):
     async with admin_engine.begin() as c:
         gid = await _ins(c, gen_ctx)
@@ -821,6 +833,16 @@ async def test_review_artifact_dispute(gen_ctx):
             generated_artifact_id=row.id, decision="dispute", approved_by="reviewer"
         )
         assert disputed.authorship_status == "disputed"
+        # disputed is status-only — NO approval/reviewer evidence on the row (PLAN §3.3).
+        assert disputed.approved_by is None
+        assert disputed.approved_at is None
+        assert disputed.approval_basis is None
+        assert disputed.reviewer_role is None
+        assert disputed.reviewer_prompt_family is None
+        assert disputed.reviewer_authority is None
+        assert disputed.reviewer_model_route is None
+        marking = await repo.authorship_marking(row.id)
+        assert marking["approved_by"] is None and marking["approved_at"] is None
 
 
 @pytest.mark.db
