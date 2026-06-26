@@ -286,7 +286,7 @@ Idempotent **latest-wins** keyed by `(tenant, project, external_system, instance
 observation is **skipped** (never aborts the sync). **STORE/INFRA-ONLY — creates NO `release_issues`;
 `release_issues`/`production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`** (a `before==after`
 regression guards it); read-only (never writes back to Jira); go-live false. Migration `0033` additive; immutable
-append-only `pm_issue_mappings` (RLS ENABLE+FORCE; SELECT/INSERT only).**
+append-only `pm_issue_mappings` (RLS ENABLE+FORCE; SELECT/INSERT only). merged via PR #57 (commit `d65b98c`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
