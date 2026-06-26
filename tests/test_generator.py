@@ -849,3 +849,50 @@ async def test_request_artifact_approval_creates_subject_scoped_approval(gen_ctx
         )
         assert approval.subject_ref == f"generated_artifact:{row.id}"
         assert approval.action == "intake.approve_generated_artifact"
+
+
+async def _spine_count(session, tenant, project):
+    return (
+        await session.execute(
+            text("SELECT count(*) FROM intake_artifacts WHERE tenant_id=:t AND project_id=:p"),
+            {"t": tenant, "p": project},
+        )
+    ).scalar_one()
+
+
+@pytest.mark.db
+async def test_no_a5_readiness_or_spine_impact_before_equals_after(gen_ctx):
+    # Store/infra-only (B2/D-36-8): generating AND approving a draft flips no A5 gate, changes no
+    # readiness level, and writes NOTHING to the binding spine (no promotion this slice).
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.readiness import ReadinessRepository
+
+    ctx = TenantContext(gen_ctx["t1"])
+    p1 = gen_ctx["p1"]
+    fake = FakeLLMClient(response_text=_gen_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        before_pa = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        before_level = (
+            await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        ).readiness_level
+        before_spine = await _spine_count(session, gen_ctx["t1"], p1)
+        repo = GeneratedArtifactRepository(session, ctx)
+        row = await repo.generate(llm_client=fake, **_gen_kwargs(gen_ctx))
+        assert row.outcome == "succeeded"  # a draft WAS generated + approved...
+        await repo.review_artifact(
+            generated_artifact_id=row.id,
+            decision="approve",
+            approved_by="human-owner",
+            approval_basis="human_owner",
+            reviewer_role="product_owner",
+            reviewer_authority="po_authority",
+        )
+        after_pa = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
+        after_level = (
+            await ReadinessRepository(session, ctx).evaluate(project_id=p1)
+        ).readiness_level
+        after_spine = await _spine_count(session, gen_ctx["t1"], p1)
+    # ...yet the A5 report, the readiness level, and the binding spine are all unchanged.
+    assert before_pa == after_pa
+    assert after_level == before_level
+    assert after_spine == before_spine  # NO spine write — promotion is deferred
