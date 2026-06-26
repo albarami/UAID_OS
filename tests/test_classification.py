@@ -737,3 +737,23 @@ async def test_no_a5_or_readiness_impact_before_equals_after(cls_ctx):
     assert before_pa == after_pa
     assert after_pa["ruleset_version"] == "slice31.v1"
     assert before_level == after_level
+
+
+@pytest.mark.db
+async def test_classify_rejects_wrong_project_document_before_provider(cls_ctx):
+    # A same-tenant document from ANOTHER project must be rejected BEFORE scan / budget /
+    # any model call — never let a wrong-project document reach the LLM (mirrors Slice 14a).
+    ctx = TenantContext(cls_ctx["t1"])
+    fake = FakeLLMClient(response_text=_cls_resp(), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        with pytest.raises(ValueError):
+            await ClassificationRepository(session, ctx).classify(
+                project_id=cls_ctx["p1"],  # p1 ...
+                document_id=cls_ctx["doc_p2"],  # ... but this doc belongs to p2 (same tenant)
+                model="test-model",
+                llm_client=fake,
+                classified_by="agent",
+                price_card=_CARD,
+            )
+        assert fake.calls == [], "no provider call for a wrong-project document"
+        assert await _llm_cost_count(session, cls_ctx["t1"], cls_ctx["p1"]) == 0

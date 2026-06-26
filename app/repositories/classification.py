@@ -76,7 +76,12 @@ class ClassificationRepository(TenantScopedRepository):
         to_decimal(price.output_usd_per_1k, "output_usd_per_1k")
 
         doc = await DocumentRepository(self.session, self.context).get(document_id)
-        if doc is None or doc.status != "accepted":
+        # Pin to the SAME project before any model work: ``get`` is tenant-scoped (id +
+        # tenant only), so a same-tenant document from another project would otherwise reach
+        # the LLM before the composite-FK INSERT rejects it (mirrors Slice 14a extraction).
+        if doc is None or doc.project_id != project_id:
+            raise ValueError(f"unknown document {document_id} for this project/tenant")
+        if doc.status != "accepted":
             raise ValueError(f"document {document_id} is not accepted")
 
         cid = uuid.uuid4()  # app-minted id; also keys the cost event
