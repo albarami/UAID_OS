@@ -287,6 +287,32 @@ observation is **skipped** (never aborts the sync). **STORE/INFRA-ONLY — creat
 `release_issues`/`production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`** (a `before==after`
 regression guards it); read-only (never writes back to Jira); go-live false. Migration `0033` additive; immutable
 append-only `pm_issue_mappings` (RLS ENABLE+FORCE; SELECT/INSERT only). merged via PR #57 (commit `d65b98c`).**
+**Slice 35 adds a deterministic-gated, LLM-assisted, human-reviewed document classifier + source/authority
+mapping (`app/intake/classifier.py` [pure: the §6.1 16-value `DOCUMENT_TYPES` enum incl. the `unknown`
+fail-closed sentinel, 4-tier `AUTHORITY_TIERS`, untrusted-data `CLASSIFY_SYSTEM_PROMPT`,
+`parse_classification`→`ClassificationDraft` with OOV→`unknown` normalization, `validate_review_transition`],
+`app/repositories/classification.py` [`ClassificationRepository.classify` + `review_classification` +
+`latest_for_document`/`list_for_project`], model `document_classifications`, migration `0034`,
+§6.1/§6.2/§16.3/§26.2) — the §6.2 pipeline **steps 1–2**, closing the §26.2 "document classifier" (Track B,
+**off the A5 critical path**). The classifier is an **LLM call** (Slice-14a inert-proposal model — **NO tool
+broker**), reusing the Slice-9 sandbox (`scan` injection-refuse, `as_untrusted_block`, `DocumentRepository`) +
+Slice-14a cost/budget/evidence helpers. `classify` resolves an **accepted** document → injection hard-refuse
+before any model call (§16.3; no call/no cost) → projected-cost budget preflight (deny-by-default) → FakeLLM
+call (live `AnthropicClient` shipped-untested) → fail-closed token accounting → **incurred-cost metering on any
+valid-token response BEFORE parse/evidence** (a later parse/non-verbatim-evidence failure still records the
+`model_inference` cost — the `outcome='failed'` row keeps `cost_external_ref`+tokens) → strict-JSON parse →
+verbatim-evidence verify → persists one **inert** row (`outcome ∈ {succeeded, refused_injection,
+blocked_by_budget, failed}`); on success a proposed `(document_type, authority_tier, bounded verbatim
+evidence_quote)` awaiting a **distinct-reviewer (§2.2)** `pending→approved|rejected` decision. **Authority tier
+= the authority axis only** (`authoritative`/`supporting`/`informational`/`unknown`, per-tier criteria) — **NOT**
+the full §3.4 source-reliability score, no conflict resolution. `document_classifications` is tenant-owned, RLS
+ENABLE+FORCE; SELECT/INSERT/UPDATE, **no DELETE/TRUNCATE**; a DB guard enforces accepted-doc pinning +
+shape-by-outcome (incl. the failed-cost duality) + content/identity immutability + the one-way review lifecycle.
+The stored `evidence_quote` is a **bounded verbatim excerpt** (audit/logs never carry it; **no "no-secret"
+guarantee** — no denylist this slice). **STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py` UNTOUCHED,
+ruleset stays `slice31.v1`** (a `before==after` + readiness-level-unchanged regression guards it); a
+classification is inert + **never authoritative / auto-promoted**; go-live false. Migration `0034` additive;
+the `document_classifications` guard mirrors the Slice-14a `extraction_proposals` pattern.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -929,11 +955,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 639 passing (Docker-free); `make test-db` → 563 passing (DB-backed: tenancy,
+  **`make test` → 651 passing (Docker-free); `make test-db` → 586 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1036,8 +1062,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 639 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 563 passing
+make test                                  # Docker-free tests (no services) — 651 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 586 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
