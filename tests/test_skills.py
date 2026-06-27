@@ -13,6 +13,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.skills import (
     COST_LATENCY_CLASSES,
@@ -34,6 +35,10 @@ from app.agents.skills import (
     compute_capability_match,
     validate_skill_key,
 )
+from app.repositories.production_autonomy import ProductionAutonomyRepository
+from app.repositories.readiness import ReadinessRepository
+from app.repositories.skills import SquadRepository, register_capability
+from app.tenancy import TenantContext, tenant_scope
 
 
 # --- Docker-free: catalog / weights / bounds -------------------------------------
@@ -264,21 +269,30 @@ async def sk_ctx(admin_engine):
             "VALUES (:b,'medium','[]'::jsonb,'[]'::jsonb) RETURNING id",
             b=bp,
         )
+        # a UNIQUE skill per fixture run, so the global (cross-test-accumulating) capability map
+        # yields exactly THIS blueprint as the candidate for this test's work-unit.
+        sk = f"sk_{sfx}"
+        await c.execute(
+            text("INSERT INTO skills (key, category) VALUES (:k, 'backend_engineering')"), {"k": sk}
+        )
         await c.execute(
             text(
                 "INSERT INTO agent_provided_skills (capability_id, skill_id, can_review) "
-                "SELECT :c, id, false FROM skills WHERE key='backend_engineering'"
+                "SELECT :c, id, false FROM skills WHERE key=:k"
             ),
-            {"c": cap},
+            {"c": cap, "k": sk},
         )
-    return {"t1": t1, "t2": t2, "p1": p1, "bp": bp, "cap": cap, "sfx": sfx}
+    return {"t1": t1, "t2": t2, "p1": p1, "bp": bp, "cap": cap, "sfx": sfx, "skill": sk}
 
 
 @pytest.mark.db
 async def test_db_skills_seeded(admin_engine, sk_ctx):
     async with admin_engine.connect() as c:
-        n = await _scalar(c, "SELECT count(*) FROM skills")
-    assert n == len(SKILL_CATEGORIES)  # the §8.2 vocabulary is migration-seeded (admin path)
+        present = {
+            r[0]
+            for r in (await c.execute(text("SELECT key FROM skills"))).all()
+        }
+    assert set(SKILL_CATEGORIES) <= present  # the §8.2 vocabulary is migration-seeded (admin path)
 
 
 @pytest.mark.db
@@ -392,3 +406,67 @@ async def test_db_squad_manifest_append_only(admin_engine, sk_ctx):
     with pytest.raises(Exception, match="append-only|immutable"):
         async with admin_engine.begin() as c:
             await c.execute(text("DELETE FROM squad_manifests WHERE id=:i"), {"i": str(mid)})
+
+
+# --- DB-backed: repository (admin-path register + tenant SquadRepository) ---------
+
+
+@pytest.mark.db
+async def test_register_capability_rejects_unknown_skill(admin_engine, sk_ctx):
+    async with AsyncSession(admin_engine) as s:
+        with pytest.raises(ValueError, match="unknown skill"):
+            await register_capability(
+                s, blueprint_id=sk_ctx["bp"], provided_skills=["not_a_real_skill"]
+            )
+
+
+@pytest.mark.db
+async def test_squad_build_and_record_persists_manifest_and_matches(sk_ctx):
+    # sk_ctx's blueprint provides backend_engineering ⇒ assigned; eval_performance neutral (Slice 40).
+    ctx = TenantContext(sk_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = SquadRepository(session, ctx)
+        rec = await repo.build_and_record(
+            project_id=sk_ctx["p1"],
+            work_units=[WorkUnit(ref="API-001", required_skills=(sk_ctx["skill"],))],
+            built_by="planner",
+        )
+        assert rec.work_unit_count == 1
+        assert "API-001" in rec.manifest["active_agents"][0]["assigned_tasks"]
+        matches = await repo.matches_for(rec.id)
+        assert len(matches) == 1
+        assert matches[0].blueprint_id == sk_ctx["bp"]
+        assert matches[0].eval_source == "absent_until_slice40"
+        assert float(matches[0].total_score) == 0.45  # 0.30 capability + 0.15 tool, eval 0
+
+
+@pytest.mark.db
+async def test_squad_latest_and_history(sk_ctx):
+    ctx = TenantContext(sk_ctx["t1"])
+    wus = [WorkUnit(ref="API-001", required_skills=(sk_ctx["skill"],))]
+    async with tenant_scope(ctx) as session:
+        repo = SquadRepository(session, ctx)
+        await repo.build_and_record(project_id=sk_ctx["p1"], work_units=wus, built_by="a")
+        second = await repo.build_and_record(project_id=sk_ctx["p1"], work_units=wus, built_by="a")
+        assert (await repo.latest(sk_ctx["p1"])).id == second.id
+        assert len(await repo.history(sk_ctx["p1"])) >= 2
+
+
+@pytest.mark.db
+async def test_squad_does_not_change_a5_or_readiness(sk_ctx):
+    # Foundational, bit-stable: building a squad flips no A5 gate and touches no readiness snapshot.
+    ctx = TenantContext(sk_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        pa = ProductionAutonomyRepository(session, ctx)
+        before = (await pa.evaluate(sk_ctx["p1"])).to_dict()
+        readiness_before = await ReadinessRepository(session, ctx).latest(sk_ctx["p1"])
+        await SquadRepository(session, ctx).build_and_record(
+            project_id=sk_ctx["p1"],
+            work_units=[WorkUnit(ref="API-001", required_skills=(sk_ctx["skill"],))],
+            built_by="a",
+        )
+        after = (await pa.evaluate(sk_ctx["p1"])).to_dict()
+        readiness_after = await ReadinessRepository(session, ctx).latest(sk_ctx["p1"])
+    assert before == after  # bit-stable
+    assert after["ruleset_version"] == "slice31.v1"  # NOT bumped by this slice
+    assert readiness_before is None and readiness_after is None

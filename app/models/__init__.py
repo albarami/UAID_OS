@@ -22,6 +22,7 @@ from app.models.document_classification import DocumentClassification
 from app.models.generated_artifact import GeneratedArtifact
 from app.models.semantic_contradiction_report import SemanticContradictionReport
 from app.models.semantic_contradiction import SemanticContradiction
+from app.models.squad_matching import SquadManifestRecord, SkillMatch
 from app.models.extraction_promotion import ExtractionPromotion
 from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_run import ExtractionRun
@@ -86,6 +87,8 @@ __all__ = [
     "GeneratedArtifact",
     "SemanticContradictionReport",
     "SemanticContradiction",
+    "SquadManifestRecord",
+    "SkillMatch",
     "ExtractionRun",
     "ExtractionProposal",
     "ExtractionPromotion",
