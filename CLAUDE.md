@@ -343,6 +343,29 @@ unchanged regression guards it); a generated artifact is **never binding before 
 **never enters the spine** this slice (approved-AC → spine `acceptance_criterion` promotion via the reused
 `add_artifact` is a deferred follow-up); go-live false. Migration `0035` additive; the `generated_artifacts` guard
 mirrors the Slice-35 `document_classifications` pattern. merged via PR #61 (commit `03f73b9`).**
+**Slice 37 adds a deterministic-gated, LLM-assisted, DESCRIPTIVE-ONLY semantic contradiction detector
+(`app/intake/semantic_contradictions.py` [pure: the §6.4 **8**-value `CONFLICT_TYPES` (NO `unclassified` — B3),
+`OUTCOMES` incl. the no-call `skipped_insufficient_input` (B1), concrete bounds (B5), untrusted-data
+`DETECT_SYSTEM_PROMPT` (no-resolution, §6.4), `format_artifacts`→**opaque per-prompt item keys** 1:1 to artifacts
+(B8 — a bare `ref` is not unique across kinds), `parse_contradictions`→`ContradictionDraft`, `keep_valid` (drop
+OOV-type/same-item/unknown-key/empty-desc, resolve keys→artifacts, truncate, cap)], `app/repositories/semantic_contradictions.py`
+[`SemanticContradictionRepository.detect` + `latest`/`history`/`contradictions_for`], models
+`semantic_contradiction_reports` (run snapshot) + `semantic_contradictions` (pairwise), migration `0036`,
+§6.4/§16.5/§14.4/§26.2) — **ADVANCES** (does not close) the §26.2 contradiction detector with the spine-level
+semantic half (document-level §6.4 + the Slice-13 STRUCTURAL detector stay separate/deferred). `detect` mirrors the
+Slice-35/36 LLM pipeline (T1 app-minted report id keys the cost; T2 deterministic `(kind,ref,id)` artifact order +
+`MAX_ANALYZED_ARTIFACTS` cap; **`<2` ⇒ `skipped_insufficient_input`** no-call/no-cost; injection refuse; budget
+preflight; **incurred-cost BEFORE parse** (B2); `keep_valid` resolves opaque item keys → FK-backed artifacts) and
+persists one report + one `semantic_contradictions` row per kept pair in one txn. **Provenance is DB-PROVEN (B4):**
+each contradiction pins `artifact_a_id`/`artifact_b_id` via **composite-FK to `intake_artifacts`** (existence) +
+`CHECK a<>b` (distinctness); a BEFORE-INSERT **kind guard** proves both are `requirement`/`acceptance_criterion`
+(B7); `contradiction_count` is DB-bound to the child rows by **report-side AND child-side DEFERRABLE count-match
+triggers** (B6/B9 — a late child insert is rejected). **NO auto-resolution / no proposed-resolution** (§6.4 "must not
+silently choose one"). **STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays
+`slice31.v1`** (a `before==after` bit-stable regression + no-readiness-side-effect guard it); audit safe-metadata only
+(counts/per-`conflict_type` counts — never `description`/artifact content); FakeLLM only; go-live false. Migration
+`0036` purely additive (two new tables; artifact FKs reuse the existing `intake_artifacts` UNIQUE); immutable
+append-only (RLS ENABLE+FORCE; SELECT/INSERT only).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -985,11 +1008,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 664 passing (Docker-free); `make test-db` → 616 passing (DB-backed: tenancy,
+  **`make test` → 676 passing (Docker-free); `make test-db` → 639 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1092,8 +1115,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 664 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 616 passing
+make test                                  # Docker-free tests (no services) — 676 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 639 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
