@@ -126,11 +126,16 @@ def parse_contradictions(raw_text: str) -> list[ContradictionDraft]:
 
 def keep_valid(
     drafts: list[ContradictionDraft], key_to_artifact: dict[str, object]
-) -> list[KeptContradiction]:
+) -> tuple[list[KeptContradiction], bool]:
     """Drop fail-closed any draft with an OOV conflict_type (B3), the same item twice, an unknown
     item key (B4/B8), or an empty description; resolve item keys → artifacts; truncate the
-    description to ``MAX_DESCRIPTION_CHARS`` (B5); cap the list at ``MAX_CONTRADICTIONS_PERSISTED``."""
+    description to ``MAX_DESCRIPTION_CHARS`` (B5); cap the list at ``MAX_CONTRADICTIONS_PERSISTED``.
+
+    Returns ``(kept, truncated)`` — ``truncated`` is True iff a VALID contradiction survived
+    validation but was dropped because the cap was already reached (B10, no silent truncation).
+    """
     kept: list[KeptContradiction] = []
+    truncated = False
     for d in drafts:
         if d.conflict_type not in CONFLICT_TYPES:
             continue
@@ -143,7 +148,8 @@ def keep_valid(
         desc = d.description.strip()[:MAX_DESCRIPTION_CHARS]
         if not desc:
             continue
-        kept.append(KeptContradiction(d.conflict_type, a, b, desc))
         if len(kept) >= MAX_CONTRADICTIONS_PERSISTED:
+            truncated = True  # a VALID contradiction exists beyond the cap (B10)
             break
-    return kept
+        kept.append(KeptContradiction(d.conflict_type, a, b, desc))
+    return kept, truncated

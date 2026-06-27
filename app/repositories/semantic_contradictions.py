@@ -96,6 +96,7 @@ class SemanticContradictionRepository(TenantScopedRepository):
             output_tokens: int | None = None,
             cost_external_ref: str | None = None,
             kept: Sequence[KeptContradiction] = (),
+            output_truncated: bool = False,
         ) -> SemanticContradictionReport:
             return await self._record(
                 row_id=rid,
@@ -105,7 +106,8 @@ class SemanticContradictionRepository(TenantScopedRepository):
                 detected_by=detected_by,
                 outcome=outcome,
                 analyzed_artifact_count=analyzed,
-                input_truncated=input_truncated,
+                # B10: OR in the output cap so >MAX valid contradictions never read as untruncated.
+                input_truncated=input_truncated or output_truncated,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 cost_external_ref=cost_external_ref,
@@ -170,7 +172,7 @@ class SemanticContradictionRepository(TenantScopedRepository):
                 cost_external_ref=ext_ref,
             )
 
-        kept = keep_valid(drafts, key_to_artifact)
+        kept, output_truncated = keep_valid(drafts, key_to_artifact)
         return await record(
             "succeeded",
             provider=resp.provider,
@@ -178,6 +180,7 @@ class SemanticContradictionRepository(TenantScopedRepository):
             output_tokens=resp.output_tokens,
             cost_external_ref=ext_ref,
             kept=kept,
+            output_truncated=output_truncated,
         )
 
     async def latest(self, project_id: uuid.UUID) -> SemanticContradictionReport | None:

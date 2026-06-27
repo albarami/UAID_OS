@@ -156,7 +156,7 @@ def _km():
 def test_keep_valid_resolves_and_truncates():
     km, a, b = _km()
     drafts = [ContradictionDraft("technical", "A1", "A2", "x" * (MAX_DESCRIPTION_CHARS + 50))]
-    kept = keep_valid(drafts, km)
+    kept, _ = keep_valid(drafts, km)
     assert len(kept) == 1
     assert kept[0].conflict_type == "technical"
     assert kept[0].artifact_a is a and kept[0].artifact_b is b
@@ -172,22 +172,30 @@ def test_keep_valid_drops_oov_type_same_item_unknown_key_and_empty_desc():
         ContradictionDraft("scope", "A9", "A2", "d"),  # unknown key
         ContradictionDraft("scope", "A1", "A2", "   "),  # empty description after strip
     ]
-    assert keep_valid(drafts, km) == []
+    kept, _ = keep_valid(drafts, km)
+    assert kept == []
 
 
 def test_keep_valid_b8_duplicate_bare_ref_across_kinds_resolves_distinctly():
     # A requirement and an acceptance_criterion both named REQ-1 get DISTINCT keys.
     km, a, b = _km()
     assert a.ref == b.ref and a.kind != b.kind  # same bare ref, different kinds
-    kept = keep_valid([ContradictionDraft("authority", "A1", "A2", "conflict")], km)
+    kept, _ = keep_valid([ContradictionDraft("authority", "A1", "A2", "conflict")], km)
     assert len(kept) == 1
     assert kept[0].artifact_a.id != kept[0].artifact_b.id  # resolved to two distinct artifacts
 
 
-def test_keep_valid_caps_at_max():
+def test_keep_valid_caps_and_flags_truncation():
+    # B10: capping the surviving contradictions at the limit must SIGNAL truncation (no silent drop).
     km, _, _ = _km()
-    drafts = [ContradictionDraft("scope", "A1", "A2", "d")] * (MAX_CONTRADICTIONS_PERSISTED + 25)
-    assert len(keep_valid(drafts, km)) == MAX_CONTRADICTIONS_PERSISTED
+    kept, truncated = keep_valid(
+        [ContradictionDraft("scope", "A1", "A2", "d")] * MAX_CONTRADICTIONS_PERSISTED, km
+    )
+    assert len(kept) == MAX_CONTRADICTIONS_PERSISTED and truncated is False  # exactly at cap
+    kept, truncated = keep_valid(
+        [ContradictionDraft("scope", "A1", "A2", "d")] * (MAX_CONTRADICTIONS_PERSISTED + 1), km
+    )
+    assert len(kept) == MAX_CONTRADICTIONS_PERSISTED and truncated is True  # one more valid ⇒ flag
 
 
 def test_separate_from_slice13_structural_findings():
@@ -753,3 +761,43 @@ async def test_detect_audit_is_safe_metadata_only(admin_engine, detect_ctx):
     assert "SECRETMARKER" not in str(payload)
     assert "description" not in payload and payload["conflict_type_counts"] == {"scope": 1}
     assert in_store == 1  # ...but it IS in the store, proving the audit deliberately omits it
+
+
+@pytest.mark.db
+async def test_detect_input_truncated_when_output_capped(detect_ctx):
+    # B10: a model returning > MAX valid contradictions persists exactly the cap AND records
+    # input_truncated=true (no silent truncation).
+    ctx = TenantContext(detect_ctx["t1"])
+    over = [
+        {"conflict_type": "scope", "item_a": "A1", "item_b": "A2", "description": f"c{i}"}
+        for i in range(MAX_CONTRADICTIONS_PERSISTED + 5)
+    ]
+    fake = FakeLLMClient(response_text=_detect_resp(over), input_tokens=10, output_tokens=20)
+    async with tenant_scope(ctx) as session:
+        repo = SemanticContradictionRepository(session, ctx)
+        report = await repo.detect(llm_client=fake, **_detect_kwargs(detect_ctx, "p_ok"))
+        assert report.outcome == "succeeded"
+        assert report.contradiction_count == MAX_CONTRADICTIONS_PERSISTED
+        assert report.input_truncated is True
+        assert len(await repo.contradictions_for(report.id)) == MAX_CONTRADICTIONS_PERSISTED
+
+
+@pytest.mark.db
+async def test_db_description_too_long_rejected(admin_engine, sc_ctx):
+    # B5: a description over MAX_DESCRIPTION_CHARS fails the DB CHECK (direct-SQL).
+    with pytest.raises(Exception, match="description_bounded"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=1)
+            await _contradiction(
+                c, sc_ctx, rid, sc_ctx["req"], sc_ctx["ac"], description="x" * 2001
+            )
+
+
+@pytest.mark.db
+async def test_db_nonexistent_artifact_rejected(admin_engine, sc_ctx):
+    # B4: a contradiction citing a non-existent artifact id cannot be inserted — the kind guard sees
+    # a NULL kind first, the composite FK is the backstop; fabricated provenance is impossible.
+    with pytest.raises(Exception, match="not in .requirement|foreign key"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=1)
+            await _contradiction(c, sc_ctx, rid, uuid.uuid4(), sc_ctx["ac"])
