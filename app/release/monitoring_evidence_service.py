@@ -25,7 +25,7 @@ from app.release.monitoring_connector import MonitoringConnector
 from app.release.project_repo import resolve_declared_monitoring_target
 from app.repositories.monitoring_evidence import MonitoringEvidenceRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "monitoring.read_status"
@@ -71,11 +71,11 @@ async def refresh_monitoring_evidence(
     status_url, host, path = resolved
 
     # 2. Broker decision — SAFE params only (no raw URL/host/path).
-    decision = await broker_call(
+    decision = await broker_call_service(
         session,
         context,
         project_id=project_id,
-        agent_id=agent_id,
+        service_id=agent_id,
         tool_name=_TOOL,
         params={"provider": "generic_monitoring_api", "monitoring_present": True},
     )

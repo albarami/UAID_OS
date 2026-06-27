@@ -29,7 +29,7 @@ from app.release.project_repo import (
 )
 from app.repositories.pm_issues import PMIssueMappingRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "pm.read_issues"
@@ -79,11 +79,11 @@ async def sync_pm_issues(
         await _audit_failure(session, actor, project_id, "credential_unbound")
         return PMSyncResult(wrote=0, observed=0, skipped=0, reason="credential_unbound")
 
-    decision = await broker_call(
+    decision = await broker_call_service(
         session,
         context,
         project_id=project_id,
-        agent_id=agent_id,
+        service_id=agent_id,
         tool_name=_TOOL,
         params={"provider": "jira", "project_present": True},
     )

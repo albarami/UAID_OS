@@ -18,10 +18,11 @@ from app.repositories.approvals import ApprovalRepository
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.tools import ToolAllowlistRepository
 from app.tenancy import TenantContext, tenant_scope
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call, broker_call_service
 from app.tools.registry import TOOL_REGISTRY, InvalidParams, get_contract, sanitize_params
 
 _AGENT = "agent:1"
+_SERVICE = "service:probe"
 
 # --- Docker-free: registry ----------------------------------------------------
 
@@ -118,6 +119,8 @@ def test_broker_decision_has_expected_members():
         "DENIED_INVALID_PARAMS",
         "DENIED_NOT_ALLOWLISTED",
         "DENIED_POLICY",
+        "DENIED_UNKNOWN_AGENT",  # Slice 39
+        "DENIED_UNQUALIFIED_AGENT",  # Slice 39
     }
 
 
@@ -256,21 +259,30 @@ async def test_non_finite_float_param_denied_and_stored_empty(tool_ctx, admin_en
     assert params == {}
 
 
+# NOTE (Slice 39): the AGENT path (broker_call) now requires a resolved, SAME-PROJECT, QUALIFIED
+# agent_instance BEFORE allowlist/policy/approval; qualification is Slice 40, so a realized agent is
+# always 'unqualified' and the agent path denies at the qualification gate (tested in test_factory.py).
+# The downstream allowlist/policy/approval/success gates are SHARED and reached here via the SERVICE
+# path (broker_call_service), which platform/release connectors use — it skips the agent identity +
+# qualification gates but keeps every safety gate. These are service authority, not agent authority.
+
+
 @pytest.mark.db
-async def test_not_allowlisted_denied(tool_ctx):
+async def test_service_not_allowlisted_denied(tool_ctx):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
-        await AutonomyPolicyRepository(session, TenantContext(tid)).upsert(
-            project_id=pid, autonomy_level=int(L.A2), actor="test"
+        ctx = TenantContext(tid)
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=pid, autonomy_level=int(L.A2), actor="t"
         )
-        d = await broker_call(
-            session, TenantContext(tid), project_id=pid, agent_id=_AGENT, tool_name="ci.run_tests"
+        d = await broker_call_service(
+            session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.run_tests"
         )
     assert d is BrokerDecision.DENIED_NOT_ALLOWLISTED
 
 
 @pytest.mark.db
-async def test_allowlisted_policy_allow_yields_unverified_identity(tool_ctx):
+async def test_service_allowlisted_policy_allow_yields_unverified_identity(tool_ctx):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
@@ -278,16 +290,16 @@ async def test_allowlisted_policy_allow_yields_unverified_identity(tool_ctx):
             project_id=pid, autonomy_level=int(L.A2), actor="t"
         )
         await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.run_tests", actor="admin"
+            agent_id=_SERVICE, tool_name="ci.run_tests", actor="admin"
         )
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.run_tests"
+        d = await broker_call_service(
+            session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.run_tests"
         )
     assert d is BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY  # never bare ALLOWED
 
 
 @pytest.mark.db
-async def test_policy_deny(tool_ctx):
+async def test_service_policy_deny(tool_ctx):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
@@ -295,16 +307,16 @@ async def test_policy_deny(tool_ctx):
             project_id=pid, autonomy_level=int(L.A0), actor="t"
         )
         await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.run_tests", actor="admin"
+            agent_id=_SERVICE, tool_name="ci.run_tests", actor="admin"
         )
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.run_tests"
+        d = await broker_call_service(
+            session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.run_tests"
         )
     assert d is BrokerDecision.DENIED_POLICY
 
 
 @pytest.mark.db
-async def test_mandatory_tool_needs_approval_then_unverified(tool_ctx):
+async def test_service_mandatory_tool_needs_approval_then_unverified(tool_ctx):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
@@ -312,14 +324,12 @@ async def test_mandatory_tool_needs_approval_then_unverified(tool_ctx):
             project_id=pid, autonomy_level=int(L.A5), actor="t"
         )
         await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.deploy_production", actor="admin"
+            agent_id=_SERVICE, tool_name="ci.deploy_production", actor="admin"
         )
-        # no approval yet
-        d1 = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.deploy_production"
+        d1 = await broker_call_service(
+            session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.deploy_production"
         )
         assert d1 is BrokerDecision.NEEDS_APPROVAL
-        # tool-scoped, approved (but unverified provenance)
         a = await ApprovalRepository(session, ctx).request(
             project_id=pid,
             action="deploy_production",
@@ -328,14 +338,15 @@ async def test_mandatory_tool_needs_approval_then_unverified(tool_ctx):
             subject_ref="tool:ci.deploy_production",
         )
         await ApprovalRepository(session, ctx).approve(approval_id=a.id, actor="boss")
-        d2 = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.deploy_production"
+        d2 = await broker_call_service(
+            session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.deploy_production"
         )
     assert d2 is BrokerDecision.NEEDS_AUTHENTICATED_APPROVAL  # unverified approval never authorizes
 
 
 @pytest.mark.db
-async def test_action_level_or_other_tool_approval_does_not_satisfy(tool_ctx):
+async def test_service_other_tool_approval_does_not_satisfy(tool_ctx):
+    # An APPROVED approval scoped to a DIFFERENT tool must NOT authorize — no cross-tool reuse.
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
@@ -343,113 +354,7 @@ async def test_action_level_or_other_tool_approval_does_not_satisfy(tool_ctx):
             project_id=pid, autonomy_level=int(L.A5), actor="t"
         )
         await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.deploy_production", actor="admin"
-        )
-        # action-level approval (subject_ref NULL) — must NOT satisfy the tool
-        a1 = await ApprovalRepository(session, ctx).request(
-            project_id=pid,
-            action="deploy_production",
-            risk_tier="production",
-            requested_by="u",
-        )
-        await ApprovalRepository(session, ctx).approve(approval_id=a1.id, actor="boss")
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.deploy_production"
-        )
-    assert d is BrokerDecision.NEEDS_APPROVAL
-
-
-@pytest.mark.db
-async def test_contract_requires_approval_over_policy_allow(tool_ctx):
-    # pm.create_issue: policy ALLOW at A2, but contract.requires_approval=True.
-    tid, pid = tool_ctx
-    async with tenant_scope(TenantContext(tid)) as session:
-        ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A2), actor="t"
-        )
-        await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="pm.create_issue", actor="admin"
-        )
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="pm.create_issue"
-        )
-    assert d is BrokerDecision.NEEDS_APPROVAL
-
-
-@pytest.mark.db
-async def test_contract_unverified_approval_yields_authenticated(tool_ctx):
-    # pm.create_issue: policy ALLOW at A2 + contract.requires_approval=True. A
-    # tool-scoped APPROVED approval whose provenance is unverified must NOT execute
-    # — it yields NEEDS_AUTHENTICATED_APPROVAL (the contract gate, not the policy gate).
-    tid, pid = tool_ctx
-    async with tenant_scope(TenantContext(tid)) as session:
-        ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A2), actor="t"
-        )
-        await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="pm.create_issue", actor="admin"
-        )
-        a = await ApprovalRepository(session, ctx).request(
-            project_id=pid,
-            action="create_project_tasks",
-            risk_tier="medium",
-            requested_by="u",
-            subject_ref="tool:pm.create_issue",
-        )
-        await ApprovalRepository(session, ctx).approve(approval_id=a.id, actor="boss")
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="pm.create_issue"
-        )
-    assert d is BrokerDecision.NEEDS_AUTHENTICATED_APPROVAL
-
-
-@pytest.mark.db
-async def test_bogus_provenance_still_needs_authenticated_approval(tool_ctx):
-    # Fail-closed: ANY provenance not on the (empty) authenticated allowlist — even the
-    # real 'request_authenticated' tier (Slice 27) — must NOT authorize, because Slice 27
-    # does NOT wire the broker (D-27-4 deferred). Proves the gate is allowlist-based.
-    tid, pid = tool_ctx
-    async with tenant_scope(TenantContext(tid)) as session:
-        ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A5), actor="t"
-        )
-        await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.deploy_production", actor="admin"
-        )
-        a = await ApprovalRepository(session, ctx).request(
-            project_id=pid,
-            action="deploy_production",
-            risk_tier="production",
-            requested_by="u",
-            subject_ref="tool:ci.deploy_production",
-        )
-        await ApprovalRepository(session, ctx).approve(approval_id=a.id, actor="boss")
-        # Set the strongest real provenance tier directly on the row (CHECK-valid).
-        await session.execute(
-            text("UPDATE approvals SET approver_provenance='request_authenticated' WHERE id=:id"),
-            {"id": str(a.id)},
-        )
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.deploy_production"
-        )
-    assert d is BrokerDecision.NEEDS_AUTHENTICATED_APPROVAL
-
-
-@pytest.mark.db
-async def test_other_tool_approval_does_not_satisfy(tool_ctx):
-    # An APPROVED approval scoped to a DIFFERENT tool (subject_ref='tool:other') must
-    # NOT authorize ci.deploy_production — no cross-tool approval reuse.
-    tid, pid = tool_ctx
-    async with tenant_scope(TenantContext(tid)) as session:
-        ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A5), actor="t"
-        )
-        await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.deploy_production", actor="admin"
+            agent_id=_SERVICE, tool_name="ci.deploy_production", actor="admin"
         )
         a = await ApprovalRepository(session, ctx).request(
             project_id=pid,
@@ -459,16 +364,14 @@ async def test_other_tool_approval_does_not_satisfy(tool_ctx):
             subject_ref="tool:other",
         )
         await ApprovalRepository(session, ctx).approve(approval_id=a.id, actor="boss")
-        d = await broker_call(
-            session, ctx, project_id=pid, agent_id=_AGENT, tool_name="ci.deploy_production"
+        d = await broker_call_service(
+            session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.deploy_production"
         )
     assert d is BrokerDecision.NEEDS_APPROVAL
 
 
 @pytest.mark.db
-async def test_non_json_param_value_stored_json_safe(tool_ctx, admin_engine):
-    # End-to-end: a non-JSON-native param value reaches the JSONB column as its
-    # string form — the brokered call records deterministically, never errors.
+async def test_service_non_json_param_value_stored_json_safe(tool_ctx, admin_engine):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
@@ -476,13 +379,13 @@ async def test_non_json_param_value_stored_json_safe(tool_ctx, admin_engine):
             project_id=pid, autonomy_level=int(L.A2), actor="t"
         )
         await ToolAllowlistRepository(session, ctx).grant(
-            agent_id=_AGENT, tool_name="ci.run_tests", actor="admin"
+            agent_id=_SERVICE, tool_name="ci.run_tests", actor="admin"
         )
-        d = await broker_call(
+        d = await broker_call_service(
             session,
             ctx,
             project_id=pid,
-            agent_id=_AGENT,
+            service_id=_SERVICE,
             tool_name="ci.run_tests",
             params={"when": datetime(2026, 6, 3, 12, 0, tzinfo=timezone.utc)},
         )

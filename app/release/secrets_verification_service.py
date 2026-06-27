@@ -24,7 +24,7 @@ from app.release.project_repo import resolve_declared_secret_references
 from app.release.secrets_connector import SecretsManagerConnector
 from app.repositories.secrets_verification import SecretReferenceCheckRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "secrets.verify_reference"
@@ -73,11 +73,11 @@ async def refresh_secret_reference_evidence(
     wrote = 0
     for manager, reference_name in refs:
         # SAFE params only — never the reference_name or a value (B3).
-        decision = await broker_call(
+        decision = await broker_call_service(
             session,
             context,
             project_id=project_id,
-            agent_id=agent_id,
+            service_id=agent_id,
             tool_name=_TOOL,
             params={"manager": manager, "reference_present": True},
         )
