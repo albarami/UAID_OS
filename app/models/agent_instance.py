@@ -26,6 +26,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     String,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -64,6 +65,10 @@ class AgentInstance(Base, TimestampMixin):
             "instance_key",
             unique=True,
             postgresql_where=text(_LIVE_STATUS_PREDICATE),
+        ),
+        # Slice 39 (B6): composite-FK target for agent_realizations (additive; verified absent).
+        UniqueConstraint(
+            "id", "project_id", "tenant_id", name="uq_agent_instances_id_project_tenant"
         ),
         Index(None, "tenant_id"),
     )
