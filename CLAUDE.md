@@ -386,7 +386,7 @@ qualification/authorization.** No distinct capable reviewer ⇒ `reviewer_availa
 + a factory request (never self-review §2.2, B5). **STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py`
 UNTOUCHED, ruleset stays `slice31.v1`, bit-stable; flips NO A5 gate** (foundational — supplies the Phase-5 staffing);
 deterministic (no LLM), Postgres-only (no Neo4j/graph DB); go-live false. Migration `0037` purely additive (5 new
-tables; reuses `agent_blueprints`).**
+tables; reuses `agent_blueprints`). merged via PR #65 (commit `ae3ea90`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
