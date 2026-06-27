@@ -21,6 +21,12 @@ from app.agents.factory import (
     REALIZE_INSERT_STATUS,
     validate_realization_request,
 )
+from app.policy.levels import AutonomyLevel as L
+from app.repositories.agent_realizations import AgentRealizationRepository
+from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.tools import ToolAllowlistRepository
+from app.tenancy import TenantContext, tenant_scope
+from app.tools.broker import BrokerDecision, broker_call, broker_call_service
 
 
 def test_qualification_status_constants():
@@ -270,3 +276,198 @@ async def test_db_tool_call_new_decisions_persist(admin_engine, ar_ctx):
                 ),
                 {"t": str(ar_ctx["t1"]), "p": str(ar_ctx["p1"]), "d": decision},
             )
+
+
+# --- DB-backed: factory repository (realize) ------------------------------------
+
+
+@pytest.mark.db
+async def test_realize_creates_instance_realization_reviewers_and_allowlist(ar_ctx):
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = AgentRealizationRepository(session, ctx)
+        real = await repo.realize(
+            project_id=ar_ctx["p1"],
+            version_id=ar_ctx["ver1"],
+            instance_key=f"real{ar_ctx['sfx']}",
+            tool_allowlist=["read_project_docs", "run_unit_tests"],
+            reviewer_blueprint_ids=[ar_ctx["bp_reviewer"]],
+            realized_by="planner",
+        )
+        assert real.qualification_status == "unqualified"  # never qualified this slice (Slice 40)
+        assert (await repo.for_instance(real.instance_id)).id == real.id
+        assert len(await repo.reviewers_of(real.id)) == 1
+        # the tool allowlist is INSTANCE-scoped (keyed by the instance id)
+        allow = ToolAllowlistRepository(session, ctx)
+        assert await allow.is_allowed(str(real.instance_id), "read_project_docs") is True
+        assert await allow.is_allowed(str(real.instance_id), "deploy_production") is False
+
+
+@pytest.mark.db
+async def test_realize_self_review_refused(ar_ctx):
+    # realizing the builder with the builder's OWN blueprint as a reviewer ⇒ DB self-review guard (§2.2/B3).
+    ctx = TenantContext(ar_ctx["t1"])
+    with pytest.raises(Exception, match="self-review|cannot be the realized"):
+        async with tenant_scope(ctx) as session:
+            await AgentRealizationRepository(session, ctx).realize(
+                project_id=ar_ctx["p1"],
+                version_id=ar_ctx["ver1"],
+                instance_key=f"self{ar_ctx['sfx']}",
+                tool_allowlist=[],
+                reviewer_blueprint_ids=[ar_ctx["bp_builder"]],
+                realized_by="planner",
+            )
+
+
+# --- DB-backed: broker↔instance wiring (B5 precedence + B7 + qualification gate) ---
+
+
+@pytest.mark.db
+async def test_broker_invalid_params_before_resolve(ar_ctx):
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        d = await broker_call(
+            session,
+            ctx,
+            project_id=ar_ctx["p1"],
+            agent_id=str(ar_ctx["inst1"]),
+            tool_name="ci.run_tests",
+            params=["bad"],
+        )
+    assert d is BrokerDecision.DENIED_INVALID_PARAMS
+
+
+@pytest.mark.db
+async def test_broker_unknown_tool_before_resolve(ar_ctx):
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        d = await broker_call(
+            session,
+            ctx,
+            project_id=ar_ctx["p1"],
+            agent_id=str(ar_ctx["inst1"]),
+            tool_name="nope.not_a_tool",
+        )
+    assert d is BrokerDecision.DENIED_UNKNOWN_TOOL
+
+
+@pytest.mark.db
+async def test_broker_free_string_agent_denied_unknown(ar_ctx):
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        d = await broker_call(
+            session, ctx, project_id=ar_ctx["p1"], agent_id="not-a-uuid", tool_name="ci.run_tests"
+        )
+    assert d is BrokerDecision.DENIED_UNKNOWN_AGENT
+
+
+@pytest.mark.db
+async def test_broker_cross_project_instance_denied_unknown(ar_ctx, admin_engine):
+    # B7 — a SAME-TENANT but DIFFERENT-project instance must NOT satisfy identity for p1.
+    async with admin_engine.begin() as c:
+        p2 = await _scalar(
+            c,
+            "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P2',:s) RETURNING id",
+            t=str(ar_ctx["t1"]),
+            s=f"ar-p2-{ar_ctx['sfx']}",
+        )
+        inst_p2 = await _scalar(
+            c,
+            "INSERT INTO agent_instances (tenant_id, project_id, version_id, instance_key) VALUES (:t,:p,:v,:k) RETURNING id",
+            t=str(ar_ctx["t1"]),
+            p=str(p2),
+            v=str(ar_ctx["ver1"]),
+            k=f"k2{ar_ctx['sfx']}",
+        )
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        d = await broker_call(
+            session, ctx, project_id=ar_ctx["p1"], agent_id=str(inst_p2), tool_name="ci.run_tests"
+        )
+    assert d is BrokerDecision.DENIED_UNKNOWN_AGENT  # right tenant, wrong project
+
+
+@pytest.mark.db
+async def test_broker_realized_unqualified_denied_even_with_allowlist_and_policy(ar_ctx):
+    # The qualification gate fires BEFORE allowlist/policy: a realized (unqualified) agent with the
+    # tool granted + policy ALLOW is STILL denied (no new authority unlocked this slice).
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        real = await AgentRealizationRepository(session, ctx).realize(
+            project_id=ar_ctx["p1"],
+            version_id=ar_ctx["ver1"],
+            instance_key=f"q{ar_ctx['sfx']}",
+            tool_allowlist=["ci.run_tests"],
+            reviewer_blueprint_ids=[ar_ctx["bp_reviewer"]],
+            realized_by="planner",
+        )
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=ar_ctx["p1"], autonomy_level=int(L.A2), actor="t"
+        )
+        d = await broker_call(
+            session,
+            ctx,
+            project_id=ar_ctx["p1"],
+            agent_id=str(real.instance_id),
+            tool_name="ci.run_tests",
+        )
+    assert d is BrokerDecision.DENIED_UNQUALIFIED_AGENT
+
+
+@pytest.mark.db
+async def test_broker_records_both_new_decisions(ar_ctx, admin_engine):
+    # B2 — both Slice-39 decisions persist to tool_calls (the recreated CHECK admits them).
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        await broker_call(
+            session, ctx, project_id=ar_ctx["p1"], agent_id="not-a-uuid", tool_name="ci.run_tests"
+        )
+        await broker_call(
+            session,
+            ctx,
+            project_id=ar_ctx["p1"],
+            agent_id=str(ar_ctx["inst1"]),
+            tool_name="ci.run_tests",
+        )
+    async with admin_engine.connect() as c:
+        decisions = {
+            r[0]
+            for r in (
+                await c.execute(
+                    text("SELECT decision FROM tool_calls WHERE tenant_id=:t"),
+                    {"t": str(ar_ctx["t1"])},
+                )
+            ).all()
+        }
+    assert {"denied_unknown_agent", "denied_unqualified_agent"} <= decisions
+
+
+@pytest.mark.db
+async def test_agent_and_service_paths_are_separate(ar_ctx):
+    # Separation: a tool granted to a SERVICE identity passes the SERVICE path, but the SAME string on
+    # the AGENT path is denied (not an instance) — service authority never satisfies agent identity,
+    # and the service path never resolves an instance or checks qualification.
+    ctx = TenantContext(ar_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        await ToolAllowlistRepository(session, ctx).grant(
+            agent_id="service:probe", tool_name="ci.run_tests", actor="admin"
+        )
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=ar_ctx["p1"], autonomy_level=int(L.A2), actor="t"
+        )
+        svc = await broker_call_service(
+            session,
+            ctx,
+            project_id=ar_ctx["p1"],
+            service_id="service:probe",
+            tool_name="ci.run_tests",
+        )
+        agt = await broker_call(
+            session,
+            ctx,
+            project_id=ar_ctx["p1"],
+            agent_id="service:probe",
+            tool_name="ci.run_tests",
+        )
+    assert svc is BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY  # service path: reaches success
+    assert agt is BrokerDecision.DENIED_UNKNOWN_AGENT  # agent path: the service grant doesn't help
