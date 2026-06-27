@@ -366,6 +366,27 @@ silently choose one"). **STORE/INFRA-ONLY — `production_autonomy.py`/`readines
 (counts/per-`conflict_type` counts — never `description`/artifact content); FakeLLM only; go-live false. Migration
 `0036` purely additive (two new tables; artifact FKs reuse the existing `intake_artifacts` UNIQUE); immutable
 append-only (RLS ENABLE+FORCE; SELECT/INSERT only). merged via PR #63 (commit `98a47ed`).**
+**Slice 38 adds a deterministic, Postgres-only Skill Matching Engine (`app/agents/skills.py` [pure: the §8.2
+27-skill catalog, the §8.3 **VERBATIM** transparent score `capability_match*0.30 + domain_fit*0.15 +
+tool_access_fit*0.15 + eval_performance*0.20 + reviewer_availability*0.10 + cost_latency_fit*0.10 −
+risk_penalty` with a full per-component `ScoreBreakdown`, bounds/regexes (B6), `build_squad`→the §8.4 squad
+manifest + per-(work-unit, agent) match records], `app/repositories/skills.py` [**admin-path**
+`register_skill`/`register_capability` (admin session) + runtime `capability_view` + tenant
+`SquadRepository.build_and_record`/`latest`/`history`/`matches_for`], models `squad_manifests` +
+`skill_matches`, migration `0037`, §8/§26.4) — the **Phase-4 entry**, reusing the Slice-6 blueprint registry.
+**5 additive tables:** GLOBAL `skills` (migration-seeded with the §8.2 27 categories) + `agent_skill_capabilities`
+(append-only latest-wins) + `agent_provided_skills` (`skill_id` **FK→`skills`** — unknown keys cannot persist, B3)
+— **`uaid_app` SELECT-only, admin-written** (B8, cf. Slice-6 `0007:231-232`), immutable append-only (B7); TENANT
+`squad_manifests` (§8.4 snapshot) + `skill_matches` (the **persisted §8.3 breakdown**, B2) — RLS ENABLE+FORCE,
+append-only, bounded CHECKs (B6: regex/enum/jsonb-array/0..1 components/manifest octet_length). The §8.3 high-risk
+reliability rule zeroes `cost_latency` for high-risk work. **HONESTY: `eval_performance` (0.20) has no source until
+archetype evals (Slice 40) → neutralized to `0.0` (`eval_source='absent_until_slice40'`, NEVER fabricated);
+work-units are DECLARED inputs (task contracts = Slice 42) — so a score is a transparent RANKING AID, NOT a
+qualification/authorization.** No distinct capable reviewer ⇒ `reviewer_availability=0` + `missing_skills:reviewer:<skill>`
++ a factory request (never self-review §2.2, B5). **STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py`
+UNTOUCHED, ruleset stays `slice31.v1`, bit-stable; flips NO A5 gate** (foundational — supplies the Phase-5 staffing);
+deterministic (no LLM), Postgres-only (no Neo4j/graph DB); go-live false. Migration `0037` purely additive (5 new
+tables; reuses `agent_blueprints`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1008,11 +1029,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 676 passing (Docker-free); `make test-db` → 642 passing (DB-backed: tenancy,
+  **`make test` → 695 passing (Docker-free); `make test-db` → 665 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1115,8 +1136,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 676 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 642 passing
+make test                                  # Docker-free tests (no services) — 695 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 665 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
