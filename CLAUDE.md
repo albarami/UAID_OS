@@ -365,7 +365,7 @@ silently choose one"). **STORE/INFRA-ONLY — `production_autonomy.py`/`readines
 `slice31.v1`** (a `before==after` bit-stable regression + no-readiness-side-effect guard it); audit safe-metadata only
 (counts/per-`conflict_type` counts — never `description`/artifact content); FakeLLM only; go-live false. Migration
 `0036` purely additive (two new tables; artifact FKs reuse the existing `intake_artifacts` UNIQUE); immutable
-append-only (RLS ENABLE+FORCE; SELECT/INSERT only).**
+append-only (RLS ENABLE+FORCE; SELECT/INSERT only). merged via PR #63 (commit `98a47ed`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
