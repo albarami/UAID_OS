@@ -8,7 +8,11 @@ factory requests, deterministic tie-break, caps). DB-backed (`db`): the 5-table 
 bounds B6), the repos, and the bit-stable no-A5/readiness guard. Deterministic — no LLM.
 """
 
+import uuid
+
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.agents.skills import (
     COST_LATENCY_CLASSES,
@@ -210,3 +214,181 @@ def test_build_squad_rejects_too_many_work_units():
     too_many = [_wu(f"API-{i:03d}", {"backend_engineering"}) for i in range(MAX_WORK_UNITS + 1)]
     with pytest.raises(ValueError):
         build_squad(too_many, caps)
+
+
+# --- DB-backed: 5-table store + migration 0037 (B8/B3/B7/B6/RLS) -----------------
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def sk_ctx(admin_engine):
+    """org/t1/t2/p1 + a GLOBAL blueprint with an admin-curated capability + one provided skill
+    (referencing the migration-seeded `backend_engineering` skill)."""
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('SkOrg',:s) RETURNING id",
+            s=f"sk-org-{sfx}",
+        )
+        t1 = await _scalar(
+            c,
+            "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,'t1',:s) RETURNING id",
+            o=org,
+            s=f"sk-t1-{sfx}",
+        )
+        t2 = await _scalar(
+            c,
+            "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,'t2',:s) RETURNING id",
+            o=org,
+            s=f"sk-t2-{sfx}",
+        )
+        p1 = await _scalar(
+            c,
+            "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+            t=t1,
+            s=f"sk-p1-{sfx}",
+        )
+        bp = await _scalar(
+            c,
+            "INSERT INTO agent_blueprints (key, role, mission, archetype) VALUES (:k,'Backend','build',:a) RETURNING id",
+            k=f"backend-{sfx}",
+            a="builder",
+        )
+        cap = await _scalar(
+            c,
+            "INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class, provided_tools, domains) "
+            "VALUES (:b,'medium','[]'::jsonb,'[]'::jsonb) RETURNING id",
+            b=bp,
+        )
+        await c.execute(
+            text(
+                "INSERT INTO agent_provided_skills (capability_id, skill_id, can_review) "
+                "SELECT :c, id, false FROM skills WHERE key='backend_engineering'"
+            ),
+            {"c": cap},
+        )
+    return {"t1": t1, "t2": t2, "p1": p1, "bp": bp, "cap": cap, "sfx": sfx}
+
+
+@pytest.mark.db
+async def test_db_skills_seeded(admin_engine, sk_ctx):
+    async with admin_engine.connect() as c:
+        n = await _scalar(c, "SELECT count(*) FROM skills")
+    assert n == len(SKILL_CATEGORIES)  # the §8.2 vocabulary is migration-seeded (admin path)
+
+
+@pytest.mark.db
+async def test_db_runtime_can_read_global_but_cannot_write(rls_engine, sk_ctx):
+    # B8 — uaid_app: SELECT ok, INSERT/UPDATE/DELETE/TRUNCATE denied on global admin tables.
+    async with rls_engine.connect() as conn:
+        assert (await conn.execute(text("SELECT count(*) FROM skills"))).scalar_one() >= 1
+    for sql in (
+        "INSERT INTO skills (key, category, description) VALUES ('x_runtime','security','x')",
+        "UPDATE skills SET description='y' WHERE key='security'",
+        "DELETE FROM skills WHERE key='security'",
+        "INSERT INTO agent_provided_skills (capability_id, skill_id, can_review) VALUES (:c, :c, false)",
+    ):
+        async with rls_engine.connect() as conn:
+            with pytest.raises(Exception):
+                await conn.execute(text(sql), {"c": str(sk_ctx["cap"])})
+                await conn.commit()
+
+
+@pytest.mark.db
+async def test_db_provided_skill_fk_rejects_unknown_skill(admin_engine, sk_ctx):
+    # B3 — an unknown skill_id cannot persist (composite/FK to skills).
+    with pytest.raises(Exception, match="foreign key|violates"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO agent_provided_skills (capability_id, skill_id, can_review) "
+                    "VALUES (:cap, gen_random_uuid(), false)"
+                ),
+                {"cap": str(sk_ctx["cap"])},
+            )
+
+
+@pytest.mark.db
+async def test_db_global_tables_immutable(admin_engine, sk_ctx):
+    # B7 — even admin cannot UPDATE/DELETE the global vocab/capability (block triggers).
+    for sql in (
+        "UPDATE skills SET description='z' WHERE key='security'",
+        "DELETE FROM agent_provided_skills WHERE capability_id=:cap",
+    ):
+        with pytest.raises(Exception, match="append-only|immutable"):
+            async with admin_engine.begin() as c:
+                await c.execute(text(sql), {"cap": str(sk_ctx["cap"])})
+
+
+@pytest.mark.db
+async def test_db_skill_match_component_bounds(admin_engine, sk_ctx):
+    # B6 — a score component > 1.0 fails the CHECK.
+    async with admin_engine.begin() as c:
+        mid = await _scalar(
+            c,
+            "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+            "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,'{}'::jsonb,0,0,'slice38.v1','a') RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+        )
+    with pytest.raises(Exception, match="check|violates"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO skill_matches (tenant_id, project_id, manifest_id, work_unit_ref, "
+                    "blueprint_id, capability_match, domain_fit, tool_access_fit, eval_performance, "
+                    "eval_source, reviewer_availability, cost_latency_fit, risk_penalty, total_score) "
+                    "VALUES (:t,:p,:m,'API-001',:b, 9.0,0,0,0,'absent_until_slice40',0,0,0,9.0)"
+                ),
+                {
+                    "t": str(sk_ctx["t1"]),
+                    "p": str(sk_ctx["p1"]),
+                    "m": str(mid),
+                    "b": str(sk_ctx["bp"]),
+                },
+            )
+
+
+@pytest.mark.db
+async def test_db_squad_manifest_rls_cross_tenant(rls_engine, sk_ctx):
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(sk_ctx["t1"])}
+        )
+        mid = await _scalar(
+            conn,
+            "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+            "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,'{}'::jsonb,0,0,'slice38.v1','a') RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+        )
+        await conn.commit()
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(sk_ctx["t2"])}
+        )
+        n = (
+            await conn.execute(
+                text("SELECT count(*) FROM squad_manifests WHERE id=:i"), {"i": str(mid)}
+            )
+        ).scalar_one()
+        assert n == 0
+
+
+@pytest.mark.db
+async def test_db_squad_manifest_append_only(admin_engine, sk_ctx):
+    async with admin_engine.begin() as c:
+        mid = await _scalar(
+            c,
+            "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+            "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,'{}'::jsonb,0,0,'slice38.v1','a') RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+        )
+    with pytest.raises(Exception, match="append-only|immutable"):
+        async with admin_engine.begin() as c:
+            await c.execute(text("DELETE FROM squad_manifests WHERE id=:i"), {"i": str(mid)})
