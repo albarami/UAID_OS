@@ -8,9 +8,12 @@ report+child deferred count triggers B6/B9), separation from Slice-13, and the b
 no-A5/readiness guard. ALL tests use FakeLLMClient — no live provider.
 """
 
+import uuid
 from dataclasses import dataclass
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import text
 
 from app.intake.semantic_contradictions import (
     CONFLICT_TYPES,
@@ -177,3 +180,260 @@ def test_keep_valid_caps_at_max():
     km, _, _ = _km()
     drafts = [ContradictionDraft("scope", "A1", "A2", "d")] * (MAX_CONTRADICTIONS_PERSISTED + 25)
     assert len(keep_valid(drafts, km)) == MAX_CONTRADICTIONS_PERSISTED
+
+
+# --- DB-backed: two-table store + migration 0036 guards / RLS --------------------
+
+
+async def _scalar(conn, sql, **p):
+    return (await conn.execute(text(sql), p)).scalar_one()
+
+
+@pytest_asyncio.fixture
+async def sc_ctx(admin_engine):
+    """t1/p1 has a requirement, an acceptance_criterion, and a test_oracle (each provenance-backed);
+    t2/px has a requirement (for the cross-project FK test)."""
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as c:
+        org = await _scalar(
+            c,
+            "INSERT INTO organizations (name, slug) VALUES ('ScOrg',:s) RETURNING id",
+            s=f"sc-org-{sfx}",
+        )
+        out = {"sfx": sfx}
+        for label in ("t1", "t2"):
+            out[label] = await _scalar(
+                c,
+                "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
+                o=org,
+                n=label,
+                s=f"sc-{label}-{sfx}",
+            )
+        for proj, tn in (("p1", "t1"), ("px", "t2")):
+            out[proj] = await _scalar(
+                c,
+                "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
+                t=out[tn],
+                s=f"sc-{proj}-{sfx}",
+            )
+
+        async def _art(tenant, project, kind, ref, title):
+            aid = await _scalar(
+                c,
+                "INSERT INTO intake_artifacts (tenant_id, project_id, kind, ref, title) "
+                "VALUES (:t,:p,:k,:r,:ti) RETURNING id",
+                t=tenant,
+                p=project,
+                k=kind,
+                r=ref,
+                ti=title,
+            )
+            await c.execute(
+                text(
+                    "INSERT INTO intake_provenance (tenant_id, project_id, artifact_id, origin) "
+                    "VALUES (:t,:p,:a,'test')"
+                ),
+                {"t": tenant, "p": project, "a": aid},
+            )
+            return aid
+
+        out["req"] = await _art(out["t1"], out["p1"], "requirement", "REQ-1", "must export")
+        out["ac"] = await _art(out["t1"], out["p1"], "acceptance_criterion", "AC-1", "export check")
+        out["oracle"] = await _art(out["t1"], out["p1"], "test_oracle", "ORA-1", "an oracle")
+        out["px_req"] = await _art(out["t2"], out["px"], "requirement", "REQ-1", "other proj")
+    return out
+
+
+_REPORT = dict(
+    model="test-model",
+    provider="fake",
+    prompt_version="semantic_contradiction.v1",
+    input_tokens=10,
+    output_tokens=20,
+    outcome="succeeded",
+    cost_external_ref="semantic_contradiction_report:x:provider_request",
+    contradiction_count=0,
+    analyzed_artifact_count=2,
+    input_truncated=False,
+    ruleset_version="slice37.v1",
+    detected_by="detector",
+)
+
+_REPORT_INSERT = text(
+    "INSERT INTO semantic_contradiction_reports (tenant_id, project_id, model, provider, "
+    "prompt_version, input_tokens, output_tokens, outcome, cost_external_ref, contradiction_count, "
+    "analyzed_artifact_count, input_truncated, ruleset_version, detected_by) VALUES (:tenant_id,"
+    ":project_id,:model,:provider,:prompt_version,:input_tokens,:output_tokens,:outcome,"
+    ":cost_external_ref,:contradiction_count,:analyzed_artifact_count,:input_truncated,"
+    ":ruleset_version,:detected_by) RETURNING id"
+)
+
+
+async def _report(conn, ctx, **over):
+    row = dict(_REPORT)
+    row.update(over)
+    row.update(tenant_id=str(ctx["t1"]), project_id=str(ctx["p1"]))
+    return (await conn.execute(_REPORT_INSERT, row)).scalar_one()
+
+
+async def _contradiction(
+    conn, ctx, report_id, a_id, b_id, conflict_type="scope", description="conflict"
+):
+    return await _scalar(
+        conn,
+        "INSERT INTO semantic_contradictions (tenant_id, project_id, report_id, conflict_type, "
+        "description, artifact_a_id, artifact_b_id) VALUES (:t,:p,:r,:ct,:d,:a,:b) RETURNING id",
+        t=str(ctx["t1"]),
+        p=str(ctx["p1"]),
+        r=str(report_id),
+        ct=conflict_type,
+        d=description,
+        a=str(a_id),
+        b=str(b_id),
+    )
+
+
+@pytest.mark.db
+async def test_db_succeeded_report_with_pair_inserts(admin_engine, sc_ctx):
+    async with admin_engine.begin() as c:
+        rid = await _report(c, sc_ctx, contradiction_count=1)
+        cid = await _contradiction(c, sc_ctx, rid, sc_ctx["req"], sc_ctx["ac"])
+    assert cid is not None
+
+
+@pytest.mark.db
+async def test_db_skipped_report_inserts(admin_engine, sc_ctx):
+    async with admin_engine.begin() as c:
+        await _report(
+            c,
+            sc_ctx,
+            outcome="skipped_insufficient_input",
+            input_tokens=None,
+            output_tokens=None,
+            cost_external_ref=None,
+            contradiction_count=0,
+        )
+
+
+@pytest.mark.db
+async def test_db_succeeded_requires_tokens_and_cost(admin_engine, sc_ctx):
+    with pytest.raises(Exception, match="succeeded report requires"):
+        async with admin_engine.begin() as c:
+            await _report(c, sc_ctx, input_tokens=None)
+
+
+@pytest.mark.db
+async def test_db_no_call_outcome_must_be_null(admin_engine, sc_ctx):
+    with pytest.raises(Exception, match="must have null tokens"):
+        async with admin_engine.begin() as c:
+            await _report(
+                c,
+                sc_ctx,
+                outcome="refused_injection",
+                output_tokens=None,
+                cost_external_ref=None,
+                contradiction_count=0,  # input_tokens left set ⇒ illegal
+            )
+
+
+@pytest.mark.db
+async def test_db_failed_cost_duality(admin_engine, sc_ctx):
+    async with admin_engine.begin() as c:
+        await _report(c, sc_ctx, outcome="failed", contradiction_count=0)  # cost+tokens set
+    with pytest.raises(Exception, match="both set or both null"):
+        async with admin_engine.begin() as c:
+            await _report(
+                c,
+                sc_ctx,
+                outcome="failed",
+                input_tokens=None,
+                output_tokens=None,
+                contradiction_count=0,  # cost set, tokens null ⇒ illegal
+            )
+
+
+@pytest.mark.db
+async def test_db_count_mismatch_report_side(admin_engine, sc_ctx):
+    # B6: report claims 2 but only 1 child is inserted ⇒ rejected at commit.
+    with pytest.raises(Exception, match="does not match"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=2)
+            await _contradiction(c, sc_ctx, rid, sc_ctx["req"], sc_ctx["ac"])
+
+
+@pytest.mark.db
+async def test_db_count_mismatch_late_child_insert(admin_engine, sc_ctx):
+    # B9: a committed count=0 report + a LATER child insert ⇒ rejected at commit (child-side).
+    async with admin_engine.begin() as c:
+        rid = await _report(c, sc_ctx, contradiction_count=0)
+    with pytest.raises(Exception, match="does not match"):
+        async with admin_engine.begin() as c:
+            await _contradiction(c, sc_ctx, rid, sc_ctx["req"], sc_ctx["ac"])
+
+
+@pytest.mark.db
+async def test_db_kind_guard_rejects_wrong_kind(admin_engine, sc_ctx):
+    # B7: a contradiction referencing a test_oracle artifact ⇒ rejected.
+    with pytest.raises(Exception, match="not in .requirement"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=1)
+            await _contradiction(c, sc_ctx, rid, sc_ctx["req"], sc_ctx["oracle"])
+
+
+@pytest.mark.db
+async def test_db_artifacts_must_be_distinct(admin_engine, sc_ctx):
+    with pytest.raises(Exception, match="artifacts_distinct"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=1)
+            await _contradiction(c, sc_ctx, rid, sc_ctx["req"], sc_ctx["req"])
+
+
+@pytest.mark.db
+async def test_db_bad_conflict_type_rejected(admin_engine, sc_ctx):
+    with pytest.raises(Exception, match="conflict_type_valid"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=1)
+            await _contradiction(c, sc_ctx, rid, sc_ctx["req"], sc_ctx["ac"], conflict_type="bogus")
+
+
+@pytest.mark.db
+async def test_db_cross_project_artifact_fk_rejected(admin_engine, sc_ctx):
+    # B4: a contradiction citing an artifact from another project fails the composite FK.
+    with pytest.raises(Exception, match="foreign key|artifact_a_project_tenant"):
+        async with admin_engine.begin() as c:
+            rid = await _report(c, sc_ctx, contradiction_count=1)
+            await _contradiction(c, sc_ctx, rid, sc_ctx["px_req"], sc_ctx["ac"])
+
+
+@pytest.mark.db
+async def test_db_no_delete_no_truncate(admin_engine, sc_ctx):
+    async with admin_engine.begin() as c:
+        rid = await _report(c, sc_ctx, contradiction_count=0)
+    with pytest.raises(Exception, match="append-only"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text("DELETE FROM semantic_contradiction_reports WHERE id=:i"), {"i": str(rid)}
+            )
+
+
+@pytest.mark.db
+async def test_db_rls_cross_tenant_invisible(rls_engine, sc_ctx):
+    ctx = sc_ctx
+    row = {**_REPORT, "tenant_id": str(ctx["t1"]), "project_id": str(ctx["p1"])}
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(ctx["t1"])}
+        )
+        rid = (await conn.execute(_REPORT_INSERT, row)).scalar_one()
+        await conn.commit()
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(ctx["t2"])}
+        )
+        n = (
+            await conn.execute(
+                text("SELECT count(*) FROM semantic_contradiction_reports WHERE id=:i"),
+                {"i": str(rid)},
+            )
+        ).scalar_one()
+        assert n == 0
