@@ -403,12 +403,18 @@ async def test_db_provided_skill_fk_rejects_unknown_skill(admin_engine, sk_ctx):
 
 @pytest.mark.db
 async def test_db_global_tables_immutable(admin_engine, sk_ctx):
-    # B7 — even admin cannot UPDATE/DELETE the global vocab/capability (block triggers).
+    # B7 — even admin cannot UPDATE/DELETE/TRUNCATE any of the 3 global tables (block triggers).
     for sql in (
         "UPDATE skills SET description='z' WHERE key='security'",
+        "UPDATE agent_skill_capabilities SET cost_latency_class='low' WHERE id=:cap",
         "DELETE FROM agent_provided_skills WHERE capability_id=:cap",
+        "DELETE FROM agent_skill_capabilities WHERE id=:cap",
+        "TRUNCATE skills",
+        "TRUNCATE agent_skill_capabilities",
+        "TRUNCATE agent_provided_skills",
     ):
-        with pytest.raises(Exception, match="append-only|immutable"):
+        # blocked either by the append-only trigger or (for FK-referenced tables) by TRUNCATE-on-FK.
+        with pytest.raises(Exception, match="append-only|immutable|cannot truncate"):
             async with admin_engine.begin() as c:
                 await c.execute(text(sql), {"cap": str(sk_ctx["cap"])})
 
@@ -552,7 +558,9 @@ async def test_db_list_skills_ordered(admin_engine, sk_ctx):
     async with AsyncSession(admin_engine) as s:
         first = [sk["key"] for sk in await list_skills(s)]
         second = [sk["key"] for sk in await list_skills(s)]
-    assert first == second and len(first) == len(set(first))  # deterministic (ORDER BY key), no dups
+    assert first == second and len(first) == len(
+        set(first)
+    )  # deterministic (ORDER BY key), no dups
     assert set(SKILL_CATEGORIES) <= set(first)
 
 
@@ -729,3 +737,90 @@ async def test_db_squad_audit_safe_and_global_unaudited(admin_engine, sk_ctx):
             )
         ).scalar_one()
         assert n == 0  # global skill/capability registration is unaudited (D-38-12)
+
+
+@pytest.mark.db
+async def test_db_b6_enum_and_regex_rejections(admin_engine, sk_ctx):
+    # B6 — direct-SQL CHECK rejections: cost-class enum, skills.key regex, too-many-domains (>32).
+    many_domains = "[" + ",".join(f'"d_{i}"' for i in range(33)) + "]"
+    cases = [
+        (
+            "INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class) VALUES (:b, 'extreme')",
+            {"b": str(sk_ctx["bp"])},
+        ),
+        ("INSERT INTO skills (key, category) VALUES ('Bad Key', 'security')", {}),
+        (
+            "INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class, domains) "
+            "VALUES (:b, 'medium', CAST(:d AS jsonb))",
+            {"b": str(sk_ctx["bp"]), "d": many_domains},
+        ),
+    ]
+    for sql, params in cases:
+        with pytest.raises(Exception, match="violates|check|invalid"):
+            async with admin_engine.begin() as c:
+                await c.execute(text(sql), params)
+
+
+@pytest.mark.db
+async def test_db_skill_match_work_unit_ref_regex_rejected(admin_engine, sk_ctx):
+    async with admin_engine.begin() as c:
+        mid = await _scalar(
+            c,
+            "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+            "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,'{}'::jsonb,0,0,'slice38.v1','a') RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+        )
+    with pytest.raises(Exception, match="work_unit_ref|violates|check"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO skill_matches (tenant_id, project_id, manifest_id, work_unit_ref, blueprint_id, "
+                    "capability_match, domain_fit, tool_access_fit, eval_performance, eval_source, "
+                    "reviewer_availability, cost_latency_fit, risk_penalty, total_score) "
+                    "VALUES (:t,:p,:m,'bad ref!',:b,1,0,0,0,'absent_until_slice40',0,0,0,0.3)"
+                ),
+                {
+                    "t": str(sk_ctx["t1"]),
+                    "p": str(sk_ctx["p1"]),
+                    "m": str(mid),
+                    "b": str(sk_ctx["bp"]),
+                },
+            )
+
+
+@pytest.mark.db
+async def test_db_skill_match_rls_cross_tenant(rls_engine, sk_ctx):
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(sk_ctx["t1"])}
+        )
+        mid = await _scalar(
+            conn,
+            "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+            "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,'{}'::jsonb,0,0,'slice38.v1','a') RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+        )
+        smid = await _scalar(
+            conn,
+            "INSERT INTO skill_matches (tenant_id, project_id, manifest_id, work_unit_ref, blueprint_id, "
+            "capability_match, domain_fit, tool_access_fit, eval_performance, eval_source, "
+            "reviewer_availability, cost_latency_fit, risk_penalty, total_score) "
+            "VALUES (:t,:p,:m,'API-001',:b,1,0,0,0,'absent_until_slice40',0,0,0,0.3) RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+            m=str(mid),
+            b=str(sk_ctx["bp"]),
+        )
+        await conn.commit()
+    async with rls_engine.connect() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :t, false)"), {"t": str(sk_ctx["t2"])}
+        )
+        n = (
+            await conn.execute(
+                text("SELECT count(*) FROM skill_matches WHERE id=:i"), {"i": str(smid)}
+            )
+        ).scalar_one()
+        assert n == 0
