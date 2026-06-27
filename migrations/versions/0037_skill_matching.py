@@ -243,6 +243,53 @@ def upgrade() -> None:
         + ", ".join(f"({c!r}, {c!r})" for c in _SKILL_CATEGORIES)
     )
 
+    # --- B6 element guards: JSON tool/domain shape + provided-skill count --------
+    op.execute(
+        """
+        CREATE FUNCTION public.agent_skill_capabilities_guard() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog AS $fn$
+        DECLARE elem jsonb;
+        BEGIN
+            FOR elem IN SELECT jsonb_array_elements(NEW.provided_tools) LOOP
+                IF jsonb_typeof(elem) <> 'string'
+                   OR (elem #>> '{}') !~ '^[a-z][a-z0-9_.]{1,63}$' THEN
+                    RAISE EXCEPTION 'agent_skill_capabilities: invalid provided_tools element %', elem;
+                END IF;
+            END LOOP;
+            FOR elem IN SELECT jsonb_array_elements(NEW.domains) LOOP
+                IF jsonb_typeof(elem) <> 'string'
+                   OR (elem #>> '{}') !~ '^[a-z][a-z0-9_]{1,63}$' THEN
+                    RAISE EXCEPTION 'agent_skill_capabilities: invalid domains element %', elem;
+                END IF;
+            END LOOP;
+            RETURN NEW;
+        END
+        $fn$
+        """
+    )
+    op.execute(
+        "CREATE TRIGGER agent_skill_capabilities_guard BEFORE INSERT ON public.agent_skill_capabilities "
+        "FOR EACH ROW EXECUTE FUNCTION public.agent_skill_capabilities_guard()"
+    )
+    op.execute(
+        """
+        CREATE FUNCTION public.agent_provided_skills_guard() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog AS $fn$
+        BEGIN
+            IF (SELECT count(*) FROM public.agent_provided_skills
+                WHERE capability_id = NEW.capability_id) >= 128 THEN
+                RAISE EXCEPTION 'agent_provided_skills: more than 128 skills per capability';
+            END IF;
+            RETURN NEW;
+        END
+        $fn$
+        """
+    )
+    op.execute(
+        "CREATE TRIGGER agent_provided_skills_guard BEFORE INSERT ON public.agent_provided_skills "
+        "FOR EACH ROW EXECUTE FUNCTION public.agent_provided_skills_guard()"
+    )
+
     # --- append-only / immutable block triggers (all 5 tables) -------------------
     for table in _GLOBAL + _TENANT:
         op.execute(
@@ -287,6 +334,12 @@ def downgrade() -> None:
         op.execute(f"DROP TRIGGER IF EXISTS {table}_no_truncate ON public.{table}")
         op.execute(f"DROP TRIGGER IF EXISTS {table}_no_update_delete ON public.{table}")
         op.execute(f"DROP FUNCTION IF EXISTS public.{table}_block_dml()")
+    op.execute("DROP TRIGGER IF EXISTS agent_provided_skills_guard ON public.agent_provided_skills")
+    op.execute("DROP FUNCTION IF EXISTS public.agent_provided_skills_guard()")
+    op.execute(
+        "DROP TRIGGER IF EXISTS agent_skill_capabilities_guard ON public.agent_skill_capabilities"
+    )
+    op.execute("DROP FUNCTION IF EXISTS public.agent_skill_capabilities_guard()")
     op.drop_index("ix_sm_manifest", table_name="skill_matches")
     op.drop_table("skill_matches")
     op.drop_index("ix_sqm_latest", table_name="squad_manifests")

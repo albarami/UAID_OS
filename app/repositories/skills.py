@@ -109,6 +109,16 @@ async def register_capability(
     return cap_id
 
 
+async def list_skills(session: AsyncSession) -> list[dict]:
+    """The skill catalog, deterministically ordered by key (runtime SELECT — uaid_app may read)."""
+    rows = (
+        (await session.execute(text("SELECT key, category, description FROM skills ORDER BY key")))
+        .mappings()
+        .all()
+    )
+    return [dict(r) for r in rows]
+
+
 async def capability_view(
     session: AsyncSession,
 ) -> tuple[list[AgentCapability], dict[str, uuid.UUID]]:

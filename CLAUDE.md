@@ -1033,7 +1033,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 690 passing (Docker-free); `make test-db` → 653 passing (DB-backed: tenancy,
+  **`make test` → 695 passing (Docker-free); `make test-db` → 662 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1136,8 +1136,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 690 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 653 passing
+make test                                  # Docker-free tests (no services) — 695 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 662 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

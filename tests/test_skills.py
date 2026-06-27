@@ -37,7 +37,13 @@ from app.agents.skills import (
 )
 from app.repositories.production_autonomy import ProductionAutonomyRepository
 from app.repositories.readiness import ReadinessRepository
-from app.repositories.skills import SquadRepository, register_capability
+from app.repositories.skills import (
+    SquadRepository,
+    capability_view,
+    list_skills,
+    register_capability,
+    register_skill,
+)
 from app.tenancy import TenantContext, tenant_scope
 
 
@@ -221,6 +227,68 @@ def test_build_squad_rejects_too_many_work_units():
         build_squad(too_many, caps)
 
 
+def test_compute_reviewer_availability():
+    from app.agents.skills import compute_reviewer_availability
+
+    caps = [
+        _cap("b1", "B", {"backend_engineering"}),
+        _cap("r1", "R", {"backend_engineering"}, reviews={"backend_engineering"}),
+    ]
+    wu = _wu("API-001", {"backend_engineering"})
+    assert compute_reviewer_availability(wu, "b1", caps) == 1.0  # r1 is a distinct reviewer
+    assert (
+        compute_reviewer_availability(wu, "r1", caps) == 0.0
+    )  # only r1 reviews — but it's the builder
+
+
+def test_validate_work_unit_rejects_bad_inputs():
+    from app.agents.skills import validate_work_unit
+
+    validate_work_unit(_wu("API-001", {"backend_engineering"}))  # ok
+    for bad in (
+        _wu("bad ref!", {"backend_engineering"}),
+        _wu("API-001", {"Bad_Skill"}),  # skill regex
+        _wu("API-001", {"backend_engineering"}, tools=("Bad Tool",)),  # tool regex
+        _wu("API-001", {"backend_engineering"}, domain="Bad Domain"),  # domain regex
+        _wu("API-001", {"backend_engineering"}, risk_level="extreme"),  # risk enum
+        _wu("API-001", {"backend_engineering"}, cost_latency_fit=2.0),  # 0..1
+        _wu("API-001", set()),  # no required skills
+    ):
+        with pytest.raises(ValueError):
+            validate_work_unit(bad)
+
+
+def test_validate_capability_rejects_bad_inputs():
+    from app.agents.skills import MAX_PROVIDED_SKILLS, validate_capability
+
+    validate_capability(_cap("b1", "B", {"backend_engineering"}))  # ok
+    with pytest.raises(ValueError):
+        validate_capability(_cap("b1", "B", {"Bad_Skill"}))  # skill regex
+    with pytest.raises(ValueError):
+        validate_capability(
+            _cap("b1", "B", {"backend_engineering"}, tools=("Bad Tool",))
+        )  # tool regex
+    with pytest.raises(ValueError):
+        validate_capability(_cap("b1", "B", {"backend_engineering"}, cost="extreme"))  # cost enum
+    with pytest.raises(ValueError):
+        validate_capability(
+            _cap("b1", "B", {f"s_{i}" for i in range(MAX_PROVIDED_SKILLS + 1)})
+        )  # count
+
+
+def test_compute_agent_score_rejects_out_of_bounds_inputs():
+    with pytest.raises(ValueError):
+        compute_agent_score(_inputs(capability_match=2.0))
+    with pytest.raises(ValueError):
+        compute_agent_score(_inputs(risk_penalty=5.0))
+
+
+def test_build_squad_validates_capabilities():
+    # build_squad rejects a malformed capability up front.
+    with pytest.raises(ValueError):
+        build_squad([_wu("API-001", {"backend_engineering"})], [_cap("b1", "B", {"Bad_Skill"})])
+
+
 # --- DB-backed: 5-table store + migration 0037 (B8/B3/B7/B6/RLS) -----------------
 
 
@@ -282,34 +350,41 @@ async def sk_ctx(admin_engine):
             ),
             {"c": cap, "k": sk},
         )
-    return {"t1": t1, "t2": t2, "p1": p1, "bp": bp, "cap": cap, "sfx": sfx, "skill": sk}
+    return {
+        "t1": t1,
+        "t2": t2,
+        "p1": p1,
+        "bp": bp,
+        "bp_key": f"backend-{sfx}",
+        "cap": cap,
+        "sfx": sfx,
+        "skill": sk,
+    }
 
 
 @pytest.mark.db
 async def test_db_skills_seeded(admin_engine, sk_ctx):
     async with admin_engine.connect() as c:
-        present = {
-            r[0]
-            for r in (await c.execute(text("SELECT key FROM skills"))).all()
-        }
+        present = {r[0] for r in (await c.execute(text("SELECT key FROM skills"))).all()}
     assert set(SKILL_CATEGORIES) <= present  # the §8.2 vocabulary is migration-seeded (admin path)
 
 
 @pytest.mark.db
-async def test_db_runtime_can_read_global_but_cannot_write(rls_engine, sk_ctx):
-    # B8 — uaid_app: SELECT ok, INSERT/UPDATE/DELETE/TRUNCATE denied on global admin tables.
+async def test_db_runtime_cannot_write_any_global_table(rls_engine, sk_ctx):
+    # B8 — uaid_app: SELECT ok; INSERT/UPDATE/DELETE/TRUNCATE denied on ALL THREE global tables.
     async with rls_engine.connect() as conn:
         assert (await conn.execute(text("SELECT count(*) FROM skills"))).scalar_one() >= 1
-    for sql in (
-        "INSERT INTO skills (key, category, description) VALUES ('x_runtime','security','x')",
-        "UPDATE skills SET description='y' WHERE key='security'",
-        "DELETE FROM skills WHERE key='security'",
-        "INSERT INTO agent_provided_skills (capability_id, skill_id, can_review) VALUES (:c, :c, false)",
-    ):
-        async with rls_engine.connect() as conn:
-            with pytest.raises(Exception):
-                await conn.execute(text(sql), {"c": str(sk_ctx["cap"])})
-                await conn.commit()
+    for table in ("skills", "agent_skill_capabilities", "agent_provided_skills"):
+        for sql in (
+            f"INSERT INTO {table} DEFAULT VALUES",
+            f"UPDATE {table} SET id = id WHERE false",
+            f"DELETE FROM {table} WHERE false",
+            f"TRUNCATE {table}",
+        ):
+            async with rls_engine.connect() as conn:
+                with pytest.raises(Exception):
+                    await conn.execute(text(sql))
+                    await conn.commit()
 
 
 @pytest.mark.db
@@ -470,3 +545,187 @@ async def test_squad_does_not_change_a5_or_readiness(sk_ctx):
     assert before == after  # bit-stable
     assert after["ruleset_version"] == "slice31.v1"  # NOT bumped by this slice
     assert readiness_before is None and readiness_after is None
+
+
+@pytest.mark.db
+async def test_db_list_skills_ordered(admin_engine, sk_ctx):
+    async with AsyncSession(admin_engine) as s:
+        first = [sk["key"] for sk in await list_skills(s)]
+        second = [sk["key"] for sk in await list_skills(s)]
+    assert first == second and len(first) == len(set(first))  # deterministic (ORDER BY key), no dups
+    assert set(SKILL_CATEGORIES) <= set(first)
+
+
+@pytest.mark.db
+async def test_db_admin_can_register_skill_and_capability(admin_engine, sk_ctx):
+    key = f"customsk_{sk_ctx['sfx']}"
+    async with AsyncSession(admin_engine) as s:
+        await register_skill(s, key=key, category="security")
+        cap = await register_capability(
+            s,
+            blueprint_id=sk_ctx["bp"],
+            provided_skills=[key],
+            reviewer_skills=[key],
+            provided_tools=["github"],
+            domains=["fintech"],
+        )
+        await s.commit()
+        assert cap is not None
+    async with AsyncSession(admin_engine) as s:
+        assert any(sk["key"] == key for sk in await list_skills(s))
+
+
+@pytest.mark.db
+async def test_db_capability_rejects_bad_json_elements(admin_engine, sk_ctx):
+    for col, val in (
+        ("provided_tools", "[123]"),
+        ("provided_tools", '["Bad Tool"]'),
+        ("domains", '["Bad Domain"]'),
+    ):
+        with pytest.raises(Exception, match="invalid|violates|check"):
+            async with admin_engine.begin() as c:
+                await c.execute(
+                    text(
+                        f"INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class, {col}) "
+                        "VALUES (:b, 'medium', CAST(:v AS jsonb))"
+                    ),
+                    {"b": str(sk_ctx["bp"]), "v": val},
+                )
+
+
+@pytest.mark.db
+async def test_db_capability_rejects_too_many_tools(admin_engine, sk_ctx):
+    big = "[" + ",".join(f'"t_{i}"' for i in range(65)) + "]"  # 65 > 64
+    with pytest.raises(Exception, match="tools_array|violates|check"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class, provided_tools) "
+                    "VALUES (:b, 'medium', CAST(:v AS jsonb))"
+                ),
+                {"b": str(sk_ctx["bp"]), "v": big},
+            )
+
+
+@pytest.mark.db
+async def test_db_provided_skills_count_capped(admin_engine, sk_ctx):
+    pfx = f"skc{sk_ctx['sfx']}_"
+    async with admin_engine.begin() as c:
+        await c.execute(
+            text(
+                "INSERT INTO skills (key, category) SELECT :p || g, 'security' FROM generate_series(1, 130) g"
+            ),
+            {"p": pfx},
+        )
+        cap = await _scalar(
+            c,
+            "INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class) VALUES (:b,'medium') RETURNING id",
+            b=str(sk_ctx["bp"]),
+        )
+    with pytest.raises(Exception, match="128 skills per capability|more than 128"):
+        async with admin_engine.begin() as c:
+            for i in range(1, 130):  # the 129th trips the per-capability guard (same-txn count)
+                await c.execute(
+                    text(
+                        "INSERT INTO agent_provided_skills (capability_id, skill_id) SELECT :cap, id FROM skills WHERE key = :k"
+                    ),
+                    {"cap": str(cap), "k": f"{pfx}{i}"},
+                )
+
+
+@pytest.mark.db
+async def test_db_manifest_oversize_rejected(admin_engine, sk_ctx):
+    big = '{"x":"' + "y" * 270000 + '"}'  # > 262144 bytes
+    with pytest.raises(Exception, match="manifest_bounded|violates|check"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+                    "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,CAST(:m AS jsonb),0,0,'slice38.v1','a')"
+                ),
+                {"t": str(sk_ctx["t1"]), "p": str(sk_ctx["p1"]), "m": big},
+            )
+
+
+@pytest.mark.db
+async def test_db_skill_match_cross_tenant_manifest_fk_rejected(admin_engine, sk_ctx):
+    async with admin_engine.begin() as c:
+        mid = await _scalar(
+            c,
+            "INSERT INTO squad_manifests (tenant_id, project_id, manifest, work_unit_count, "
+            "missing_skill_count, ruleset_version, built_by) VALUES (:t,:p,'{}'::jsonb,0,0,'slice38.v1','a') RETURNING id",
+            t=str(sk_ctx["t1"]),
+            p=str(sk_ctx["p1"]),
+        )
+        px = await _scalar(
+            c,
+            "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'PX',:s) RETURNING id",
+            t=str(sk_ctx["t2"]),
+            s=f"skpx-{sk_ctx['sfx']}",
+        )
+    with pytest.raises(Exception, match="foreign key|manifest_project_tenant"):
+        async with admin_engine.begin() as c:
+            await c.execute(
+                text(
+                    "INSERT INTO skill_matches (tenant_id, project_id, manifest_id, work_unit_ref, blueprint_id, "
+                    "capability_match, domain_fit, tool_access_fit, eval_performance, eval_source, "
+                    "reviewer_availability, cost_latency_fit, risk_penalty, total_score) "
+                    "VALUES (:t,:p,:m,'API-001',:b,1,0,0,0,'absent_until_slice40',0,0,0,0.3)"
+                ),
+                {"t": str(sk_ctx["t2"]), "p": str(px), "m": str(mid), "b": str(sk_ctx["bp"])},
+            )
+
+
+@pytest.mark.db
+async def test_db_capability_view_latest_wins(admin_engine, sk_ctx):
+    sk2 = f"skl_{sk_ctx['sfx']}"
+    async with admin_engine.begin() as c:
+        await c.execute(
+            text("INSERT INTO skills (key, category) VALUES (:k,'security')"), {"k": sk2}
+        )
+        cap2 = await _scalar(
+            c,
+            "INSERT INTO agent_skill_capabilities (blueprint_id, cost_latency_class) VALUES (:b,'high') RETURNING id",
+            b=str(sk_ctx["bp"]),
+        )
+        await c.execute(
+            text(
+                "INSERT INTO agent_provided_skills (capability_id, skill_id) SELECT :cap, id FROM skills WHERE key=:k"
+            ),
+            {"cap": str(cap2), "k": sk2},
+        )
+    async with AsyncSession(admin_engine) as s:
+        caps, _ = await capability_view(s)
+    mine = next(cp for cp in caps if cp.blueprint_ref == sk_ctx["bp_key"])
+    assert mine.cost_latency_class == "high"  # the LATEST capability, not the fixture's 'medium'
+    assert sk2 in mine.provided_skills
+
+
+@pytest.mark.db
+async def test_db_squad_audit_safe_and_global_unaudited(admin_engine, sk_ctx):
+    ctx = TenantContext(sk_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        rec = await SquadRepository(session, ctx).build_and_record(
+            project_id=sk_ctx["p1"],
+            work_units=[WorkUnit(ref="API-001", required_skills=(sk_ctx["skill"],))],
+            built_by="planner",
+        )
+    async with admin_engine.connect() as c:
+        payload = (
+            await c.execute(
+                text(
+                    "SELECT payload FROM audit_logs WHERE target=:tg AND tenant_id=:t "
+                    "ORDER BY seq DESC LIMIT 1"
+                ),
+                {"tg": f"squad_manifest:{rec.id}", "t": str(sk_ctx["t1"])},
+            )
+        ).scalar_one()
+        assert payload["squad_manifest_id"] == str(rec.id) and "work_unit_count" in payload
+        n = (
+            await c.execute(
+                text(
+                    "SELECT count(*) FROM audit_logs WHERE action LIKE 'skill%' OR action LIKE 'capability%'"
+                )
+            )
+        ).scalar_one()
+        assert n == 0  # global skill/capability registration is unaudited (D-38-12)

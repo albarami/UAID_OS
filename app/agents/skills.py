@@ -187,7 +187,30 @@ def _distinct_reviewers(work_unit: WorkUnit, builder_ref: str, capabilities) -> 
     )
 
 
+def compute_reviewer_availability(work_unit: WorkUnit, builder_ref: str, capabilities) -> float:
+    """1.0 iff a DISTINCT capable reviewer exists for the work-unit (never the builder, §2.2)."""
+    return 1.0 if _distinct_reviewers(work_unit, builder_ref, capabilities) else 0.0
+
+
+def _in_unit(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
+
+
+_SCORE_COMPONENTS = (
+    "capability_match",
+    "domain_fit",
+    "tool_access_fit",
+    "eval_performance",
+    "reviewer_availability",
+    "cost_latency_fit",
+    "risk_penalty",
+)
+
+
 def compute_agent_score(inputs: MatchInputs) -> ScoreBreakdown:
+    for name in _SCORE_COMPONENTS:
+        if not _in_unit(getattr(inputs, name)):
+            raise ValueError(f"MatchInputs.{name} must be a number in 0..1")
     # §8.3 reliability rule (l.766): high-risk work zeroes cost/latency before the weighted sum.
     effective_cost = 0.0 if inputs.high_risk else inputs.cost_latency_fit
     total = (
@@ -212,25 +235,57 @@ def compute_agent_score(inputs: MatchInputs) -> ScoreBreakdown:
     )
 
 
+def validate_work_unit(wu: WorkUnit) -> None:
+    if not WORK_UNIT_REF_RE.match(wu.ref):
+        raise ValueError(f"invalid work_unit ref: {wu.ref!r}")
+    if not wu.required_skills or len(wu.required_skills) > MAX_REQUIRED_SKILLS_PER_UNIT:
+        raise ValueError(f"work_unit {wu.ref}: 1..{MAX_REQUIRED_SKILLS_PER_UNIT} required skills")
+    for s in wu.required_skills:
+        validate_skill_key(s)
+    if len(wu.required_tools) > MAX_REQUIRED_TOOLS_PER_UNIT:
+        raise ValueError(f"work_unit {wu.ref}: too many required tools")
+    for t in wu.required_tools:
+        if not TOOL_KEY_RE.match(t):
+            raise ValueError(f"work_unit {wu.ref}: invalid tool key {t!r}")
+    if wu.domain is not None and not DOMAIN_RE.match(wu.domain):
+        raise ValueError(f"work_unit {wu.ref}: invalid domain {wu.domain!r}")
+    if wu.risk_level not in RISK_LEVELS:
+        raise ValueError(f"work_unit {wu.ref}: invalid risk_level {wu.risk_level!r}")
+    if not _in_unit(wu.cost_latency_fit):
+        raise ValueError(f"work_unit {wu.ref}: cost_latency_fit must be a number in 0..1")
+
+
+def validate_capability(cap: AgentCapability) -> None:
+    if cap.cost_latency_class not in COST_LATENCY_CLASSES:
+        raise ValueError(f"capability {cap.blueprint_ref}: invalid cost_latency_class")
+    if len(cap.provided_skills) > MAX_PROVIDED_SKILLS:
+        raise ValueError(f"capability {cap.blueprint_ref}: > {MAX_PROVIDED_SKILLS} provided skills")
+    for s in (*cap.provided_skills, *cap.reviewer_skills):
+        validate_skill_key(s)
+    if len(cap.provided_tools) > MAX_PROVIDED_TOOLS:
+        raise ValueError(f"capability {cap.blueprint_ref}: > {MAX_PROVIDED_TOOLS} provided tools")
+    for t in cap.provided_tools:
+        if not TOOL_KEY_RE.match(t):
+            raise ValueError(f"capability {cap.blueprint_ref}: invalid tool key {t!r}")
+    if len(cap.domains) > MAX_DOMAINS:
+        raise ValueError(f"capability {cap.blueprint_ref}: > {MAX_DOMAINS} domains")
+    for d in cap.domains:
+        if not DOMAIN_RE.match(d):
+            raise ValueError(f"capability {cap.blueprint_ref}: invalid domain {d!r}")
+
+
 def _validate_work_units(work_units) -> None:
     if len(work_units) > MAX_WORK_UNITS:
         raise ValueError(f"too many work units (> {MAX_WORK_UNITS})")
     for wu in work_units:
-        if not WORK_UNIT_REF_RE.match(wu.ref):
-            raise ValueError(f"invalid work_unit ref: {wu.ref!r}")
-        if not wu.required_skills or len(wu.required_skills) > MAX_REQUIRED_SKILLS_PER_UNIT:
-            raise ValueError(
-                f"work_unit {wu.ref}: 1..{MAX_REQUIRED_SKILLS_PER_UNIT} required skills"
-            )
-        if len(wu.required_tools) > MAX_REQUIRED_TOOLS_PER_UNIT:
-            raise ValueError(f"work_unit {wu.ref}: too many required tools")
-        if wu.risk_level not in RISK_LEVELS:
-            raise ValueError(f"work_unit {wu.ref}: invalid risk_level {wu.risk_level!r}")
+        validate_work_unit(wu)
 
 
 def build_squad(work_units, capabilities) -> tuple[SquadManifest, tuple[MatchRecord, ...]]:
     """Deterministic §8.4 squad manifest + the per-(work-unit, candidate) §8.3 match records."""
     _validate_work_units(work_units)
+    for c in capabilities:
+        validate_capability(c)
     all_provided: set[str] = (
         set().union(*(c.provided_skills for c in capabilities)) if capabilities else set()
     )
@@ -260,12 +315,13 @@ def build_squad(work_units, capabilities) -> tuple[SquadManifest, tuple[MatchRec
         scored: list[tuple[AgentCapability, ScoreBreakdown, tuple[str, ...]]] = []
         for c in candidates:
             reviewers = _distinct_reviewers(wu, c.blueprint_ref, capabilities)
+            reviewer_availability = compute_reviewer_availability(wu, c.blueprint_ref, capabilities)
             inputs = MatchInputs(
                 capability_match=compute_capability_match(wu.required_skills, c.provided_skills),
                 domain_fit=1.0 if (wu.domain and wu.domain in c.domains) else 0.0,
                 tool_access_fit=compute_tool_access_fit(wu.required_tools, c.provided_tools),
                 eval_performance=0.0,
-                reviewer_availability=1.0 if reviewers else 0.0,
+                reviewer_availability=reviewer_availability,
                 cost_latency_fit=wu.cost_latency_fit,
                 risk_penalty=RISK_PENALTY_BY_LEVEL[wu.risk_level],
                 high_risk=wu.risk_level == "high",
