@@ -34,6 +34,16 @@ class ArchetypeEval(Base):
             name="min_aggregate_score_range",
         ),
         CheckConstraint("min_cases >= 1", name="min_cases_positive"),
+        CheckConstraint(
+            "jsonb_typeof(representative_task_set) = 'array' AND jsonb_typeof(gold_answer_source) = 'array' "
+            "AND jsonb_typeof(scoring_rubric) = 'array' AND jsonb_typeof(required_categories) = 'array'",
+            name="json_arrays",
+        ),
+        CheckConstraint(
+            "jsonb_array_length(required_categories) >= 1 AND required_categories <@ "
+            '\'["positive", "negative", "edge", "adversarial", "incomplete"]\'::jsonb',
+            name="required_categories_valid",
+        ),
         UniqueConstraint("archetype", "eval_version", name="uq_archetype_evals_archetype_version"),
     )
 

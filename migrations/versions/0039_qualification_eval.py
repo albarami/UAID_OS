@@ -178,6 +178,16 @@ def upgrade() -> None:
             name=op.f("ck_archetype_evals_min_aggregate_score_range"),
         ),
         sa.CheckConstraint("min_cases >= 1", name=op.f("ck_archetype_evals_min_cases_positive")),
+        sa.CheckConstraint(
+            "jsonb_typeof(representative_task_set) = 'array' AND jsonb_typeof(gold_answer_source) = 'array' "
+            "AND jsonb_typeof(scoring_rubric) = 'array' AND jsonb_typeof(required_categories) = 'array'",
+            name=op.f("ck_archetype_evals_json_arrays"),
+        ),
+        sa.CheckConstraint(
+            "jsonb_array_length(required_categories) >= 1 AND required_categories <@ "
+            '\'["positive", "negative", "edge", "adversarial", "incomplete"]\'::jsonb',
+            name=op.f("ck_archetype_evals_required_categories"),
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_archetype_evals")),
         sa.UniqueConstraint(
             "archetype", "eval_version", name="uq_archetype_evals_archetype_version"
@@ -372,6 +382,48 @@ def upgrade() -> None:
             f"DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.{tbl}_verify_trg()"
         )
 
+    # --- B1: snapshot + archetype integrity (BEFORE INSERT) ----------------------
+    # The GENERATED verdict reads the snapshot columns, so they MUST equal the referenced controlled
+    # archetype_evals row, and the eval's archetype MUST equal the realization's actual blueprint
+    # archetype — otherwise direct SQL could weaken the threshold/categories and fake a pass.
+    op.execute(
+        """
+        CREATE FUNCTION public.qualification_runs_snapshot_guard() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog AS $fn$
+        DECLARE ae record; real_archetype text;
+        BEGIN
+            SELECT archetype, eval_version, min_aggregate_score, require_zero_critical, min_cases,
+                   required_categories
+              INTO ae FROM public.archetype_evals WHERE id = NEW.archetype_eval_id;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'qualification_runs: unknown archetype_eval_id';
+            END IF;
+            IF NEW.archetype <> ae.archetype OR NEW.eval_version <> ae.eval_version
+               OR NEW.min_aggregate_score <> ae.min_aggregate_score
+               OR NEW.require_zero_critical <> ae.require_zero_critical
+               OR NEW.min_cases <> ae.min_cases
+               OR NEW.required_categories <> ae.required_categories THEN
+                RAISE EXCEPTION 'qualification_runs: snapshot columns must equal the referenced archetype_evals row';
+            END IF;
+            SELECT b.archetype INTO real_archetype
+              FROM public.agent_realizations r
+              JOIN public.agent_instances i ON i.id = r.instance_id
+              JOIN public.agent_versions v ON v.id = i.version_id
+              JOIN public.agent_blueprints b ON b.id = v.blueprint_id
+             WHERE r.id = NEW.realization_id;
+            IF real_archetype IS NULL OR real_archetype <> NEW.archetype THEN
+                RAISE EXCEPTION 'qualification_runs: archetype must match the realization blueprint archetype';
+            END IF;
+            RETURN NEW;
+        END
+        $fn$
+        """
+    )
+    op.execute(
+        "CREATE TRIGGER qualification_runs_snapshot_guard BEFORE INSERT ON public.qualification_runs "
+        "FOR EACH ROW EXECUTE FUNCTION public.qualification_runs_snapshot_guard()"
+    )
+
     # --- append-only block triggers + RLS + grants (tenant tables) ---------------
     for table in _TENANT:
         _append_only_block(table)
@@ -480,6 +532,10 @@ def downgrade() -> None:
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
         op.execute(f"DROP TRIGGER IF EXISTS {table}_verify ON public.{table}")
         op.execute(f"DROP FUNCTION IF EXISTS public.{table}_verify_trg()")
+    op.execute(
+        "DROP TRIGGER IF EXISTS qualification_runs_snapshot_guard ON public.qualification_runs"
+    )
+    op.execute("DROP FUNCTION IF EXISTS public.qualification_runs_snapshot_guard()")
     op.execute("DROP FUNCTION IF EXISTS public.verify_qualification_run_counts(uuid)")
     op.execute("DROP FUNCTION IF EXISTS public.archetype_evals_block_dml()")
     op.execute("DROP FUNCTION IF EXISTS public.qualification_case_results_block_dml()")

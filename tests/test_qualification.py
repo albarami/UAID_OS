@@ -202,7 +202,16 @@ async def qual_ctx(admin_engine):
         be = await _scalar(
             c, "SELECT id FROM archetype_evals WHERE archetype='builder' AND eval_version='v1'"
         )
-    return {"t1": t1, "t2": t2, "p1": p1, "px": px, "inst1": inst1, "real1": real1, "builder_eval": be, "sfx": sfx}
+    return {
+        "t1": t1,
+        "t2": t2,
+        "p1": p1,
+        "px": px,
+        "inst1": inst1,
+        "real1": real1,
+        "builder_eval": be,
+        "sfx": sfx,
+    }
 
 
 async def _insert_run(
@@ -571,7 +580,9 @@ async def test_broker_reaches_downstream_when_qualified(qual_ctx):
 async def test_qualify_is_bit_stable_for_a5(qual_ctx):
     ctx = TenantContext(qual_ctx["t1"])
     async with tenant_scope(ctx) as session:
-        before = (await ProductionAutonomyRepository(session, ctx).evaluate(qual_ctx["p1"])).to_dict()
+        before = (
+            await ProductionAutonomyRepository(session, ctx).evaluate(qual_ctx["p1"])
+        ).to_dict()
     async with tenant_scope(ctx) as session:
         repo = QualificationRepository(session, ctx)
         run = await repo.record_qualification_run(
@@ -583,6 +594,148 @@ async def test_qualify_is_bit_stable_for_a5(qual_ctx):
         await _approve_both(session, ctx, appr)
         await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
     async with tenant_scope(ctx) as session:
-        after = (await ProductionAutonomyRepository(session, ctx).evaluate(qual_ctx["p1"])).to_dict()
+        after = (
+            await ProductionAutonomyRepository(session, ctx).evaluate(qual_ctx["p1"])
+        ).to_dict()
     assert before == after  # qualification touched NO A5 gate — bit-stable
     assert before["a5_satisfied"] is False and before["can_go_live_autonomously"] is False
+
+
+# --- DB-backed: B1 snapshot/archetype integrity + B2 library CHECKs + B3 approval binding ---
+
+_ALL5 = '["positive", "negative", "edge", "adversarial", "incomplete"]'
+
+
+async def _raw_run(conn, ctx, *, eval_id, archetype, min_score, zero_crit, min_cases, req_cats):
+    await conn.execute(
+        text(
+            "INSERT INTO qualification_runs (tenant_id, project_id, realization_id, archetype_eval_id, archetype, "
+            "eval_version, min_aggregate_score, require_zero_critical, min_cases, required_categories, total_cases, "
+            "passed_cases, critical_failure_count, coverage_complete, evaluated_by) "
+            "VALUES (:t,:p,:r,:e,:arch,'v1',:ms,:zc,:mc,CAST(:rc AS jsonb),5,5,0,true,'x')"
+        ),
+        {
+            "t": str(ctx["t1"]),
+            "p": str(ctx["p1"]),
+            "r": str(ctx["real1"]),
+            "e": str(eval_id),
+            "arch": archetype,
+            "ms": min_score,
+            "zc": zero_crit,
+            "mc": min_cases,
+            "rc": req_cats,
+        },
+    )
+
+
+@pytest.mark.db
+async def test_db_snapshot_guard_rejects_fakes(admin_engine, qual_ctx):
+    # B1 — direct SQL cannot fake a pass by weakening the snapshot or using a wrong-archetype eval.
+    be = qual_ctx["builder_eval"]
+    async with admin_engine.connect() as c:
+        reviewer_eval = await _scalar(
+            c, "SELECT id FROM archetype_evals WHERE archetype='reviewer' AND eval_version='v1'"
+        )
+    fakes = [
+        dict(
+            eval_id=be,
+            archetype="builder",
+            min_score=0.0,
+            zero_crit=True,
+            min_cases=5,
+            req_cats=_ALL5,
+        ),  # weak threshold
+        dict(
+            eval_id=be,
+            archetype="builder",
+            min_score=0.850,
+            zero_crit=False,
+            min_cases=5,
+            req_cats=_ALL5,
+        ),  # zero-critical off
+        dict(
+            eval_id=be,
+            archetype="builder",
+            min_score=0.850,
+            zero_crit=True,
+            min_cases=1,
+            req_cats=_ALL5,
+        ),  # weak min_cases
+        dict(
+            eval_id=be,
+            archetype="builder",
+            min_score=0.850,
+            zero_crit=True,
+            min_cases=5,
+            req_cats='["positive"]',
+        ),  # shrunk categories
+        dict(
+            eval_id=reviewer_eval,
+            archetype="reviewer",
+            min_score=0.900,
+            zero_crit=True,
+            min_cases=5,
+            req_cats=_ALL5,
+        ),  # wrong archetype (realization is builder)
+    ]
+    for fake in fakes:
+        with pytest.raises(Exception, match="snapshot columns must equal|archetype must match"):
+            async with admin_engine.begin() as c:
+                await _raw_run(c, qual_ctx, **fake)
+
+
+@pytest.mark.db
+async def test_db_library_checks_reject_bad_required_categories(admin_engine):
+    # B2 — required_categories must be a non-empty array of valid categories.
+    for rc in ('["bogus"]', "[]", '"notarray"'):
+        with pytest.raises(Exception, match="check constraint|violates"):
+            async with admin_engine.begin() as c:
+                await c.execute(
+                    text(
+                        "INSERT INTO archetype_evals (archetype, eval_version, representative_task_set, gold_answer_source, "
+                        "scoring_rubric, min_aggregate_score, require_zero_critical, min_cases, required_categories, refresh_policy) "
+                        "VALUES ('builder','vCHK','[]'::jsonb,'[]'::jsonb,'[]'::jsonb,0.5,true,5,CAST(:rc AS jsonb),'never')"
+                    ),
+                    {"rc": rc},
+                )
+
+
+@pytest.mark.db
+async def test_b7_realization_scoped_approval_does_not_satisfy(qual_ctx):
+    # B7 — old realization-scoped subjects (pre-run-binding) must NOT satisfy a run-scoped qualify.
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        approvals = ApprovalRepository(session, ctx)
+        for role in ("qa", "security"):
+            a = await approvals.request(
+                project_id=qual_ctx["p1"],
+                action=f"qualify_agent_{role}",
+                risk_tier="high",
+                requires_explicit_approval=True,
+                requested_by="u",
+                subject_ref=f"agent_realization:{qual_ctx['real1']}:qualification:{role}",  # NO run_id
+            )
+            await approvals.approve(approval_id=a.id, actor=f"{role}_reviewer")
+        with pytest.raises(Exception, match="sign-off for THIS run"):
+            await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
+
+
+@pytest.mark.db
+async def test_b7_arbitrary_run_approval_does_not_satisfy(qual_ctx):
+    # B7 — approvals opened for an arbitrary/earlier run id must NOT satisfy a later real run.
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        appr = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=uuid.uuid4(), requested_by="u"
+        )
+        await _approve_both(session, ctx, appr)
+        with pytest.raises(Exception, match="sign-off for THIS run"):
+            await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
