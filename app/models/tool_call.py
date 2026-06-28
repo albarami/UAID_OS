@@ -28,6 +28,9 @@ _DECISIONS = (
     "denied_invalid_params",
     "denied_not_allowlisted",
     "denied_policy",
+    # Slice 39 — broker↔instance wiring (agent identity + qualification gates).
+    "denied_unknown_agent",
+    "denied_unqualified_agent",
 )
 
 

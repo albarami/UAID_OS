@@ -29,7 +29,7 @@ from app.release.project_repo import (
 )
 from app.repositories.pm_issues import PMIssueMappingRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "pm.read_issues"
@@ -61,12 +61,12 @@ async def sync_pm_issues(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: IssueTrackerConnector,
 ) -> PMSyncResult:
     """Broker-gated, declared-project-bound PM sync. Writes one ``connector_verified`` mapping per
-    safely-observed issue (idempotent latest-wins); fail-closed (no write) for unbound / broker-deny."""
+    safely-observed issue (idempotent latest-wins); fail-closed (no write) for unbound / broker-deny. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     resolved = await resolve_declared_pm_project(session, context, project_id)
     if resolved is None:
         await _audit_failure(session, actor, project_id, "pm_unbound")
@@ -79,11 +79,11 @@ async def sync_pm_issues(
         await _audit_failure(session, actor, project_id, "credential_unbound")
         return PMSyncResult(wrote=0, observed=0, skipped=0, reason="credential_unbound")
 
-    decision = await broker_call(
+    decision = await broker_call_service(
         session,
         context,
         project_id=project_id,
-        agent_id=agent_id,
+        service_id=agent_id,
         tool_name=_TOOL,
         params={"provider": "jira", "project_present": True},
     )

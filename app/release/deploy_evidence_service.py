@@ -24,7 +24,7 @@ from app.release.deploy_evidence import DeploySSRFRejected
 from app.release.project_repo import resolve_declared_production_target
 from app.repositories.deployments import DeploymentTargetRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "deployment.read_target_status"
@@ -56,12 +56,12 @@ async def refresh_deployment_target_evidence(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: DeployTargetConnector,
 ) -> RefreshResult:
     """Broker-gated, target-bound, SSRF-safe deployment-target refresh. Writes a ``connector_verified``
-    snapshot for every safely-attempted outcome; fail-closed (no write) only for unbound/deny/ssrf."""
+    snapshot for every safely-attempted outcome; fail-closed (no write) only for unbound/deny/ssrf. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     # 1. Resolve the project's OWN declared production target (fail-closed).
     host = await resolve_declared_production_target(session, context, project_id)
     if host is None:
@@ -69,11 +69,11 @@ async def refresh_deployment_target_evidence(
         return RefreshResult(False, "target_unbound")
 
     # 2. Broker decision — SAFE params only (no raw domain/target_ref).
-    decision = await broker_call(
+    decision = await broker_call_service(
         session,
         context,
         project_id=project_id,
-        agent_id=agent_id,
+        service_id=agent_id,
         tool_name=_TOOL,
         params={"provider": "generic_https", "environment": "production", "target_present": True},
     )

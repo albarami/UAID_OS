@@ -20,7 +20,7 @@ from app.release.project_repo import has_declared_credential, resolve_declared_r
 from app.release.scm_connector import SCMConnector, SCMConnectorError
 from app.repositories.ci_evidence import CIEvidenceRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "source_control.read_branch_protection"
@@ -52,12 +52,12 @@ async def refresh_branch_protection(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: SCMConnector,
 ) -> RefreshResult:
     """Broker-gated, repo-bound branch-protection refresh. Returns a ``RefreshResult``; writes a
-    ``connector_verified`` snapshot only on a clean verified fetch."""
+    ``connector_verified`` snapshot only on a clean verified fetch. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     # 1. Resolve the project's OWN declared repo + credential source (fail-closed).
     resolved = await resolve_declared_repo(session, context, project_id)
     if resolved is None:
@@ -69,11 +69,11 @@ async def refresh_branch_protection(
         return RefreshResult(False, "credential_unbound")
 
     # 2. Broker decision — SAFE params only (no raw repo_ref enters tool_calls.params).
-    decision = await broker_call(
+    decision = await broker_call_service(
         session,
         context,
         project_id=project_id,
-        agent_id=agent_id,
+        service_id=agent_id,
         tool_name=_TOOL,
         params={"provider": "github", "branch": branch, "repo_ref_present": True},
     )

@@ -24,7 +24,7 @@ from app.release.project_repo import has_declared_credential, resolve_declared_r
 from app.release.scm_connector import SCMConnector, SCMConnectorError
 from app.repositories.pr_evidence import PullRequestEvidenceRepository
 from app.tenancy import TenantContext
-from app.tools.broker import BrokerDecision, broker_call
+from app.tools.broker import BrokerDecision, broker_call_service
 
 _ALLOWED = (BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY,)
 _TOOL = "source_control.read_pull_request"
@@ -57,14 +57,14 @@ async def refresh_pull_request_evidence(
     *,
     project_id: uuid.UUID,
     pr_number: int,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: SCMConnector,
     presence_flags: dict | None = None,
     traceability_refs: dict | None = None,
 ) -> RefreshResult:
     """Broker-gated, repo-bound PR-evidence refresh. Writes a ``connector_verified`` snapshot only on a
-    clean verified fetch; every failure path is fail-closed + audited (safe metadata only)."""
+    clean verified fetch; every failure path is fail-closed + audited (safe metadata only). The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     # 1. Resolve the project's OWN declared repo + credential source (fail-closed).
     resolved = await resolve_declared_repo(session, context, project_id)
     if resolved is None:
@@ -76,11 +76,11 @@ async def refresh_pull_request_evidence(
         return RefreshResult(False, "credential_unbound")
 
     # 2. Broker decision — SAFE params only (no raw repo_ref; pr_number is not a secret).
-    decision = await broker_call(
+    decision = await broker_call_service(
         session,
         context,
         project_id=project_id,
-        agent_id=agent_id,
+        service_id=agent_id,
         tool_name=_TOOL,
         params={"provider": "github", "pr_number": pr_number, "repo_ref_present": True},
     )
