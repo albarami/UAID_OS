@@ -24,6 +24,8 @@ from app.models.semantic_contradiction_report import SemanticContradictionReport
 from app.models.semantic_contradiction import SemanticContradiction
 from app.models.squad_matching import SquadManifestRecord, SkillMatch
 from app.models.agent_realization import AgentRealization, AgentRealizationReviewer
+from app.models.archetype_eval import ArchetypeEval
+from app.models.qualification_run import QualificationRun, QualificationCaseResult
 from app.models.extraction_promotion import ExtractionPromotion
 from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_run import ExtractionRun
@@ -92,6 +94,9 @@ __all__ = [
     "SkillMatch",
     "AgentRealization",
     "AgentRealizationReviewer",
+    "ArchetypeEval",
+    "QualificationRun",
+    "QualificationCaseResult",
     "ExtractionRun",
     "ExtractionProposal",
     "ExtractionPromotion",
