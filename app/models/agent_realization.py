@@ -50,6 +50,17 @@ class AgentRealization(Base):
         UniqueConstraint(
             "id", "project_id", "tenant_id", name="uq_agent_realizations_id_project_tenant"
         ),
+        # Slice 40: the run that qualified this realization (same project+tenant); set on transition.
+        ForeignKeyConstraint(
+            ["qualified_via_run_id", "project_id", "tenant_id"],
+            [
+                "qualification_runs.id",
+                "qualification_runs.project_id",
+                "qualification_runs.tenant_id",
+            ],
+            ondelete="RESTRICT",
+            name="qualified_run_project_tenant",
+        ),
         Index("ix_agent_realizations_instance", "tenant_id", "instance_id"),
     )
 
@@ -66,6 +77,9 @@ class AgentRealization(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")
     )
+    # Slice 40 — set on the one-way unqualified→qualified transition (migration 0039).
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    qualified_via_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
 
 class AgentRealizationReviewer(Base):
