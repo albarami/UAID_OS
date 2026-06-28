@@ -200,15 +200,17 @@ async def test_db_realization_insert_qualified_rejected(admin_engine, ar_ctx):
 
 
 @pytest.mark.db
-async def test_db_realization_no_update_or_delete(admin_engine, ar_ctx):
-    # B4 — SELECT/INSERT only.
+async def test_db_realization_no_free_update_or_delete(admin_engine, ar_ctx):
+    # B4 + Slice 40: no DELETE; no FREE UPDATE — only the guarded qualification transition is allowed
+    # (and even that needs a passing run, exercised in test_qualification.py).
     async with admin_engine.begin() as c:
         rid = await _realize(c, ar_ctx)
-    for sql in (
-        "UPDATE agent_realizations SET qualification_status='qualified' WHERE id=:i",
-        "DELETE FROM agent_realizations WHERE id=:i",
+    for sql, match in (
+        ("UPDATE agent_realizations SET realized_by='x' WHERE id=:i", "transition"),  # non-transition mutation
+        ("UPDATE agent_realizations SET qualification_status='qualified' WHERE id=:i", "qualified_via_run_id"),  # qualify w/o a run
+        ("DELETE FROM agent_realizations WHERE id=:i", "append-only"),
     ):
-        with pytest.raises(Exception, match="append-only"):
+        with pytest.raises(Exception, match=match):
             async with admin_engine.begin() as c:
                 await c.execute(text(sql), {"i": str(rid)})
 

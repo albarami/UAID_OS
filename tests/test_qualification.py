@@ -16,6 +16,14 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
+from app.policy.levels import AutonomyLevel as L
+from app.repositories.approvals import ApprovalRepository
+from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.production_autonomy import ProductionAutonomyRepository
+from app.repositories.qualification import QualificationRepository
+from app.repositories.tools import ToolAllowlistRepository
+from app.tenancy import TenantContext, tenant_scope
+from app.tools.broker import BrokerDecision, broker_call
 from app.agents.qualification import (
     CASE_CATEGORIES,
     QUALIFICATION_ARCHETYPES,
@@ -194,7 +202,7 @@ async def qual_ctx(admin_engine):
         be = await _scalar(
             c, "SELECT id FROM archetype_evals WHERE archetype='builder' AND eval_version='v1'"
         )
-    return {"t1": t1, "t2": t2, "p1": p1, "px": px, "real1": real1, "builder_eval": be, "sfx": sfx}
+    return {"t1": t1, "t2": t2, "p1": p1, "px": px, "inst1": inst1, "real1": real1, "builder_eval": be, "sfx": sfx}
 
 
 async def _insert_run(
@@ -415,3 +423,166 @@ async def test_db_transition_passing_run_backstop(admin_engine, qual_ctx):
             r=str(qual_ctx["real1"]),
         )
     assert status == "qualified"
+
+
+# --- DB-backed: repository (record / approvals / qualify) + broker reach -------
+
+_PASS_CASE_DICTS = [
+    {"case_ref": f"c{i}", "case_category": cat, "passed": True, "is_critical": False}
+    for i, cat in enumerate(CASE_CATEGORIES)
+]
+
+
+async def _approve_both(session, ctx, appr):
+    approvals = ApprovalRepository(session, ctx)
+    for role in ("qa", "security"):
+        await approvals.approve(approval_id=appr[role].id, actor=f"{role}_reviewer")
+
+
+@pytest.mark.db
+async def test_record_and_qualify_happy_path(qual_ctx):
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="evaluator"
+        )
+        assert run.verdict == "passed"
+        appr = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=run.id, requested_by="u"
+        )
+        await _approve_both(session, ctx, appr)
+        await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
+        assert await repo.is_qualified(qual_ctx["real1"]) is True
+
+
+@pytest.mark.db
+async def test_qualify_needs_both_approvals(qual_ctx):
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        appr = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=run.id, requested_by="u"
+        )
+        await ApprovalRepository(session, ctx).approve(
+            approval_id=appr["qa"].id, actor="qa_reviewer"
+        )  # only QA
+        with pytest.raises(Exception, match="security sign-off"):
+            await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
+
+
+@pytest.mark.db
+async def test_qualify_needs_passing_run(qual_ctx):
+    fail_cases = [
+        {"case_ref": f"c{i}", "case_category": c, "passed": p, "is_critical": False}
+        for i, (c, p) in enumerate(zip(CASE_CATEGORIES, [True, True, True, False, False]))
+    ]
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=fail_cases, evaluated_by="e"
+        )
+        assert run.verdict == "failed"
+        appr = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=run.id, requested_by="u"
+        )
+        await _approve_both(session, ctx, appr)
+        with pytest.raises(Exception, match="passing qualification run"):
+            await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
+
+
+@pytest.mark.db
+async def test_b7_cross_run_approval_does_not_satisfy(qual_ctx):
+    # B7 — approvals APPROVED for run A must NOT qualify a later run B (run_id is in the subject ref).
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run_a = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        appr_a = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=run_a.id, requested_by="u"
+        )
+        await _approve_both(session, ctx, appr_a)
+        run_b = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        with pytest.raises(Exception, match="sign-off for THIS run"):
+            await repo.qualify(
+                realization_id=qual_ctx["real1"], run_id=run_b.id, qualified_by="boss"
+            )
+
+
+@pytest.mark.db
+async def test_broker_reaches_downstream_when_qualified(qual_ctx):
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        d0 = await broker_call(
+            session,
+            ctx,
+            project_id=qual_ctx["p1"],
+            agent_id=str(qual_ctx["inst1"]),
+            tool_name="ci.run_tests",
+        )
+    assert d0 is BrokerDecision.DENIED_UNQUALIFIED_AGENT  # unqualified ⇒ denied (regression)
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        appr = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=run.id, requested_by="u"
+        )
+        await _approve_both(session, ctx, appr)
+        await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=qual_ctx["p1"], autonomy_level=int(L.A2), actor="t"
+        )
+    # qualified but NOT allowlisted ⇒ REACHES the allowlist gate ⇒ DENIED_NOT_ALLOWLISTED
+    async with tenant_scope(ctx) as session:
+        d1 = await broker_call(
+            session,
+            ctx,
+            project_id=qual_ctx["p1"],
+            agent_id=str(qual_ctx["inst1"]),
+            tool_name="ci.run_tests",
+        )
+    assert d1 is BrokerDecision.DENIED_NOT_ALLOWLISTED
+    # qualified + allowlisted + permissive ⇒ ALLOWED_UNVERIFIED_IDENTITY (the reach, never execution)
+    async with tenant_scope(ctx) as session:
+        await ToolAllowlistRepository(session, ctx).grant(
+            agent_id=str(qual_ctx["inst1"]), tool_name="ci.run_tests", actor="admin"
+        )
+        d2 = await broker_call(
+            session,
+            ctx,
+            project_id=qual_ctx["p1"],
+            agent_id=str(qual_ctx["inst1"]),
+            tool_name="ci.run_tests",
+        )
+    assert d2 is BrokerDecision.ALLOWED_UNVERIFIED_IDENTITY
+
+
+@pytest.mark.db
+async def test_qualify_is_bit_stable_for_a5(qual_ctx):
+    ctx = TenantContext(qual_ctx["t1"])
+    async with tenant_scope(ctx) as session:
+        before = (await ProductionAutonomyRepository(session, ctx).evaluate(qual_ctx["p1"])).to_dict()
+    async with tenant_scope(ctx) as session:
+        repo = QualificationRepository(session, ctx)
+        run = await repo.record_qualification_run(
+            realization_id=qual_ctx["real1"], cases=_PASS_CASE_DICTS, evaluated_by="e"
+        )
+        appr = await repo.request_qualification_approvals(
+            realization_id=qual_ctx["real1"], run_id=run.id, requested_by="u"
+        )
+        await _approve_both(session, ctx, appr)
+        await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
+    async with tenant_scope(ctx) as session:
+        after = (await ProductionAutonomyRepository(session, ctx).evaluate(qual_ctx["p1"])).to_dict()
+    assert before == after  # qualification touched NO A5 gate — bit-stable
+    assert before["a5_satisfied"] is False and before["can_go_live_autonomously"] is False
