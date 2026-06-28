@@ -36,26 +36,42 @@ def test_qualification_status_constants():
 
 
 def test_validate_realization_request_ok():
+    # known tools (in the broker registry) + a non-empty reviewer list.
     validate_realization_request(
         instance_key="backend_api_v2",
-        tool_allowlist=["read_project_docs", "run_unit_tests"],
+        tool_allowlist=["ci.run_tests", "pm.create_issue"],
         reviewer_blueprint_ids=["11111111-1111-1111-1111-111111111111"],
     )  # no raise
 
 
 def test_validate_realization_request_rejects_bad_inputs():
+    ok_tools = ["ci.run_tests"]
+    ok_revs = ["11111111-1111-1111-1111-111111111111"]
     bad = [
-        dict(instance_key="", tool_allowlist=[], reviewer_blueprint_ids=[]),  # empty key
-        dict(instance_key="bad key!", tool_allowlist=[], reviewer_blueprint_ids=[]),  # key shape
+        dict(instance_key="", tool_allowlist=ok_tools, reviewer_blueprint_ids=ok_revs),  # empty key
         dict(
-            instance_key="k", tool_allowlist=["x"] * 65, reviewer_blueprint_ids=[]
-        ),  # too many tools
-        dict(instance_key="k", tool_allowlist=[""], reviewer_blueprint_ids=[]),  # empty tool name
+            instance_key="bad key!", tool_allowlist=ok_tools, reviewer_blueprint_ids=ok_revs
+        ),  # key shape
         dict(
-            instance_key="k", tool_allowlist=[], reviewer_blueprint_ids=["a"] * 17
-        ),  # too many reviewers
+            instance_key="k", tool_allowlist=[], reviewer_blueprint_ids=ok_revs
+        ),  # EMPTY tool list
         dict(
-            instance_key="k", tool_allowlist=[], reviewer_blueprint_ids=["not-a-uuid"]
+            instance_key="k", tool_allowlist=["ci.run_tests"] * 65, reviewer_blueprint_ids=ok_revs
+        ),  # too many
+        dict(
+            instance_key="k", tool_allowlist=["not.a_real_tool"], reviewer_blueprint_ids=ok_revs
+        ),  # UNKNOWN tool
+        dict(
+            instance_key="k", tool_allowlist=[""], reviewer_blueprint_ids=ok_revs
+        ),  # empty tool name
+        dict(
+            instance_key="k", tool_allowlist=ok_tools, reviewer_blueprint_ids=[]
+        ),  # EMPTY reviewer list
+        dict(
+            instance_key="k", tool_allowlist=ok_tools, reviewer_blueprint_ids=["a"] * 17
+        ),  # too many revs
+        dict(
+            instance_key="k", tool_allowlist=ok_tools, reviewer_blueprint_ids=["not-a-uuid"]
         ),  # bad uuid
     ]
     for kwargs in bad:
@@ -265,6 +281,22 @@ async def test_db_realization_rls_cross_tenant(rls_engine, ar_ctx):
 
 
 @pytest.mark.db
+async def test_db_realization_uaid_app_lacks_update_delete_grant(rls_engine, ar_ctx):
+    # B3 — the RUNTIME role uaid_app has SELECT/INSERT only (migration GRANTs); UPDATE/DELETE are
+    # denied at the PRIVILEGE layer — distinct from the append-only trigger (which blocks even admin).
+    for table in ("agent_realizations", "agent_realization_reviewers"):
+        for sql in (f"UPDATE {table} SET tenant_id = tenant_id", f"DELETE FROM {table}"):
+            with pytest.raises(Exception, match="permission denied"):
+                async with rls_engine.connect() as conn:
+                    await conn.execute(
+                        text("SELECT set_config('app.current_tenant', :t, false)"),
+                        {"t": str(ar_ctx["t1"])},
+                    )
+                    await conn.execute(text(sql))
+                    await conn.commit()
+
+
+@pytest.mark.db
 async def test_db_tool_call_new_decisions_persist(admin_engine, ar_ctx):
     # B2 — ck_tool_calls_decision_valid now admits the two Slice-39 decisions.
     async with admin_engine.begin() as c:
@@ -290,7 +322,7 @@ async def test_realize_creates_instance_realization_reviewers_and_allowlist(ar_c
             project_id=ar_ctx["p1"],
             version_id=ar_ctx["ver1"],
             instance_key=f"real{ar_ctx['sfx']}",
-            tool_allowlist=["read_project_docs", "run_unit_tests"],
+            tool_allowlist=["ci.run_tests", "pm.create_issue"],
             reviewer_blueprint_ids=[ar_ctx["bp_reviewer"]],
             realized_by="planner",
         )
@@ -299,8 +331,8 @@ async def test_realize_creates_instance_realization_reviewers_and_allowlist(ar_c
         assert len(await repo.reviewers_of(real.id)) == 1
         # the tool allowlist is INSTANCE-scoped (keyed by the instance id)
         allow = ToolAllowlistRepository(session, ctx)
-        assert await allow.is_allowed(str(real.instance_id), "read_project_docs") is True
-        assert await allow.is_allowed(str(real.instance_id), "deploy_production") is False
+        assert await allow.is_allowed(str(real.instance_id), "ci.run_tests") is True
+        assert await allow.is_allowed(str(real.instance_id), "ci.deploy_production") is False
 
 
 @pytest.mark.db
@@ -313,7 +345,7 @@ async def test_realize_self_review_refused(ar_ctx):
                 project_id=ar_ctx["p1"],
                 version_id=ar_ctx["ver1"],
                 instance_key=f"self{ar_ctx['sfx']}",
-                tool_allowlist=[],
+                tool_allowlist=["ci.run_tests"],
                 reviewer_blueprint_ids=[ar_ctx["bp_builder"]],
                 realized_by="planner",
             )

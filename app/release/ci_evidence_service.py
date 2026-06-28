@@ -52,12 +52,12 @@ async def refresh_branch_protection(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: SCMConnector,
 ) -> RefreshResult:
     """Broker-gated, repo-bound branch-protection refresh. Returns a ``RefreshResult``; writes a
-    ``connector_verified`` snapshot only on a clean verified fetch."""
+    ``connector_verified`` snapshot only on a clean verified fetch. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     # 1. Resolve the project's OWN declared repo + credential source (fail-closed).
     resolved = await resolve_declared_repo(session, context, project_id)
     if resolved is None:

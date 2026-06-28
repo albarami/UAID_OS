@@ -35,19 +35,30 @@ def validate_realization_request(
     tool_allowlist,
     reviewer_blueprint_ids,
 ) -> None:
-    """Validate the SHAPE/bounds of a realization request (fail closed). The broker validates each
-    granted tool at call time (``DENIED_UNKNOWN_TOOL``), so an unknown granted tool is inert."""
+    """Validate a realization request, fail closed: non-empty tool_allowlist of KNOWN tools (each in
+    the broker registry — ``get_contract`` not None), non-empty reviewer_blueprint_ids of valid UUIDs,
+    a well-formed instance_key, all bounded."""
+    # Lazy import: the broker registry pulls in the app.tools package (→ broker → agent_realizations →
+    # factory), so a module-level import would cycle. By call time factory is fully initialized.
+    from app.tools.registry import get_contract
+
     if not isinstance(instance_key, str) or not INSTANCE_KEY_RE.match(instance_key):
         raise ValueError(f"invalid instance_key: {instance_key!r}")
 
     tools = list(tool_allowlist)
+    if not tools:
+        raise ValueError("tool_allowlist must be non-empty")
     if len(tools) > MAX_TOOLS_PER_REALIZATION:
         raise ValueError(f"too many tools (> {MAX_TOOLS_PER_REALIZATION})")
     for t in tools:
         if not isinstance(t, str) or not (1 <= len(t) <= MAX_TOOL_NAME_CHARS):
             raise ValueError(f"invalid tool name: {t!r}")
+        if get_contract(t) is None:
+            raise ValueError(f"unknown tool (not in the broker registry): {t!r}")
 
     reviewers = list(reviewer_blueprint_ids)
+    if not reviewers:
+        raise ValueError("reviewer_blueprint_ids must be non-empty")
     if len(reviewers) > MAX_REVIEWERS_PER_REALIZATION:
         raise ValueError(f"too many reviewers (> {MAX_REVIEWERS_PER_REALIZATION})")
     for r in reviewers:

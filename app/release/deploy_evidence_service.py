@@ -56,12 +56,12 @@ async def refresh_deployment_target_evidence(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: DeployTargetConnector,
 ) -> RefreshResult:
     """Broker-gated, target-bound, SSRF-safe deployment-target refresh. Writes a ``connector_verified``
-    snapshot for every safely-attempted outcome; fail-closed (no write) only for unbound/deny/ssrf."""
+    snapshot for every safely-attempted outcome; fail-closed (no write) only for unbound/deny/ssrf. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     # 1. Resolve the project's OWN declared production target (fail-closed).
     host = await resolve_declared_production_target(session, context, project_id)
     if host is None:

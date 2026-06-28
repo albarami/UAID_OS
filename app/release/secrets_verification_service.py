@@ -57,12 +57,12 @@ async def refresh_secret_reference_evidence(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: SecretsManagerConnector,
 ) -> SecretRefRefreshResult:
     """Broker-gated, per-reference secrets verification. Writes one ``connector_verified`` row per
-    safely-verified reference; fail-closed (no write) for unbound / broker-deny."""
+    safely-verified reference; fail-closed (no write) for unbound / broker-deny. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     refs = await resolve_declared_secret_references(session, context, project_id)
     if not refs:
         await _audit_failure(session, actor, project_id, "secrets_unbound")

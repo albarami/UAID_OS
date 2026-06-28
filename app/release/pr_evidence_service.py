@@ -57,14 +57,14 @@ async def refresh_pull_request_evidence(
     *,
     project_id: uuid.UUID,
     pr_number: int,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: SCMConnector,
     presence_flags: dict | None = None,
     traceability_refs: dict | None = None,
 ) -> RefreshResult:
     """Broker-gated, repo-bound PR-evidence refresh. Writes a ``connector_verified`` snapshot only on a
-    clean verified fetch; every failure path is fail-closed + audited (safe metadata only)."""
+    clean verified fetch; every failure path is fail-closed + audited (safe metadata only). The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     # 1. Resolve the project's OWN declared repo + credential source (fail-closed).
     resolved = await resolve_declared_repo(session, context, project_id)
     if resolved is None:

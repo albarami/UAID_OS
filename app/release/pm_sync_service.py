@@ -61,12 +61,12 @@ async def sync_pm_issues(
     context: TenantContext,
     *,
     project_id: uuid.UUID,
-    agent_id: str,
+    agent_id: str,  # legacy backward-compatible param: a platform-SERVICE identity (not an agent), routed to broker_call_service
     actor: str,
     connector: IssueTrackerConnector,
 ) -> PMSyncResult:
     """Broker-gated, declared-project-bound PM sync. Writes one ``connector_verified`` mapping per
-    safely-observed issue (idempotent latest-wins); fail-closed (no write) for unbound / broker-deny."""
+    safely-observed issue (idempotent latest-wins); fail-closed (no write) for unbound / broker-deny. The legacy ``agent_id`` parameter is a platform-SERVICE identity (not an agent)."""
     resolved = await resolve_declared_pm_project(session, context, project_id)
     if resolved is None:
         await _audit_failure(session, actor, project_id, "pm_unbound")
