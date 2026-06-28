@@ -387,6 +387,32 @@ qualification/authorization.** No distinct capable reviewer ⇒ `reviewer_availa
 UNTOUCHED, ruleset stays `slice31.v1`, bit-stable; flips NO A5 gate** (foundational — supplies the Phase-5 staffing);
 deterministic (no LLM), Postgres-only (no Neo4j/graph DB); go-live false. Migration `0037` purely additive (5 new
 tables; reuses `agent_blueprints`). merged via PR #65 (commit `ae3ea90`).**
+**Slice 39 adds agent realization + factory workflow + the broker↔instance wiring (`app/agents/factory.py`
+[pure: `QUALIFICATION_STATUSES`, `validate_realization_request` — fail-closed non-empty + **KNOWN-tool**
+(`get_contract`, lazy import to dodge the `app.tools` package cycle) bounded `tool_allowlist` +
+`reviewer_blueprint_ids`], `app/repositories/agent_realizations.py` [`AgentRealizationRepository.realize` +
+`for_instance`/`for_project`/`reviewers_of`], `app/models/agent_realization.py` [`AgentRealization` +
+`AgentRealizationReviewer`], migration `0038`, §9.1-9.4/§26.4) — the §9.4 **bind+register** half (steps 5-7
+eval/dry-qualify/QA = Slice 40). The **tenant-only** factory (B1 — **NO global registry writes**;
+blueprint/version registration stays an admin-path precondition) realizes an **already-registered**
+`version_id` into a Slice-6 instance (reusing `instantiate`) + an **instance-scoped** tool allowlist
+(`agent_tool_allowlist` keyed by `str(instance.id)`) + FK-backed reviewers (the DB self-review guard resolves
+the **ACTUAL** blueprint via `instance→version`, §2.2/B3 — no denormalized blueprint) + an inert
+`agent_realizations` record stamped **`unqualified`** (B4 — the only INSERT-able value; the `qualified`
+transition is Slice 40). The tool broker splits into **two fail-closed entry points** sharing one pipeline:
+**`broker_call`** (the AGENT path — resolves a real **SAME-PROJECT** instance [`DENIED_UNKNOWN_AGENT` on
+free-string / cross-project / unknown / inactive, B7] then the **always-firing** qualification gate
+[`DENIED_UNQUALIFIED_AGENT`; qualification is Slice 40] before allowlist/policy/approval) and
+**`broker_call_service`** (the PLATFORM-SERVICE path — the **6 release connectors** [ci/deploy/secrets/pr/
+monitoring/pm], `service_id` is a service identity not an agent; **skips** the agent identity+qualification
+gates, **keeps** sanitize→known-tool→allowlist→policy→approval). `ToolCall._DECISIONS` +
+`ck_tool_calls_decision_valid` 7→9 (B2); `agent_instances` gains additive `UNIQUE(id,project,tenant)` (B6).
+**Honesty: every realization is `unqualified` ⇒ the agent qualification gate ALWAYS denies ⇒ NO new tool
+authority is unlocked** (success stays `ALLOWED_UNVERIFIED_IDENTITY`; Slice-27 approval still unwired).
+**STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py` UNTOUCHED, ruleset stays `slice31.v1`,
+bit-stable; flips NO A5 gate**; go-live false. Migration `0038` additive; `agent_realizations` +
+`agent_realization_reviewers` are tenant-owned, RLS ENABLE+FORCE, **SELECT/INSERT-only** (`uaid_app` has no
+UPDATE/DELETE grant — the privilege layer, distinct from the append-only triggers). merged via PR #67 (commit `9ea4f90`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1029,11 +1055,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 695 passing (Docker-free); `make test-db` → 665 passing (DB-backed: tenancy,
+  **`make test` → 698 passing (Docker-free); `make test-db` → 679 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1136,8 +1162,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 695 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 665 passing
+make test                                  # Docker-free tests (no services) — 698 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 679 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -1198,8 +1224,12 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   global **immutable** `agent_versions` (full §22.2 hash snapshot; UPDATE/DELETE/TRUNCATE blocked by
   trigger — *DML-immutable, not tamper-proof vs. a DB superuser*), tenant-scoped RLS `agent_instances`
   (triple FK pins run→project→tenant; binding columns immutable; `active_run_id` set-once; one live
-  binding per role handle). **Skeleton: no Agent Factory / qualification-eval execution / model routing /
-  agent execution; the broker `agent_id` is NOT wired to instances yet; global registration is not
+  binding per role handle). **Slice 39** adds the tenant-only **realization factory**
+  (`AgentRealizationRepository.realize` — instance + instance-scoped allowlist + FK reviewers + an inert
+  `unqualified` `agent_realizations` record) and **wires the broker agent path** (`broker_call` resolves
+  `agent_id`→a real same-project instance + a qualification gate that always denies until Slice 40).
+  **Skeleton: no qualification-eval execution (Slice 40) / model routing / agent execution; the agent
+  broker path grants NO authority yet (every realization `unqualified`); global registration is not
   audited (tenant-GUC-derived audit; platform-event audit deferred); component hashes are opaque
   caller-supplied inputs (the Factory that generates the artifacts is Phase 4).**
 - Cost ledger (§19): **present (Slice 7)** — tenant-owned **immutable** `cost_events`
