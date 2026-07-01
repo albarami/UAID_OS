@@ -5,6 +5,7 @@ populated (Alembic autogenerate and the test schema build both depend on this).
 """
 
 from app.models.agent_blueprint import AgentBlueprint
+from app.models.agent_failure_event import AgentFailureEvent
 from app.models.agent_instance import AgentInstance
 from app.models.agent_tool_allowlist import AgentToolAllowlist
 from app.models.agent_version import AgentVersion
@@ -73,6 +74,7 @@ __all__ = [
     "AgentBlueprint",
     "AgentVersion",
     "AgentInstance",
+    "AgentFailureEvent",
     "CostEvent",
     "Budget",
     "BranchProtectionSnapshot",
