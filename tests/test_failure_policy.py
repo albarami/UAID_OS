@@ -175,6 +175,8 @@ def test_validate_failure_event_ok():
             detail="d" * MAX_DETAIL,
         )
     )
+    # padded-but-non-blank values are legitimate — only BLANK-after-strip is refused
+    validate_failure_event(**_event(source=" ci ", summary=" padded "))
 
 
 def test_validate_failure_event_rejects_bad_inputs():
@@ -193,13 +195,26 @@ def test_validate_failure_event_rejects_bad_inputs():
         _event(reported_by=""),
         _event(reported_by="r" * (MAX_REPORTED_BY + 1)),
         _event(reported_by=None),
-        _event(evidence_ref=""),  # optional fields: None or a bounded non-empty str
+        _event(evidence_ref=""),  # optional fields: None or a bounded non-blank str
         _event(evidence_ref="e" * (MAX_EVIDENCE_REF + 1)),
         _event(evidence_ref=9),
         _event(summary=""),
         _event(summary="m" * (MAX_SUMMARY + 1)),
         _event(detail=""),
         _event(detail="d" * (MAX_DETAIL + 1)),
+        # B1/B3 review round 1 — whitespace-only is BLANK provenance/text, refused per field
+        _event(source=" "),
+        _event(source="   "),
+        _event(source="\t"),
+        _event(source="\n"),
+        _event(reported_by=" "),
+        _event(reported_by="\t\n"),
+        _event(evidence_ref=" "),
+        _event(evidence_ref="\t"),
+        _event(summary=" "),
+        _event(summary=" \r\n "),
+        _event(detail=" "),
+        _event(detail="\x0b\x0c"),
     ]
     for kwargs in bad:
         with pytest.raises(ValueError):
@@ -382,7 +397,8 @@ async def test_db_source_provenance_locked(admin_engine, afe_ctx):
 
 @pytest.mark.db
 async def test_db_char_length_bounds_rejected(admin_engine, afe_ctx):
-    # B3 — every user text field is bounded by a DB char_length CHECK (empty + oversized).
+    # B3 — every user text field is bounded by a DB CHECK: empty, oversized, AND
+    # whitespace-only (blank-after-btrim — B1/B3 review round 1) are all refused.
     for over in (
         {"src": ""},
         {"src": "s" * (MAX_SOURCE + 1)},
@@ -394,6 +410,14 @@ async def test_db_char_length_bounds_rejected(admin_engine, afe_ctx):
         {"su": "m" * (MAX_SUMMARY + 1)},
         {"de": ""},
         {"de": "d" * (MAX_DETAIL + 1)},
+        {"src": " "},
+        {"src": "\t"},
+        {"src": "\n"},
+        {"rb": "  "},
+        {"rb": "\t\n"},
+        {"ev": " "},
+        {"su": " \r\n "},
+        {"de": "\x0b\x0c"},
     ):
         with pytest.raises(Exception, match="ck_agent_failure_events|violates check"):
             async with admin_engine.begin() as c:

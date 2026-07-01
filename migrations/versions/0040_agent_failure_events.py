@@ -8,9 +8,11 @@ Slice 41 — §9.6 agent replacement / failure policy. Purely additive: ONE new 
   * agent_failure_events (tenant, RLS ENABLE+FORCE, SELECT/INSERT only — append-only block
     triggers): REPORTED (caller-supplied, unverified) §9.6 failure-pattern classifications
     per agent instance. Declarative backstops: the 8-pattern + 4-severity enums, the B1
-    provenance CHECK locked to 'caller_supplied_unverified', B3 char_length bounds on every
-    user text field, and the composite FK (instance_id, project_id, tenant_id) →
-    agent_instances (reuses the Slice-39 uq_agent_instances_id_project_tenant target).
+    provenance CHECK locked to 'caller_supplied_unverified', B3 bounds on every user text
+    field — char_length cap AND non-BLANK (btrim over the Python str.strip() whitespace
+    set, so whitespace-only provenance/text is refused; review round 1) — and the composite
+    FK (instance_id, project_id, tenant_id) → agent_instances (reuses the Slice-39
+    uq_agent_instances_id_project_tenant target).
 No existing table/column/trigger/grant changes. The replacement decision is compute-on-read
 (OD-3) — no decisions table. Nothing here executes or authorizes anything (OD-1).
 """
@@ -40,9 +42,21 @@ _FAILURE_PATTERNS = (
 )
 _SEVERITIES = ("low", "medium", "high", "critical")
 
+# The Python str.strip() whitespace set (space, \t, \n, \r, VT, FF) as a Postgres E-literal —
+# keeps the DB non-blank backstop exactly as strong as the pure validator's .strip() gate.
+_TRIM = r"E' \t\n\r\x0b\x0c'"
+
 
 def _in(column: str, values) -> str:
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
+
+
+def _bounded_required(column: str, cap: int) -> str:
+    return f"char_length({column}) BETWEEN 1 AND {cap} AND btrim({column}, {_TRIM}) <> ''"
+
+
+def _bounded_optional(column: str, cap: int) -> str:
+    return f"{column} IS NULL OR ({_bounded_required(column, cap)})"
 
 
 def upgrade() -> None:
@@ -83,25 +97,26 @@ def upgrade() -> None:
             "source_provenance IN ('caller_supplied_unverified')",
             name=op.f("ck_agent_failure_events_source_provenance_valid"),
         ),
-        # B3 — every user text field bounded (NULL passes on the optional fields).
+        # B3 — every user text field bounded AND non-blank-after-trim (whitespace-only
+        # refused; NULL passes on the optional fields via the explicit IS NULL arm).
         sa.CheckConstraint(
-            "char_length(source) BETWEEN 1 AND 100",
+            _bounded_required("source", 100),
             name=op.f("ck_agent_failure_events_source_len"),
         ),
         sa.CheckConstraint(
-            "char_length(evidence_ref) BETWEEN 1 AND 200",
+            _bounded_optional("evidence_ref", 200),
             name=op.f("ck_agent_failure_events_evidence_ref_len"),
         ),
         sa.CheckConstraint(
-            "char_length(summary) BETWEEN 1 AND 2000",
+            _bounded_optional("summary", 2000),
             name=op.f("ck_agent_failure_events_summary_len"),
         ),
         sa.CheckConstraint(
-            "char_length(detail) BETWEEN 1 AND 8000",
+            _bounded_optional("detail", 8000),
             name=op.f("ck_agent_failure_events_detail_len"),
         ),
         sa.CheckConstraint(
-            "char_length(reported_by) BETWEEN 1 AND 200",
+            _bounded_required("reported_by", 200),
             name=op.f("ck_agent_failure_events_reported_by_len"),
         ),
         sa.ForeignKeyConstraint(

@@ -74,8 +74,10 @@ def prescribe(failure_pattern) -> str:
 
 
 def _require_bounded(name: str, value, max_chars: int) -> None:
-    if not isinstance(value, str) or not (1 <= len(value) <= max_chars):
-        raise ValueError(f"{name} must be a non-empty string of at most {max_chars} chars")
+    # Non-BLANK, not merely non-empty: whitespace-only is blank provenance/text (B1/B3,
+    # review round 1). The length cap applies to the raw stored value, not the strip.
+    if not isinstance(value, str) or not (1 <= len(value) <= max_chars) or not value.strip():
+        raise ValueError(f"{name} must be a non-blank string of at most {max_chars} chars")
 
 
 def validate_failure_event(

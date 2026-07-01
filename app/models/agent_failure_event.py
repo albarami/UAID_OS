@@ -4,7 +4,9 @@ Each row is a **REPORTED** failure-pattern classification against a same-tenant 
 caller-supplied and **unverified** (B1/B2: required ``source`` origin label + ``source_provenance``
 CHECK-locked to ``caller_supplied_unverified`` this slice; no diagnosis/classifier exists). The
 composite FK ``(instance_id, project_id, tenant_id) → agent_instances`` pins the event to the
-instance's own project+tenant. Every user text field is bounded by a ``char_length`` CHECK (B3).
+instance's own project+tenant. Every user text field is bounded AND non-blank — a
+``char_length`` cap plus a blank-after-``btrim`` refusal over the ``str.strip()`` whitespace
+set (B3; whitespace-only provenance/text is rejected at the DB too, review round 1).
 Append-only: SELECT/INSERT only (migration ``0040`` block triggers + grants are the authoritative
 backstop) — the events are the audit trail for the compute-on-read replacement decision (OD-3).
 ``summary``/``detail`` may carry source-derived material (audit/logs never carry them; no
@@ -42,6 +44,18 @@ _FP = ", ".join(repr(p) for p in FAILURE_PATTERNS)
 _SEV = ", ".join(repr(s) for s in SEVERITIES)
 _PROV = ", ".join(repr(p) for p in SOURCE_PROVENANCES)
 
+# The Python str.strip() whitespace set as a Postgres E-literal (mirrors migration 0040):
+# the DB non-blank backstop is exactly as strong as the pure validator's .strip() gate.
+_TRIM = r"E' \t\n\r\x0b\x0c'"
+
+
+def _bounded_required(column: str, cap: int) -> str:
+    return f"char_length({column}) BETWEEN 1 AND {cap} AND btrim({column}, {_TRIM}) <> ''"
+
+
+def _bounded_optional(column: str, cap: int) -> str:
+    return f"{column} IS NULL OR ({_bounded_required(column, cap)})"
+
 
 class AgentFailureEvent(Base):
     __tablename__ = "agent_failure_events"
@@ -62,16 +76,15 @@ class AgentFailureEvent(Base):
         CheckConstraint(f"severity IN ({_SEV})", name="severity_valid"),
         # B1 — only the unverified tier is writable this slice (future verified tiers extend it).
         CheckConstraint(f"source_provenance IN ({_PROV})", name="source_provenance_valid"),
-        # B3 — DB backstops for the pure-validator bounds (NULL passes on the optional fields).
-        CheckConstraint(f"char_length(source) BETWEEN 1 AND {MAX_SOURCE}", name="source_len"),
+        # B3 — DB backstops for the pure-validator bounds: char_length cap AND
+        # non-blank-after-trim (whitespace-only refused; NULL passes on optional fields).
+        CheckConstraint(_bounded_required("source", MAX_SOURCE), name="source_len"),
         CheckConstraint(
-            f"char_length(evidence_ref) BETWEEN 1 AND {MAX_EVIDENCE_REF}", name="evidence_ref_len"
+            _bounded_optional("evidence_ref", MAX_EVIDENCE_REF), name="evidence_ref_len"
         ),
-        CheckConstraint(f"char_length(summary) BETWEEN 1 AND {MAX_SUMMARY}", name="summary_len"),
-        CheckConstraint(f"char_length(detail) BETWEEN 1 AND {MAX_DETAIL}", name="detail_len"),
-        CheckConstraint(
-            f"char_length(reported_by) BETWEEN 1 AND {MAX_REPORTED_BY}", name="reported_by_len"
-        ),
+        CheckConstraint(_bounded_optional("summary", MAX_SUMMARY), name="summary_len"),
+        CheckConstraint(_bounded_optional("detail", MAX_DETAIL), name="detail_len"),
+        CheckConstraint(_bounded_required("reported_by", MAX_REPORTED_BY), name="reported_by_len"),
         Index("ix_agent_failure_events_instance", "tenant_id", "instance_id", "created_at"),
     )
 
