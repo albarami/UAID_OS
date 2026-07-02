@@ -47,6 +47,13 @@ from app.models.project_run import ProjectRun
 from app.models.secret_reference_check import SecretReferenceCheck
 from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
 from app.models.readiness_report import ReadinessReportRecord
+from app.models.review_report import ReviewReport
+from app.models.task_contract import (
+    TaskContract,
+    TaskContractArtifactLink,
+    TaskContractEvent,
+    TaskContractReviewer,
+)
 from app.models.release_finding import ReleaseFinding
 from app.models.release_finding_event import ReleaseFindingEvent
 from app.models.release_candidate import ReleaseCandidate
@@ -107,6 +114,11 @@ __all__ = [
     "IntakeFindingsReport",
     "IntakeProvenance",
     "ReadinessReportRecord",
+    "TaskContract",
+    "TaskContractArtifactLink",
+    "TaskContractReviewer",
+    "TaskContractEvent",
+    "ReviewReport",
     "RiskAcceptanceRecord",
     "RiskAcceptanceEvent",
     "ReleaseFinding",
