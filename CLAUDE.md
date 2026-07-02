@@ -467,6 +467,41 @@ a nonexistent/cross-tenant instance yields the generic no-failure decision — n
 `slice31.v1`, bit-stable (`before==after` + instance status untouched); flips NO A5 gate**; no LLM, no
 HTTP endpoint, no qualification auto-ingest (OD-5/OD-6); go-live false. Migration `0040` purely additive
 (one table). merged via PR #71 (commit `626e57f`).**
+**Slice 42 adds the maker-checker-verifier CONTRACT + VERDICT-RECORD + GATE layer — §13.2/§27.2 task
+contracts + the §13.1 three-layer reviewer registry + §13.3 reviewer reports + the §12.3 done-rule
+(`app/review/task_contracts.py` [pure: §27.2 shape validators — `RISK_LEVELS`/`REVIEW_LAYERS`/
+`ARTIFACT_LINK_KINDS`, bounds (task_ref≤64/title≤200/description≤4000/32×500 lists/64 tools/16 reviewers),
+fail-closed `validate_new_contract` (KNOWN broker-registry tools via lazy `get_contract`, disjoint
+allowed∩forbidden, every text field bounded + non-BLANK)], `app/review/workflow.py` [pure: the status
+vocabularies — `INTERNAL_STATUSES=("draft",)` + five §12.3-named `BOARD_STATUSES` + `TERMINAL_STATUSES=
+("canceled","superseded")` (`done` NOT terminal — single outgoing `done→superseded`), the transition matrix,
+§13.3 `validate_review_report` (NO `can_merge` input), the per-REGISTRATION `evaluate_done_gate` → frozen
+`DoneGateDecision` (`ruleset_version="slice42.v1"`)], models `app/models/task_contract.py` +
+`app/models/review_report.py`, repos `app/repositories/task_contracts.py` +
+`app/repositories/review_reports.py`, migration `0041`, §26.5 Phase-5 entry). **Honesty crux: no agent
+execution exists, so Slice 42 RUNS no review — verdict CONTENT is REPORTED (`caller_supplied_unverified`;
+reviewer QA = S48, shortcut detection = S45); what IS DB-proven: the reviewer's REGISTRATION (a report is
+composite-FK-bound to the exact (contract, reviewer-instance, layer) row), §2.2 blueprint-distinctness (a
+BEFORE-INSERT guard resolves the ACTUAL blueprint via instance→version→blueprint and refuses the builder's),
+the GENERATED `can_merge` (`GENERATED ALWAYS AS (verdict='approved') STORED` — never caller-writable), and
+the DONE-GATE.** Five additive tables (tenant-owned, RLS ENABLE+FORCE): `task_contracts` (content frozen at
+`draft→ready_for_development` [freeze prerequisites: ≥1 `source_requirement` link + 3-layer reviewer
+coverage]; one-way matrix with the `changes_requested→in_progress` rework loop;
+**`specialist_review→done` requires EVERY registered (reviewer, layer) registration's OWN latest verdict
+`approved`** — a later same-layer approval by another reviewer can never bury a standing rejection (§12.3
+"builders cannot move their own work to Done" made structural: the builder cannot even be registered as a
+reviewer)); append-only `task_contract_artifact_links` (composite-FK to same-project `intake_artifacts` +
+a kind guard — FK-proven §27.2 Sanad for requirements/ACs/oracles); append-only `task_contract_reviewers`
+(composite-FK to `agent_instances`; the §2.2 guard); append-only immutable `review_reports`
+(registration-FK-bound; approved ⇒ all three finding lists empty, rejected ⇒ failed+changes non-empty;
+reportable-window guard [`in_progress`/`specialist_review`/`changes_requested`]); append-only
+`task_contract_events` (creation-duality CHECK; bounded non-blank `actor`). `review_status` is
+compute-on-read; audit is safe-metadata only (ids/status/verdict/layer/counts — never
+title/description/must_*/summary/criteria prose). **STORE/GATE-ONLY — `production_autonomy.py`/
+`readiness.py` UNTOUCHED (the A5 ruleset stays `slice31.v1`, the readiness ruleset `slice20.v1`),
+bit-stable (`before==after`); flips NO A5 gate**; no review execution, no LLM, no oracle/shortcut/
+acceptance subsystems (S43/S45/S46/S48), no board/PM sync, no broker `no_task_contract` wiring, no HTTP
+endpoint; go-live false. Migration `0041` purely additive (five tables). merged via PR #73 (commit `c7f245e`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1109,11 +1144,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 715 passing (Docker-free); `make test-db` → 713 passing (DB-backed: tenancy,
+  **`make test` → 730 passing (Docker-free); `make test-db` → 732 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1216,8 +1251,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 715 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 713 passing
+make test                                  # Docker-free tests (no services) — 730 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 732 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
