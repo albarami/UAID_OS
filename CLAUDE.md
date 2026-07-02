@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-06-24)
+## Current status (2026-07-02)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -439,6 +439,34 @@ the `run_id` in the subject ref — an approval can never satisfy a different ru
 (`DENIED_UNQUALIFIED_AGENT` → `DENIED_NOT_ALLOWLISTED` → `ALLOWED_UNVERIFIED_IDENTITY`). **STORE/INFRA-ONLY
 — `production_autonomy.py`/`readiness.py` UNTOUCHED, bit-stable** (`before==after`); not an Appendix-B gate;
 go-live false. Migration `0039` additive; deterministic (no LLM, no agent run). merged via PR #69 (commit `4bba0a0`).**
+**Slice 41 adds the §9.6 agent replacement / failure-policy layer — an append-only store of REPORTED
+failure events + a deterministic prescription + retry-cap DECISION (`app/agents/failure_policy.py` [pure:
+the 8-value §9.6 `FAILURE_PATTERNS`→`RESPONSES` `PRESCRIPTION` table (spec:936-945), `SEVERITIES`,
+`SOURCE_PROVENANCES=('caller_supplied_unverified',)`, `MAX_FAILURE_ATTEMPTS=3` (OD-4), B3 text bounds
+(source≤100/evidence_ref≤200/summary≤2000/detail≤8000/reported_by≤200 — non-BLANK after strip, not merely
+non-empty), fail-closed `validate_failure_event`, `prescribe`, the `effective_response` ladder (`none` →
+safety-immediate `suspend_and_audit` [D-41-6] → `escalate_or_blocker` on cap-or-`persistent_inability`
+[D-41-5] → else the §9.6 prescription), frozen `ReplacementDecision` (`ruleset_version="slice41.v1"`)],
+`app/models/agent_failure_event.py`, `app/repositories/agent_failures.py`, migration `0040`,
+§9.6/§9.5.1/§9.7/§26.4). **Honesty crux (B2): no diagnosis/classifier exists — the failure pattern is
+caller-REPORTED and fail-closed-VALIDATED, never inferred (Sanad/B1: required `source` origin label +
+`source_provenance` DB-CHECK-locked to `caller_supplied_unverified`); §9.6's responses need unbuilt
+subsystems, so Slice 41 EXECUTES NOTHING — every prescribed response (incl. `suspend_and_audit`) is a
+recorded RECOMMENDATION, "must not retry forever" is enforced AS A DECISION (`escalate_or_blocker`), and
+there is NO auto-suspend (OD-1).** `agent_failure_events` is tenant-owned, RLS ENABLE+FORCE, **immutable
+append-only** (SELECT/INSERT only — block triggers + no UPDATE/DELETE grant), **per-INSTANCE** (OD-2/§9.7
+— a requalified agent = new version→new instance→fresh budget) via the composite FK
+`(instance_id, project_id, tenant_id)→agent_instances` (the Slice-39 UNIQUE target), with 8-pattern +
+4-severity + provenance-lock CHECKs and **bounded + non-blank `char_length`/`btrim` CHECKs on every user
+text field** (whitespace-only provenance refused at the DB too; the btrim set = the Python `str.strip()`
+whitespace set). `record_failure` derives `project_id` from the resolved same-tenant instance (never
+caller input) and audits **safe metadata only** (never `summary`/`detail`/`evidence_ref`);
+`evaluate_replacement` is **compute-on-read** (OD-3 — no decisions table, the events ARE the audit trail;
+a nonexistent/cross-tenant instance yields the generic no-failure decision — no existence oracle).
+**STORE/INFRA-ONLY — `production_autonomy.py`/`readiness.py` UNTOUCHED, the A5 ruleset stays
+`slice31.v1`, bit-stable (`before==after` + instance status untouched); flips NO A5 gate**; no LLM, no
+HTTP endpoint, no qualification auto-ingest (OD-5/OD-6); go-live false. Migration `0040` purely additive
+(one table). merged via PR #71 (commit `626e57f`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1081,11 +1109,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 703 passing (Docker-free); `make test-db` → 697 passing (DB-backed: tenancy,
+  **`make test` → 715 passing (Docker-free); `make test-db` → 713 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1188,8 +1216,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 703 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 697 passing
+make test                                  # Docker-free tests (no services) — 715 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 713 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -1257,8 +1285,14 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   (`QualificationRepository` + `archetype_evals`/`qualification_runs`, migration `0039`) — the
   `unqualified→qualified` transition on a passing **recorded-evidence** run + two run-scoped QA+Security
   sign-offs, after which the broker agent path **reaches** its downstream gates (still
-  `ALLOWED_UNVERIFIED_IDENTITY` — no execution). **Skeleton: no LIVE eval execution / agent run / model
-  routing / agent execution (qualification is recorded-evidence, `caller_supplied_unverified`); global
+  `ALLOWED_UNVERIFIED_IDENTITY` — no execution). **Slice 41** adds the §9.6 replacement-policy layer
+  (`app/agents/failure_policy.py` + append-only `agent_failure_events` + compute-on-read
+  `evaluate_replacement`, migration `0040`) — REPORTED failure patterns → the §9.6 prescription + the
+  retry-cap decision (`escalate_or_blocker` at `MAX_FAILURE_ATTEMPTS=3`); decision-only, NO
+  auto-suspend/execution. **Skeleton: no LIVE eval execution / agent run / model
+  routing / agent execution (qualification is recorded-evidence, `caller_supplied_unverified`); no §9.6
+  response execution (Slice 41 records + decides only — the operative suspend stays an operator/later
+  action); global
   registration is not audited (tenant-GUC-derived audit; platform-event audit deferred); component hashes
   are opaque caller-supplied inputs (the Factory that generates the artifacts is Phase 4).**
 - Cost ledger (§19): **present (Slice 7)** — tenant-owned **immutable** `cost_events`
