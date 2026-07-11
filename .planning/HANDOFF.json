@@ -1,21 +1,27 @@
 {
   "version": "1.0",
-  "timestamp": "2026-06-02T15:42:52.100Z",
-  "source": "auto-postool",
-  "partial": true,
-  "phase": null,
-  "phase_name": null,
-  "phase_dir": null,
-  "plan": null,
-  "task": null,
+  "timestamp": "2026-07-11T16:05:21+00:00",
+  "source": "manual-reconciliation",
+  "partial": false,
+  "phase": "Phase 5",
+  "phase_name": "Review, verification, and evidence",
+  "phase_dir": ".planning",
+  "plan": ".planning/SLICE-42-PLAN.md",
+  "task": "Slice 42",
   "total_tasks": null,
-  "status": "auto-checkpoint",
-  "completed_tasks": [],
-  "remaining_tasks": [],
+  "status": "merged",
+  "completed_tasks": [
+    "Slice 42 merged via PR #73 (commit c7f245e); merge status recorded on main by commit c5557ca"
+  ],
+  "remaining_tasks": [
+    "Slice 43 — Test-oracle execution subsystem (planned, not started)"
+  ],
   "blockers": [],
   "human_actions_pending": [],
-  "decisions": [],
+  "decisions": [
+    "Slice 43 is the next planned item after merged Slice 42"
+  ],
   "uncommitted_files": [],
-  "next_action": null,
-  "context_notes": ""
+  "next_action": "Draft and submit the Slice 43 plan for review; do not start implementation before approval.",
+  "context_notes": "Post-Slice-42 housekeeping checkpoint. No Slice-43 branch, code, test, or migration has been started."
 }
