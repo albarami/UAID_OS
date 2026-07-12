@@ -186,11 +186,22 @@ def _repo(session, ctx):
 
 async def _make_ra_record(session, ctx, project_id, ref_id, **over):
     """Create a risk-acceptance record whose issue_id references the issue (``ref_id``)."""
+    from app.repositories.release_candidates import ReleaseCandidateRepository
     from app.repositories.risk_acceptance import RiskAcceptanceRepository
 
+    candidates = ReleaseCandidateRepository(session, ctx)
+    release_ref = f"REL-{uuid.uuid4().hex[:12]}"
+    candidate = await candidates.create(
+        project_id=project_id, payload={"release_ref": release_ref}, actor="planner"
+    )
+    await candidates.bind_issue(
+        candidate_id=candidate.id, release_issue_id=ref_id, actor="planner"
+    )
+    await candidates.freeze(candidate_id=candidate.id, actor="planner")
     payload = {
-        "release_id": "REL-1",
+        "release_id": release_ref,
         "issue_id": str(ref_id),
+        "subject_type": "release_issue",
         "severity": "high",
         "reason_for_acceptance": "accepted risk",
         "business_impact": "minor",
@@ -568,14 +579,14 @@ async def test_guard_rejects_accept_with_invalid_records(ri_ctx, rls_engine):
         await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), iid=str(iid))
 
     # same-tenant wrong project (record under p1b, issue under p1)
-    iid, rec = await _issue_and_record(rec_project=p1b, rec_over={})
     with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), iid=str(iid))
+        await _issue_and_record(rec_project=p1b, rec_over={})
 
     # issue_id != issue.id
-    iid, rec = await _issue_and_record(rec_project=p1, rec_over={"issue_id": "WRONG-ISSUE"})
     with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), iid=str(iid))
+        await _issue_and_record(
+            rec_project=p1, rec_over={"issue_id": str(uuid.uuid4())}
+        )
 
 
 @pytest.mark.db
@@ -590,7 +601,10 @@ async def test_guard_rejects_cross_tenant_record_via_direct_sql(ri_ctx, rls_engi
         )
         iid = i.id
     async with tenant_scope(TenantContext(t2)) as session:
-        rec = await _make_ra_record(session, TenantContext(t2), px, iid)
+        other = await _repo(session, TenantContext(t2)).create(
+            project_id=px, payload=_valid(), actor="a"
+        )
+        rec = await _make_ra_record(session, TenantContext(t2), px, other.id)
         rid = rec.id
     with pytest.raises(Exception):
         await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rid), iid=str(iid))
@@ -644,7 +658,10 @@ async def test_cross_tenant_accept_refused(ri_ctx):
         i = await _repo(session, ctx1).create(project_id=p1, payload=_valid(), actor="a")
         iid = i.id
     async with tenant_scope(TenantContext(t2)) as session:
-        rec = await _make_ra_record(session, TenantContext(t2), px, iid)
+        other = await _repo(session, TenantContext(t2)).create(
+            project_id=px, payload=_valid(), actor="a"
+        )
+        rec = await _make_ra_record(session, TenantContext(t2), px, other.id)
         rid = rec.id
     with pytest.raises(Exception):
         async with tenant_scope(ctx1) as session:

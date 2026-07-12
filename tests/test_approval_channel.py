@@ -431,4 +431,4 @@ async def test_no_a5_impact_before_equals_after(an_ctx):
         )
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
     assert before == after  # no gate flip
-    assert after["ruleset_version"] == "slice46.v1"
+    assert after["ruleset_version"] == "slice47.v1"

@@ -19,6 +19,12 @@ risk-acceptance ``issue_id`` a real referent. **Fail-closed and non-authorizing:
 
 from __future__ import annotations
 
+import re
+import uuid
+from dataclasses import dataclass
+from typing import Mapping
+
+from app.release.findings import SECURITY_CATEGORIES, SHORTCUT_CATEGORIES
 from app.release.risk_acceptance import HARD_REFUSAL_CATEGORIES
 
 SEVERITIES = ("low", "medium", "high", "critical")
@@ -44,9 +50,91 @@ _ALLOWED_TRANSITIONS = {("open", t) for t in TERMINAL_STATUSES}
 
 REQUIRED_CREATE_FIELDS = ("issue_category", "severity", "blocking", "summary", "source")
 
+TRUSTED_FINDING_PROVENANCE = "db_verified_trusted_release_finding"
+FINDING_BRIDGE_SOURCE = "slice47.finding_bridge.v1"
+FINDING_BRIDGE_CONTRACT = "slice47.finding_bridge.v1"
+MAX_RECONCILIATION_FINDINGS = 10_000
+_FINGERPRINT_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class TrustedFindingIssueDerivation:
+    """Code-owned issue fields derived from one stored trusted finding (Slice 47)."""
+
+    source_finding_id: uuid.UUID
+    issue_category: str
+    severity: str
+    blocking: bool
+    blocking_category: str | None
+    summary: str
+    detail: None
+    source: str
+    source_provenance: str
+
 
 class InvalidIssue(ValueError):
     """Raised when an issue payload or lifecycle transition is invalid (fail-closed)."""
+
+
+def derive_issue_from_finding(record: Mapping) -> TrustedFindingIssueDerivation:
+    """Derive the conservative Slice-47 issue shape from stored trusted-finding structure.
+
+    This function accepts no caller-supplied trust or blocker decision: every returned field is
+    derived from the finding's guarded type/category/severity/provenance/attachment shape.
+    """
+
+    finding_id = record.get("id")
+    if not isinstance(finding_id, uuid.UUID):
+        raise InvalidIssue("trusted finding id must be a UUID")
+    if record.get("status") != "open":
+        raise InvalidIssue("only open findings may be bridged")
+    finding_type = record.get("finding_type")
+    category = record.get("category")
+    severity = record.get("severity")
+    if severity not in SEVERITIES:
+        raise InvalidIssue("trusted finding severity is invalid")
+
+    if finding_type == "security":
+        valid = (
+            record.get("source_provenance") == "connector_verified_security_scan"
+            and category in SECURITY_CATEGORIES[:-1]
+            and isinstance(record.get("security_scan_category_result_id"), uuid.UUID)
+            and _FINGERPRINT_RE.fullmatch(record.get("scan_finding_fingerprint") or "") is not None
+            and record.get("shortcut_detector_category_result_id") is None
+            and record.get("shortcut_finding_fingerprint") is None
+        )
+        blocking_category = "critical_security_blocker" if severity == "critical" else None
+    elif finding_type == "shortcut":
+        valid = (
+            record.get("source_provenance") == "system_executed_shortcut_review"
+            and category in SHORTCUT_CATEGORIES[:-1]
+            and isinstance(record.get("shortcut_detector_category_result_id"), uuid.UUID)
+            and _FINGERPRINT_RE.fullmatch(record.get("shortcut_finding_fingerprint") or "")
+            is not None
+            and record.get("security_scan_category_result_id") is None
+            and record.get("scan_finding_fingerprint") is None
+        )
+        blocking_category = "fake_done_finding"
+    else:
+        valid = False
+        blocking_category = None
+    if not valid:
+        raise InvalidIssue("finding lacks trusted Slice-44/45 attachment provenance")
+
+    summary = f"Trusted {finding_type} finding ({category}) requires release disposition"
+    if len(summary.encode("utf-8")) > 500:
+        raise InvalidIssue("derived issue summary exceeds 500 bytes")
+    return TrustedFindingIssueDerivation(
+        source_finding_id=finding_id,
+        issue_category=finding_type,
+        severity=severity,
+        blocking=True,
+        blocking_category=blocking_category,
+        summary=summary,
+        detail=None,
+        source=FINDING_BRIDGE_SOURCE,
+        source_provenance=TRUSTED_FINDING_PROVENANCE,
+    )
 
 
 def is_critical(severity: str) -> bool:

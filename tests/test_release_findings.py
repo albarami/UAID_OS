@@ -12,7 +12,7 @@ from datetime import date
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.release.findings import (
     SECURITY_CATEGORIES,
@@ -146,10 +146,27 @@ def _repo(session, ctx):
 
 async def _make_ra_record(session, ctx, project_id, finding_id, **over):
     """Create a risk-acceptance record whose issue_id references the finding."""
+    from app.repositories.release_candidates import ReleaseCandidateRepository
+    from app.repositories.release_issues import ReleaseIssueRepository
     from app.repositories.risk_acceptance import RiskAcceptanceRepository
 
+    issue = await ReleaseIssueRepository(session, ctx).get_by_source_finding(finding_id)
+    if issue is None:
+        raise AssertionError("Slice-47 finding acceptance fixture requires a trusted bridge")
+    candidates = ReleaseCandidateRepository(session, ctx)
+    release_ref = f"REL-{uuid.uuid4().hex[:12]}"
+    candidate = await candidates.create(
+        project_id=project_id, payload={"release_ref": release_ref}, actor="planner"
+    )
+    await candidates.bind_issue(
+        candidate_id=candidate.id, release_issue_id=issue.id, actor="planner"
+    )
+    await candidates.freeze(candidate_id=candidate.id, actor="planner")
     payload = {
-        "release_id": "REL-1", "issue_id": str(finding_id), "severity": "high",
+        "release_id": release_ref,
+        "issue_id": str(finding_id),
+        "subject_type": "release_finding",
+        "severity": "high",
         "reason_for_acceptance": "accepted risk", "business_impact": "minor",
         "rollback_or_mitigation_plan": "documented", "required_follow_up_ticket": "T-1",
         "expiry_date": date(2099, 1, 1), "owner": "po", "approver": "rm",
@@ -159,6 +176,86 @@ async def _make_ra_record(session, ctx, project_id, finding_id, **over):
     return await RiskAcceptanceRepository(session, ctx).create(
         project_id=project_id, payload=payload, actor="planner"
     )
+
+
+async def _trusted_security_finding(session, ctx, project_id, *, severity="high"):
+    from app.models.release_finding import ReleaseFinding
+    from app.release.project_repo import resolve_declared_repo
+    from app.release.scm_connector import FakeSCMConnector
+    from app.repositories.intake_categories import IntakeCategoryRepository
+    from app.repositories.security_scans import SecurityScanRepository
+    from app.verify.security_scan import SCANNER_ALLOWLIST, SCHEMA_VERSION
+
+    if await resolve_declared_repo(session, ctx, project_id) is None:
+        await IntakeCategoryRepository(session, ctx).declare(
+            project_id=project_id,
+            category="existing_assets_and_repositories",
+            actor="fixture",
+            data={"primary_repository": f"owner/repo-{project_id}", "protected_branch": "main"},
+            origin="db-test",
+        )
+    manifest = []
+    categories = []
+    fingerprint = "sha256:" + uuid.uuid4().hex * 2
+    for scanner_key, contract in SCANNER_ALLOWLIST.items():
+        supported = sorted(contract["supported_categories"])
+        manifest.append(
+            {
+                "scanner_key": scanner_key,
+                "scanner_version": contract["scanner_version"],
+                "rule_pack_hash": contract["rule_pack_hash"],
+                "supported_categories": supported,
+            }
+        )
+        for category in supported:
+            findings = []
+            coverage_status = "completed_clean"
+            if category == "authz":
+                coverage_status = "completed_with_findings"
+                findings = [
+                    {
+                        "fingerprint": fingerprint,
+                        "severity": severity,
+                        "summary": "trusted fixture finding",
+                        "detail": "fixture detail",
+                        "evidence_ref": "scan://fixture/authz",
+                    }
+                ]
+            categories.append(
+                {
+                    "category": category,
+                    "scanner_key": scanner_key,
+                    "scanner_version": contract["scanner_version"],
+                    "rule_pack_hash": contract["rule_pack_hash"],
+                    "coverage_status": coverage_status,
+                    "findings": findings,
+                }
+            )
+    commit_sha = uuid.uuid4().hex + uuid.uuid4().hex[:8]
+    await SecurityScanRepository(session, ctx).execute_ci(
+        project_id=project_id,
+        commit_sha=commit_sha,
+        connector=FakeSCMConnector(
+            security_scan_artifact={
+                "schema_version": SCHEMA_VERSION,
+                "commit_sha": commit_sha,
+                "scanner_manifest": manifest,
+                "categories": categories,
+            }
+        ),
+        actor="fixture",
+    )
+    return (
+        await session.execute(
+            select(ReleaseFinding)
+            .where(
+                ReleaseFinding.tenant_id == ctx.tenant_id,
+                ReleaseFinding.project_id == project_id,
+                ReleaseFinding.scan_finding_fingerprint == fingerprint,
+            )
+            .limit(1)
+        )
+    ).scalar_one()
 
 
 # --- DB-backed: repository ----------------------------------------------------
@@ -226,7 +323,7 @@ async def test_accept_noncritical_with_valid_record(rf_ctx):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _repo(session, ctx)
-        f = await repo.create(project_id=p1, payload=_valid(severity="high"), actor="a")
+        f = await _trusted_security_finding(session, ctx, p1, severity="high")
         rec = await _make_ra_record(session, ctx, p1, f.id)
         accepted = await repo.accept(finding_id=f.id, risk_acceptance_record_id=rec.id, actor="rm")
         assert accepted.status == "accepted" and accepted.risk_acceptance_record_id == rec.id
@@ -239,11 +336,9 @@ async def test_reject_critical_accept(rf_ctx):
     t1, p1 = rf_ctx["t1"], rf_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        repo = _repo(session, ctx)
-        f = await repo.create(project_id=p1, payload=_valid(severity="critical"), actor="a")
-        rec = await _make_ra_record(session, ctx, p1, f.id, severity="high")
+        f = await _trusted_security_finding(session, ctx, p1, severity="critical")
         with pytest.raises(Exception):
-            await repo.accept(finding_id=f.id, risk_acceptance_record_id=rec.id, actor="rm")
+            await _make_ra_record(session, ctx, p1, f.id, severity="high")
 
 
 @pytest.mark.db
@@ -254,7 +349,7 @@ async def test_reject_accept_with_unusable_record(rf_ctx):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _repo(session, ctx)
-        f = await repo.create(project_id=p1, payload=_valid(severity="high"), actor="a")
+        f = await _trusted_security_finding(session, ctx, p1, severity="high")
         # expired record ⇒ not usable
         rec = await _make_ra_record(session, ctx, p1, f.id, expiry_date=date(2000, 1, 1))
         with pytest.raises(Exception):
@@ -444,7 +539,7 @@ async def test_guard_rejects_accept_with_invalid_records(rf_ctx, rls_engine):
 
     async def _finding_and_record(*, rec_project, rec_over):
         async with tenant_scope(ctx) as session:
-            f = await _repo(session, ctx).create(project_id=p1, payload=_valid(), actor="a")
+            f = await _trusted_security_finding(session, ctx, p1)
             rec = await _make_ra_record(session, ctx, rec_project, f.id, **rec_over)
             return f.id, rec
 
@@ -455,7 +550,7 @@ async def test_guard_rejects_accept_with_invalid_records(rf_ctx, rls_engine):
 
     # non-active (revoked) record
     async with tenant_scope(ctx) as session:
-        f = await _repo(session, ctx).create(project_id=p1, payload=_valid(), actor="a")
+        f = await _trusted_security_finding(session, ctx, p1)
         rec = await _make_ra_record(session, ctx, p1, f.id)
         await RiskAcceptanceRepository(session, ctx).revoke(record_id=rec.id, actor="a")
         fid, rid = f.id, rec.id
@@ -468,14 +563,14 @@ async def test_guard_rejects_accept_with_invalid_records(rf_ctx, rls_engine):
         await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), fid=str(fid))
 
     # same-tenant wrong project (record under p1b, finding under p1)
-    fid, rec = await _finding_and_record(rec_project=p1b, rec_over={})
     with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), fid=str(fid))
+        await _finding_and_record(rec_project=p1b, rec_over={})
 
     # issue_id != finding.id
-    fid, rec = await _finding_and_record(rec_project=p1, rec_over={"issue_id": "WRONG-ISSUE"})
     with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), fid=str(fid))
+        await _finding_and_record(
+            rec_project=p1, rec_over={"issue_id": str(uuid.uuid4())}
+        )
 
 
 @pytest.mark.db
@@ -485,10 +580,11 @@ async def test_guard_rejects_cross_tenant_record_via_direct_sql(rf_ctx, rls_engi
 
     t1, t2, p1, px = rf_ctx["t1"], rf_ctx["t2"], rf_ctx["p1"], rf_ctx["px"]
     async with tenant_scope(TenantContext(t1)) as session:
-        f = await _repo(session, TenantContext(t1)).create(project_id=p1, payload=_valid(), actor="a")
+        f = await _trusted_security_finding(session, TenantContext(t1), p1)
         fid = f.id
     async with tenant_scope(TenantContext(t2)) as session:
-        rec = await _make_ra_record(session, TenantContext(t2), px, fid)
+        other = await _trusted_security_finding(session, TenantContext(t2), px)
+        rec = await _make_ra_record(session, TenantContext(t2), px, other.id)
         rid = rec.id
     with pytest.raises(Exception):
         await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rid), fid=str(fid))
@@ -554,11 +650,12 @@ async def test_cross_tenant_accept_refused(rf_ctx):
     t1, t2, p1, px = rf_ctx["t1"], rf_ctx["t2"], rf_ctx["p1"], rf_ctx["px"]
     ctx1 = TenantContext(t1)
     async with tenant_scope(ctx1) as session:
-        f = await _repo(session, ctx1).create(project_id=p1, payload=_valid(), actor="a")
+        f = await _trusted_security_finding(session, ctx1, p1)
         fid = f.id
-    # t2 record referencing t1's finding id
+    # A valid t2 record cannot satisfy a t1 finding.
     async with tenant_scope(TenantContext(t2)) as session:
-        rec = await _make_ra_record(session, TenantContext(t2), px, fid)
+        other = await _trusted_security_finding(session, TenantContext(t2), px)
+        rec = await _make_ra_record(session, TenantContext(t2), px, other.id)
         rid = rec.id
     with pytest.raises(Exception):
         async with tenant_scope(ctx1) as session:

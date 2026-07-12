@@ -429,7 +429,7 @@ def test_shortcut_coverage_changes_only_gate6_and_never_go_live():
     assert next(gate for gate in after["gates"] if gate["number"] == 6)["status"] == (
         "passed"
     )
-    assert after["ruleset_version"] == "slice46.v1"
+    assert after["ruleset_version"] == "slice47.v1"
     assert after["a5_satisfied"] is False
     assert after["can_go_live_autonomously"] is False
 
@@ -852,8 +852,18 @@ async def test_repository_executes_hybrid_persists_safe_evidence_and_latest_fail
             "AND source_provenance='system_executed_shortcut_review'",
             p=ctx["p1"],
         )
+        bridged_hard_blockers = await _scalar(
+            conn,
+            "SELECT count(*) FROM release_issues i JOIN release_findings f "
+            "ON f.id=i.source_finding_id AND f.tenant_id=i.tenant_id "
+            "WHERE i.project_id=:p AND i.source_provenance="
+            "'db_verified_trusted_release_finding' AND i.blocking=true "
+            "AND i.blocking_category='fake_done_finding'",
+            p=ctx["p1"],
+        )
     assert "SENTINEL_SECRET_VALUE" not in payload
     assert critical == 1
+    assert bridged_hard_blockers == 1
 
     async with tenant_scope(tenant) as session:
         failed = await ShortcutDetectorRepository(session, tenant).execute_hybrid(

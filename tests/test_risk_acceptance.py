@@ -27,7 +27,7 @@ _FUTURE = date(2099, 1, 1)
 _PAST = date(2000, 1, 1)
 
 _REQUIRED = (
-    "release_id", "issue_id", "severity", "reason_for_acceptance", "business_impact",
+    "release_id", "issue_id", "subject_type", "severity", "reason_for_acceptance", "business_impact",
     "rollback_or_mitigation_plan", "required_follow_up_ticket", "expiry_date", "owner",
     "approver", "accepted_by", "approval_authority_source",
 )
@@ -36,7 +36,8 @@ _REQUIRED = (
 def _valid(**over) -> dict:
     rec = {
         "release_id": "REL-1",
-        "issue_id": "ISSUE-1",
+        "issue_id": "11111111-1111-4111-8111-111111111111",
+        "subject_type": "release_issue",
         "severity": "medium",
         "reason_for_acceptance": "known non-critical limitation",
         "business_impact": "export unavailable until next release",
@@ -77,6 +78,11 @@ def test_invalid_severity_rejected():
     assert "urgent" not in SEVERITIES
     with pytest.raises(InvalidRiskAcceptance):
         validate_new_record(_valid(severity="urgent"))
+
+
+def test_invalid_subject_type_rejected():
+    with pytest.raises(InvalidRiskAcceptance):
+        validate_new_record(_valid(subject_type="reported"))
 
 
 @pytest.mark.parametrize("category", HARD_REFUSAL_CATEGORIES)
@@ -148,7 +154,50 @@ async def ra_ctx(admin_engine):
                 c, "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id",
                 t=out[tn], s=f"ra-{proj}-{sfx}",
             )
+    from app.repositories.release_candidates import ReleaseCandidateRepository
+    from app.repositories.release_issues import ReleaseIssueRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    for project_key, tenant_key in (("p1", "t1"), ("px", "t2")):
+        context = TenantContext(out[tenant_key])
+        async with tenant_scope(context) as session:
+            issue = await ReleaseIssueRepository(session, context).create(
+                project_id=out[project_key],
+                payload={
+                    "issue_category": "cost",
+                    "severity": "medium",
+                    "blocking": False,
+                    "summary": "bounded fixture issue",
+                    "detail": "fixture",
+                    "source": "test",
+                },
+                actor="fixture",
+            )
+            release_ref = f"REL-{project_key.upper()}-{sfx}"
+            candidates = ReleaseCandidateRepository(session, context)
+            candidate = await candidates.create(
+                project_id=out[project_key],
+                payload={"release_ref": release_ref},
+                actor="fixture",
+            )
+            await candidates.bind_issue(
+                candidate_id=candidate.id,
+                release_issue_id=issue.id,
+                actor="fixture",
+            )
+            await candidates.freeze(candidate_id=candidate.id, actor="fixture")
+            out[f"issue_{project_key}"] = issue.id
+            out[f"release_{project_key}"] = release_ref
     return out
+
+
+def _bound(ctx, project_key="p1", **over) -> dict:
+    return _valid(
+        release_id=ctx[f"release_{project_key}"],
+        issue_id=str(ctx[f"issue_{project_key}"]),
+        subject_type="release_issue",
+        **over,
+    )
 
 
 def _repo(session, ctx):
@@ -166,7 +215,7 @@ async def test_create_persists_active_and_audits_safely(ra_ctx, admin_engine):
     secret = "SENSITIVE-business-impact-should-not-leak"
     async with tenant_scope(ctx) as session:
         rec = await _repo(session, ctx).create(
-            project_id=p1, payload=_valid(business_impact=secret), actor="planner"
+            project_id=p1, payload=_bound(ra_ctx, business_impact=secret), actor="planner"
         )
         rid = rec.id
         assert rec.status == "active"
@@ -195,13 +244,13 @@ async def test_revoke_and_supersede_are_one_way(ra_ctx):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _repo(session, ctx)
-        r1 = await repo.create(project_id=p1, payload=_valid(), actor="a")
+        r1 = await repo.create(project_id=p1, payload=_bound(ra_ctx), actor="a")
         revoked = await repo.revoke(record_id=r1.id, actor="rm")
         assert revoked.status == "revoked"
         # terminal -> re-transition refused
         with pytest.raises(Exception):
             await repo.supersede(record_id=r1.id, actor="rm")
-        r2 = await repo.create(project_id=p1, payload=_valid(issue_id="ISSUE-2"), actor="a")
+        r2 = await repo.create(project_id=p1, payload=_bound(ra_ctx), actor="a")
         sup = await repo.supersede(record_id=r2.id, actor="rm")
         assert sup.status == "superseded"
 
@@ -214,7 +263,7 @@ async def test_expire_if_overdue(ra_ctx):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _repo(session, ctx)
-        r = await repo.create(project_id=p1, payload=_valid(expiry_date=_PAST), actor="a")
+        r = await repo.create(project_id=p1, payload=_bound(ra_ctx, expiry_date=_PAST), actor="a")
         expired = await repo.expire_if_overdue(record_id=r.id, actor="sys")
         assert expired.status == "expired"
         # not counted
@@ -232,7 +281,7 @@ async def test_hard_refusal_rejected_at_store_time(ra_ctx):
         with pytest.raises(InvalidRiskAcceptance):
             await repo.create(
                 project_id=p1,
-                payload=_valid(blocking_category="critical_security_blocker"),
+                payload=_bound(ra_ctx, blocking_category="critical_security_blocker"),
                 actor="a",
             )
 
@@ -245,10 +294,10 @@ async def test_count_active_nonblocking(ra_ctx):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _repo(session, ctx)
-        await repo.create(project_id=p1, payload=_valid(issue_id="A"), actor="a")  # counts
-        revoked = await repo.create(project_id=p1, payload=_valid(issue_id="B"), actor="a")
+        await repo.create(project_id=p1, payload=_bound(ra_ctx), actor="a")  # counts
+        revoked = await repo.create(project_id=p1, payload=_bound(ra_ctx), actor="a")
         await repo.revoke(record_id=revoked.id, actor="a")  # not counted
-        await repo.create(project_id=p1, payload=_valid(issue_id="C", expiry_date=_PAST), actor="a")
+        await repo.create(project_id=p1, payload=_bound(ra_ctx, expiry_date=_PAST), actor="a")
         # past-expiry record is not active-nonblocking even before expire_if_overdue runs
         assert await repo.count_active_nonblocking(p1) == 1
 
@@ -260,7 +309,7 @@ async def test_rls_deny_by_default_and_cross_tenant(ra_ctx, rls_engine):
     t1, t2, p1 = ra_ctx["t1"], ra_ctx["t2"], ra_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        await _repo(session, ctx).create(project_id=p1, payload=_valid(), actor="a")
+        await _repo(session, ctx).create(project_id=p1, payload=_bound(ra_ctx), actor="a")
     async with rls_engine.connect() as conn:
         async with conn.begin():
             n = (
@@ -274,7 +323,7 @@ async def test_rls_deny_by_default_and_cross_tenant(ra_ctx, rls_engine):
     with pytest.raises(Exception):
         async with tenant_scope(TenantContext(t2)) as session:
             await _repo(session, TenantContext(t2)).create(
-                project_id=p1, payload=_valid(), actor="attacker"
+                project_id=p1, payload=_bound(ra_ctx), actor="attacker"
             )
 
 
@@ -285,7 +334,7 @@ async def test_append_only_and_immutable_columns(ra_ctx, rls_engine):
     t1, p1 = ra_ctx["t1"], ra_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        rec = await _repo(session, ctx).create(project_id=p1, payload=_valid(), actor="a")
+        rec = await _repo(session, ctx).create(project_id=p1, payload=_bound(ra_ctx), actor="a")
         rid = rec.id
     # mutating an immutable column (severity) is refused by the guard trigger
     for verb_sql in (
@@ -348,7 +397,7 @@ async def test_db_guard_rejects_bad_status_transitions(ra_ctx, rls_engine):
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
         repo = _repo(session, ctx)
-        rec = await repo.create(project_id=p1, payload=_valid(), actor="a")
+        rec = await repo.create(project_id=p1, payload=_bound(ra_ctx), actor="a")
         await repo.revoke(record_id=rec.id, actor="a")
         rid = rec.id
     # confirm the revoke committed (cross-connection) before testing the transition guard

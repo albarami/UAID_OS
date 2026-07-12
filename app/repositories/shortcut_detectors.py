@@ -28,6 +28,7 @@ from app.models.shortcut_detector_reviewer_result import ShortcutDetectorReviewe
 from app.models.shortcut_detector_run import ShortcutDetectorRun
 from app.release.project_repo import resolve_declared_repo
 from app.release.scm_connector import SCMConnector, SCMConnectorError
+from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.tenancy import TenantContext, TenantScopedRepository
 from app.verify.shortcut_detector import (
@@ -494,6 +495,13 @@ class ShortcutDetectorRepository(TenantScopedRepository):
                         event_type="created",
                         actor=actor,
                     )
+                )
+                await ReleaseIssueRepository(
+                    self.session, self.context
+                ).create_from_trusted_finding(
+                    project_id=project_id,
+                    finding_id=finding_row.id,
+                    actor=actor,
                 )
         await self.session.flush()
         await self._audit(row, actor)
