@@ -47,6 +47,9 @@ from app.models.project_run import ProjectRun
 from app.models.secret_reference_check import SecretReferenceCheck
 from app.models.security_scan_category_result import SecurityScanCategoryResult
 from app.models.security_scan_run import SecurityScanRun
+from app.models.shortcut_detector_category_result import ShortcutDetectorCategoryResult
+from app.models.shortcut_detector_reviewer_result import ShortcutDetectorReviewerResult
+from app.models.shortcut_detector_run import ShortcutDetectorRun
 from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
 from app.models.readiness_report import ReadinessReportRecord
 from app.models.review_report import ReviewReport
@@ -95,6 +98,9 @@ __all__ = [
     "SecretReferenceCheck",
     "SecurityScanRun",
     "SecurityScanCategoryResult",
+    "ShortcutDetectorRun",
+    "ShortcutDetectorCategoryResult",
+    "ShortcutDetectorReviewerResult",
     "ApprovalNotification",
     "PMIssueMapping",
     "RunCheckpoint",

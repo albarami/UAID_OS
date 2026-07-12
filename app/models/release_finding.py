@@ -56,6 +56,17 @@ class ReleaseFinding(Base):
             ondelete="RESTRICT",
             name="security_scan_category_project_tenant",
         ),
+        ForeignKeyConstraint(
+            ["shortcut_detector_category_result_id", "project_id", "tenant_id", "category"],
+            [
+                "shortcut_detector_category_results.id",
+                "shortcut_detector_category_results.project_id",
+                "shortcut_detector_category_results.tenant_id",
+                "shortcut_detector_category_results.category",
+            ],
+            ondelete="RESTRICT",
+            name="shortcut_detector_category_project_tenant",
+        ),
         UniqueConstraint("id", "tenant_id", name="uq_release_findings_id_tenant"),
         Index(
             "uq_release_findings_scan_fingerprint",
@@ -64,6 +75,14 @@ class ReleaseFinding(Base):
             "scan_finding_fingerprint",
             unique=True,
             postgresql_where=text("security_scan_category_result_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_release_findings_shortcut_fingerprint",
+            "tenant_id",
+            "shortcut_detector_category_result_id",
+            "shortcut_finding_fingerprint",
+            unique=True,
+            postgresql_where=text("shortcut_detector_category_result_id IS NOT NULL"),
         ),
         Index(
             "ix_release_findings_tenant_project_type_status",
@@ -98,6 +117,10 @@ class ReleaseFinding(Base):
         UUID(as_uuid=True), nullable=True
     )
     scan_finding_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    shortcut_detector_category_result_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    shortcut_finding_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     detected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")

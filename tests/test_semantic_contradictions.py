@@ -714,7 +714,7 @@ async def test_detect_does_not_change_a5_or_readiness(detect_ctx):
         after = (await pa.evaluate(detect_ctx["p_ok"])).to_dict()
         readiness_after = await ReadinessRepository(session, ctx).latest(detect_ctx["p_ok"])
     assert before == after  # bit-stable
-    assert after["ruleset_version"] == "slice44.v1"  # current A5 ruleset; unchanged by this feature
+    assert after["ruleset_version"] == "slice45.v1"  # current A5 ruleset; unchanged by this feature
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
     assert readiness_before is None and readiness_after is None  # no readiness side-effect
 

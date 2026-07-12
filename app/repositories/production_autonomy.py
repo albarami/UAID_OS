@@ -64,6 +64,7 @@ from app.repositories.release_findings import ReleaseFindingRepository
 from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
 from app.repositories.security_scans import SecurityScanRepository
+from app.repositories.shortcut_detectors import ShortcutDetectorRepository
 from app.repositories.test_oracles import TestOracleRepository
 from app.tenancy import TenantContext
 
@@ -173,6 +174,9 @@ class ProductionAutonomyRepository:
         security_coverage = await SecurityScanRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        shortcut_coverage = await ShortcutDetectorRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -247,4 +251,5 @@ class ProductionAutonomyRepository:
             ),
             **oracle_coverage.gate_kwargs(),
             **security_coverage.gate_kwargs(),
+            **shortcut_coverage.gate_kwargs(),
         )

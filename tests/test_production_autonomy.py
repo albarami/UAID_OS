@@ -7,7 +7,7 @@ sufficient evidence). The other partial-context gates (#5/#6/#7/#8/#9/#12) retur
 ``insufficient_evidence``; gate #4 is fail-closed and PASS-capable from complete Slice-43 evidence;
 the remaining sourceless gates (#10/#13) return ``no_evidence_source:<subsystem>``.
 Gates #5/#6 carry finding-count context; gate #7's reason narrows to ``no_issue_provenance`` once a
-frozen release candidate exists; ``ruleset_version`` is ``slice44.v1``. ``a5_satisfied`` and
+frozen release candidate exists; ``ruleset_version`` is ``slice45.v1``. ``a5_satisfied`` and
 ``can_go_live_autonomously`` are always false (≥9 gates unmet). Docker-free for the pure engine; ``db``
 for the repository (compute-on-read, no persistence).
 """
@@ -115,7 +115,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice44.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice45.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
@@ -211,7 +211,7 @@ def test_gates_5_6_are_insufficient_without_their_required_evidence():
         assert g["reason"] == (
             "insufficient_evidence:security_scan_binding_unresolved"
             if n == 5
-            else "no_finding_provenance_or_scan_source"
+            else "insufficient_evidence:shortcut_review_binding_unresolved"
         )
         for k in count_keys:
             assert k in g["context"]
