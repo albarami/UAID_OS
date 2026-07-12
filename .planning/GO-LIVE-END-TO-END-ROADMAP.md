@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 6 (current-state reconciliation after Slice 45 merged; immediate-next marker advanced to Slice 46).
-**Baseline state:** Post–Slice 45 (`main` at `d063ebe`; Slice 45 merged via PR #80 at `d063ebe`; Alembic head `0044_shortcut_detector_execution`; A5 evaluator `ruleset_version = "slice45.v1"`; readiness `ruleset_version = "slice20.v1"`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-45 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 45 are merged; Slice 46 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 7 (current-state reconciliation after Slice 46 merged; immediate-next marker advanced to Slice 47).
+**Baseline state:** Post–Slice 46 (`main` at `caee2bf`; Slice 46 merged via PR #82 at `caee2bf`; Alembic head `0045_acceptance_verification`; A5 evaluator `ruleset_version = "slice46.v1"`; readiness `ruleset_version = "slice20.v1"`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-46 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 46 are merged; Slice 47 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -430,24 +430,24 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** Absence of shortcuts without detector coverage.
 - **Exit.** SATISFIED by PR #80 (`d063ebe`): exact-binding hybrid shortcut execution and independent-review provenance are present; gate #6 is PASS-capable under `slice45.v1`; readiness remains `slice20.v1`; go-live remains false.
 
-#### Slice 46 — Acceptance verifier + spec-authorship independence + generated-AC release-gate binding (gate #8) — **NEXT PLANNED (NOT STARTED)**
+#### Slice 46 — Acceptance verifier + spec-authorship independence + generated-AC release-gate binding (gate #8) — **MERGED (PR #82, `caee2bf`)**
 - **Goal.** An acceptance verifier (§13.1 acceptance layer) that binds release gates to AC carrying approved authorship status (§7.2), proving "no unapproved generated AC gate the release". Gate #8 PASS-capable.
 - **Why now.** §26.5 "acceptance verifier"; gate #8 + §7 acceptance-criteria paradox.
 - **Spec grounding.** §7.1–7.3 (633–674); §13.1; App. B #8 (2992); tmpl `08_acceptance_criteria.yaml` (authorship/dispute).
 - **Files.** `app/verify/acceptance.py` + AC-authorship binding + gate-#8 logic; reuse extraction promotion (Slice 14b).
-- **Migration.** Any additive revision after current head `0044` is to be determined by the reviewed Slice-46 plan.
+- **Migration.** `0045` — append-only acceptance-authorship records plus exact-binding verification runs/results; tenant-owned, RLS ENABLE+FORCE.
 - **Tenant/RLS/FK/audit/immutability.** RLS; `system_authored_unapproved`/`disputed` AC cannot gate a release (§7.2); audited.
-- **Tests.** Gate #8 passes only when all release-gating AC are approved-authorship; unapproved/disputed AC block.
+- **Tests.** Gate #8 passes only when every in-scope AC has current DB-verified independent-agent lineage evidence; unknown/unverified/human-owner/unapproved/disputed AC block.
 - **A5 gate(s) advanced.** **#8 → PASS-capable**.
 - **Must NOT claim.** That system-authored unapproved AC are binding (§7.1).
-- **Exit.** Acceptance verification + authorship binding; gate #8 passes; go-live false.
+- **Exit.** SATISFIED by PR #82 (`caee2bf`): gate #8 is PASS-capable only through DB-verified independent-agent lineage; human-owner approvals remain non-gating; A5 ruleset `slice46.v1`; readiness `slice20.v1`; go-live false.
 
-#### Slice 47 — Issue provenance + findings→issue bridge + `risk_acceptance.release_id` FK (gate #7, partial)
+#### Slice 47 — Issue provenance + findings→issue bridge + `risk_acceptance.release_id` FK (gate #7, partial) — **NEXT PLANNED (NOT STARTED)**
 - **Goal.** Upgrade `release_issues` provenance from `caller_supplied_unverified` to reviewer/CI/verifier-verified; bridge `release_findings` → `release_issues`; add the deferred `risk_acceptance_records.release_id` → `release_candidates` FK (`.planning/SLICE-25-RELEASE-BINDING-DISCUSSION.md`). Moves gate #7 toward PASS-capable (still needs the release verdict, Slice 50).
 - **Why now.** §26.5/§24.1; the missing half of gate #7 is *issue provenance/completeness*.
 - **Spec grounding.** §24.1 (2251–2285); App. B #7 (2991); Slice 23/24/25 deferrals.
 - **Files.** `app/release/issues.py` (verified provenance), findings→issue bridge, migration for the FK; gate-#7 logic.
-- **Migration.** `0045` — provenance columns + findings→issue link + `risk_acceptance_records.release_id` FK; additive (per Slice-25 D-RB no-retro-FK deferral now closed).
+- **Migration.** Any additive revision after current head `0045` is to be determined by the reviewed Slice-47 plan; it must include the provenance columns + findings→issue link + `risk_acceptance_records.release_id` FK (per Slice-25 D-RB no-retro-FK deferral now closed).
 - **Tenant/RLS/FK/audit/immutability.** RLS; verified provenance; FK pins to same tenant/project; append-only history; audited.
 - **Tests.** Verified issue provenance; findings spawn/link issues without double-count; `release_id` FK validates same-project.
 - **A5 gate(s) advanced.** **#7 → partially PASS-capable** (completes with Slice 50 verdict).
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-12): Slice 45 is MERGED.** PR #80 landed as squash commit `d063ebe`. Migration `0044_shortcut_detector_execution` is the Alembic head; Appendix-B gate #6 is PASS-capable under A5 ruleset `slice45.v1`; readiness remains `slice20.v1`; go-live remains hard-false (`CLAUDE.md` “Current status”; `migrations/versions/0044_shortcut_detector_execution.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
+> **Current state (2026-07-12): Slice 46 is MERGED.** PR #82 landed as squash commit `caee2bf`. Migration `0045_acceptance_verification` is the Alembic head; Appendix-B gate #8 is PASS-capable only through DB-verified independent-agent lineage under A5 ruleset `slice46.v1`; human-owner approvals remain non-gating, readiness remains `slice20.v1`, and go-live remains hard-false (`CLAUDE.md` “Current status”; `migrations/versions/0045_acceptance_verification.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
 
-**Next planned (not started): Slice 46 — Acceptance verifier + spec-authorship independence + generated-AC release-gate binding (gate #8).** This is the next unsatisfied item in the §5 sequence after merged Slice 45. Its eventual reviewed plan must ground any implementation in spec §7.1–7.3, §13.1, Appendix-B gate #8, and template `08_acceptance_criteria.yaml`; this sequencing marker does not authorize implementation.
+**Next planned (not started): Slice 47 — Issue provenance + findings→issue bridge + `risk_acceptance.release_id` FK (gate #7, partial).** This is the next unsatisfied item in the §5 sequence after merged Slice 46. Its eventual reviewed plan must ground any implementation in spec §24.1, Appendix-B gate #7, the Slice-23/24/25 stores and deferrals, and the current `release_findings` guard; this sequencing marker does not authorize implementation.
 
-**Boundary:** no Slice-46 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-46 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** no Slice-47 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-47 plan for review; implementation remains blocked until that plan is approved.
 
 ---
 
@@ -895,9 +895,9 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–45 now follow the actual migration chain through `0044`. Future migration numbering from Slice 46 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
-- **No implementation hidden in planning.** This Rev-6 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-45 plan header. Slice-45 implementation was already reviewed and merged via PR #80; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
-- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#6/#11 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
+- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–46 now follow the actual migration chain through `0045`. Future migration numbering from Slice 47 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **No implementation hidden in planning.** This Rev-7 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-46 plan header. Slice-46 implementation was already reviewed and merged via PR #82; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
+- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#6/#8/#11 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
 - **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated.
 - **Residual uncertainty.** Far-term table shapes (S45–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
 

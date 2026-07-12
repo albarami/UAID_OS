@@ -1,6 +1,6 @@
 # Slice 46 — Acceptance verifier + spec-authorship independence + generated-AC release-gate binding (A5 gate #8) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-46-1…7 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #82 (squash commit `caee2bf`); this v1 plan is retained as the approved design rationale for Slice 46.
 
 > **Persona.** Senior verification-platform and PostgreSQL governance architect, applying fail-closed
 > authorship provenance, separation of duties, tenant isolation, release-scope binding, and Sanad /

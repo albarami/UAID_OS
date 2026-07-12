@@ -1,27 +1,28 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-12T12:15:44+00:00",
+  "timestamp": "2026-07-12T18:52:25+00:00",
   "source": "post-merge-docs-reconciliation",
   "partial": false,
   "phase": "Phase 5",
   "phase_name": "Review, verification, and evidence",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-45-PLAN.md",
-  "task": "Slice 45",
+  "plan": ".planning/SLICE-46-PLAN.md",
+  "task": "Slice 46",
   "total_tasks": null,
   "status": "merged",
   "completed_tasks": [
-    "Slice 45 merged via PR #80 (squash commit d063ebe); A5 gate #6 is PASS-capable under ruleset slice45.v1"
+    "Slice 46 merged via PR #82 (squash commit caee2bf); A5 gate #8 is PASS-capable only through DB-verified independent-agent lineage under ruleset slice46.v1"
   ],
   "remaining_tasks": [
-    "Slice 46 — Acceptance verifier + spec-authorship independence + generated-AC release-gate binding (planned, not started)"
+    "Slice 47 — Issue provenance + findings-to-issue bridge + risk_acceptance.release_id FK (planned, not started)"
   ],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    "Slice 46 is the next planned item after merged Slice 45"
+    "Slice 47 is the next planned item after merged Slice 46",
+    "Human-owner acceptance approvals remain non-gating until a verified human-authority tier exists"
   ],
   "uncommitted_files": [],
-  "next_action": "Draft and submit the Slice 46 plan for review; do not start implementation before approval.",
-  "context_notes": "Post-Slice-45 checkpoint: migration 0044 is the Alembic head, A5 ruleset is slice45.v1, readiness remains slice20.v1, and go-live remains false. No Slice-46 branch, code, test, or migration has been started."
+  "next_action": "Draft and submit the Slice 47 plan for review; do not start implementation before approval.",
+  "context_notes": "Post-Slice-46 checkpoint: migration 0045 is the Alembic head, A5 ruleset is slice46.v1, readiness remains slice20.v1, verified suites are 851 Docker-free and 763 DB-backed, and go-live remains false. No Slice-47 branch, code, test, or migration has been started."
 }
