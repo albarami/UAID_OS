@@ -537,6 +537,26 @@ empty findings store/list alone never passes. A5 ruleset is `slice44.v1`; readin
 `slice20.v1`; the remaining gates are not thereby satisfied and go-live remains hard-false. Verified
 suites: `make test` 788 passing / 749 deselected and `make test-db` 749 passing / 788 deselected. Merged
 via PR #78 (squash commit `33fb926`).**
+**Slice 45 adds the shortcut-detector EXECUTION + INDEPENDENT-REVIEW + A5-GATE-#6 layer —
+`app/verify/shortcut_detector.py` validates the bounded exact-commit `slice45.shortcut_review.v1`
+corpus and runs the code-owned `slice45.detector.v1` deterministic candidate rules across all twelve
+mandatory §13.4 categories (no N/A; `other` non-gating); `app/verify/shortcut_review.py` executes blind
+LLM review over the same corpus using `FakeLLMClient` in CI. At least two active, qualified,
+same-project reviewer-archetype instances must have distinct blueprint IDs, version hashes, and model
+routes; their blueprints must differ from every active same-project registered builder blueprint, and
+no registered builder leaves independence unresolved. **Honesty crux:** corpus retrieval is
+`connector_verified_ci_shortcut_corpus`; only deterministic checks and LLM calls UAID actually invokes
+are `system_executed_*`; this proves bounded execution/lineage, not independence from actual Git authors
+or universal shortcut absence. Migration `0044` adds tenant-owned, RLS ENABLE+FORCE, append-only
+`shortcut_detector_runs`, `shortcut_detector_category_results`, and
+`shortcut_detector_reviewer_results`, plus shortcut-specific direct attachments on the existing
+`release_findings` lifecycle while preserving the Slice-23 and Slice-44 guards. Appendix-B A5 gate #6
+is now **PASS-capable** only with complete trusted exact-binding hybrid coverage and zero open critical
+shortcut findings from **any** provenance; empty results alone never pass, later runs never auto-close
+findings, and planted `slice45.shortcut_fixtures.v1` cases prove only their named exemplars. A5 ruleset
+is `slice45.v1`; readiness remains `slice20.v1`; remaining gates are not thereby satisfied and go-live
+remains hard-false. Verified suites: `make test` 830 passing / 755 deselected and `make test-db` 755
+passing / 830 deselected. Merged via PR #80 (squash commit `d063ebe`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a

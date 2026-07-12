@@ -1,6 +1,6 @@
 # Slice 45 — Shortcut detector execution (A5 gate #6) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-45-1…8 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #80 (squash commit `d063ebe`); this v1 plan is retained as the approved design rationale for Slice 45.
 
 > **Persona.** Senior verification-platform and PostgreSQL governance architect, applying fail-closed
 > evidence design, tenant isolation, independent-review controls, and Sanad / No-Free-Facts discipline.
