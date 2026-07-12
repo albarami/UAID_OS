@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Mapping, Sequence
 
 SCHEMA_VERSION = "slice43.oracle.v1"
@@ -27,6 +27,32 @@ _POLICY = "illustrative_default_tune_per_project_risk"
 _SPECIFIED_RUNNERS = {"canonical_json_exact", "boolean_true"}
 _REFERENCE_RUNNERS = {"canonical_json_exact", "numeric_percentage"}
 _SAMPLE_CLASSES = {"representative", "adversarial", "calibration", "other"}
+_COMMON_FIELDS = {
+    "schema_version",
+    "type",
+    "target_requirement",
+    "runner_key",
+    "sample_size",
+    "sample_size_policy",
+    "minimum_pass_rate",
+    "minimum_pass_rate_policy",
+    "tolerance",
+    "cases",
+}
+_TYPE_FIELDS = {
+    "specified": _COMMON_FIELDS | {"expected_behavior"},
+    "reference": _COMMON_FIELDS | {"reference_source", "tolerance_value"},
+    "judgment": _COMMON_FIELDS
+    | {
+        "inter_rater_reliability_minimum",
+        "irr_policy",
+        "rubric",
+        "reviewers",
+        "calibration_examples",
+        "failure_cases_and_limits",
+        "human_review_required",
+    },
+}
 
 
 class InvalidOracleDefinition(ValueError):
@@ -111,10 +137,17 @@ def _positive_int(name: str, value: Any, maximum: int) -> int:
     return value
 
 
-def _text_list(name: str, value: Any, *, minimum: int = 1, maximum: int = 32) -> tuple[str, ...]:
+def _text_list(
+    name: str,
+    value: Any,
+    *,
+    minimum: int = 1,
+    maximum: int = 32,
+    item_limit: int = MAX_TEXT,
+) -> tuple[str, ...]:
     if not isinstance(value, list) or not (minimum <= len(value) <= maximum):
         raise InvalidOracleDefinition(f"{name} must contain {minimum}..{maximum} strings")
-    result = tuple(_text(f"{name} item", item) for item in value)
+    result = tuple(_text(f"{name} item", item, item_limit) for item in value)
     if len(set(result)) != len(result):
         raise InvalidOracleDefinition(f"{name} must not contain duplicates")
     return result
@@ -138,6 +171,74 @@ def canonical_digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def _normalized_definition(definition: OracleDefinition) -> dict[str, Any]:
+    common: dict[str, Any] = {
+        "schema_version": definition.schema_version,
+        "type": definition.oracle_type,
+        "target_requirement": definition.target_requirement,
+        "runner_key": definition.runner_key,
+        "sample_size": definition.sample_size,
+        "sample_size_policy": _POLICY,
+        "minimum_pass_rate": str(definition.minimum_pass_rate.normalize()),
+        "minimum_pass_rate_policy": _POLICY,
+        "tolerance": definition.tolerance,
+    }
+    if definition.oracle_type == "specified":
+        common["expected_behavior"] = definition.expected_behavior
+        common["cases"] = [
+            {
+                "case_ref": case.case_ref,
+                **({"expected": case.expected} if definition.runner_key == "canonical_json_exact" else {}),
+            }
+            for case in definition.cases
+        ]
+    elif definition.oracle_type == "reference":
+        common["reference_source"] = definition.reference_source
+        if definition.tolerance_value is not None:
+            common["tolerance_value"] = str(definition.tolerance_value.normalize())
+        common["cases"] = [
+            {
+                "case_ref": case.case_ref,
+                "reference": (
+                    str(
+                        _decimal(
+                            f"case {case.case_ref} reference",
+                            case.reference,
+                            minimum=Decimal("-1E100"),
+                            maximum=Decimal("1E100"),
+                        ).normalize()
+                    )
+                    if definition.runner_key == "numeric_percentage"
+                    else case.reference
+                ),
+            }
+            for case in definition.cases
+        ]
+    else:
+        common.update(
+            {
+                "inter_rater_reliability_minimum": str(definition.irr_minimum.normalize()),
+                "irr_policy": _POLICY,
+                "rubric": list(definition.rubric),
+                "reviewers": list(definition.reviewers),
+                "calibration_examples": list(definition.calibration_examples),
+                "failure_cases_and_limits": list(definition.failure_cases_and_limits),
+                "human_review_required": definition.human_review_required,
+                "cases": [
+                    {"case_ref": case.case_ref, "sample_class": case.sample_class}
+                    for case in definition.cases
+                ],
+            }
+        )
+    return common
+
+
+def definition_hash(data: Mapping[str, Any] | OracleDefinition) -> str:
+    """Hash the canonical validated definition, not caller field ordering or numeric spelling."""
+    definition = data if isinstance(data, OracleDefinition) else validate_definition(data)
+    return canonical_digest(_normalized_definition(definition))
+
+
 def _cases(data: Mapping[str, Any], oracle_type: str, runner_key: str) -> tuple[OracleCase, ...]:
     raw = data.get("cases")
     if not isinstance(raw, list):
@@ -147,6 +248,15 @@ def _cases(data: Mapping[str, Any], oracle_type: str, runner_key: str) -> tuple[
     for item in raw:
         if not isinstance(item, dict):
             raise InvalidOracleDefinition("each case must be an object")
+        allowed_case_fields = {
+            "specified": {"case_ref", "expected"}
+            if runner_key == "canonical_json_exact"
+            else {"case_ref"},
+            "reference": {"case_ref", "reference"},
+            "judgment": {"case_ref", "sample_class"},
+        }[oracle_type]
+        if set(item) != allowed_case_fields:
+            raise InvalidOracleDefinition("unknown case fields or missing required fields")
         ref = _text("case_ref", item.get("case_ref"), MAX_CASE_REF)
         if ref in seen:
             raise InvalidOracleDefinition(f"duplicate case_ref: {ref}")
@@ -184,6 +294,13 @@ def validate_definition(data: Mapping[str, Any]) -> OracleDefinition:
     oracle_type = data.get("type")
     if oracle_type not in {"specified", "reference", "judgment"}:
         raise InvalidOracleDefinition("type must be specified, reference, or judgment")
+    if data.get("tolerance") == "custom" or data.get("runner_key") == "custom":
+        raise InvalidOracleDefinition("custom tolerance is unsupported this slice")
+    expected_fields = _TYPE_FIELDS[oracle_type]
+    if oracle_type == "reference" and data.get("runner_key") != "numeric_percentage":
+        expected_fields = expected_fields - {"tolerance_value"}
+    if set(data) != expected_fields:
+        raise InvalidOracleDefinition("unknown definition fields or missing required fields")
     target = _text("target_requirement", data.get("target_requirement"), 128)
     sample_size = _positive_int("sample_size", data.get("sample_size"), MAX_CASES)
     pass_rate = _decimal(
@@ -196,9 +313,6 @@ def validate_definition(data: Mapping[str, Any]) -> OracleDefinition:
         raise InvalidOracleDefinition(f"minimum_pass_rate_policy must be {_POLICY}")
     runner_key = _text("runner_key", data.get("runner_key"), 128)
     tolerance = data.get("tolerance")
-    if tolerance == "custom" or runner_key == "custom":
-        raise InvalidOracleDefinition("custom tolerance is unsupported this slice")
-
     if oracle_type == "specified":
         if runner_key not in _SPECIFIED_RUNNERS:
             raise InvalidOracleDefinition(f"unsupported specified runner_key: {runner_key}")
@@ -265,7 +379,13 @@ def validate_definition(data: Mapping[str, Any]) -> OracleDefinition:
     if data.get("irr_policy") != _POLICY:
         raise InvalidOracleDefinition(f"irr_policy must be {_POLICY}")
     rubric = _text_list("rubric", data.get("rubric"), maximum=MAX_RUBRIC_ITEMS)
-    reviewers = _text_list("reviewers", data.get("reviewers"), minimum=2, maximum=MAX_REVIEWERS)
+    reviewers = _text_list(
+        "reviewers",
+        data.get("reviewers"),
+        minimum=2,
+        maximum=MAX_REVIEWERS,
+        item_limit=128,
+    )
     calibration = _text_list("calibration_examples", data.get("calibration_examples"))
     limits = _text_list("failure_cases_and_limits", data.get("failure_cases_and_limits"))
     human = data.get("human_review_required")
@@ -424,7 +544,7 @@ def fleiss_kappa(ratings: Mapping[str, Sequence[bool]]) -> Decimal:
         kappa = Decimal(1) if observed == 1 else Decimal(0)
     else:
         kappa = (observed - expected) / (Decimal(1) - expected)
-    return kappa.quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
+    return kappa.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
 
 
 def evaluate_judgment_ratings(

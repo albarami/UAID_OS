@@ -3,8 +3,8 @@
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
 migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
-``can_go_live_autonomously`` hard-false — even though gates #2/#3/#11 are now PASS-capable, ≥9 gates
-remain unmet. Run inside ``tenant_scope`` (GUC set).
+``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#11 are now PASS-capable,
+remaining gates stay unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
 - gate #1: the **current** readiness level via ``ReadinessRepository.evaluate`` (no persisted
@@ -31,6 +31,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
   ``MONITORING_EVIDENCE_MAX_AGE_HOURS`` freshness — PASSes on ``connector_verified`` + valid-read +
   ``overall_active`` + fresh; an unreadable verified+fresh read is ``monitoring_evidence_unreadable``
   (never "inactive", B4).
+- gate #4 (Slice 43): compute-on-read conservative coverage over every structurally valid canonical
+  project test oracle, selecting one declared-repo + commit binding and exact-definition latest runs.
 Nothing here authorizes go-live.
 """
 
@@ -60,6 +62,7 @@ from app.repositories.release_candidates import ReleaseCandidateRepository
 from app.repositories.release_findings import ReleaseFindingRepository
 from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
+from app.repositories.test_oracles import TestOracleRepository
 from app.tenancy import TenantContext
 
 _ENV_CATEGORY = "environments_and_deployment_targets"
@@ -162,6 +165,9 @@ class ProductionAutonomyRepository:
             )
         else:
             bound_open = bound_open_blocking = bound_open_unaccepted_blocking = 0
+        oracle_coverage = await TestOracleRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -234,4 +240,5 @@ class ProductionAutonomyRepository:
             latest_monitoring_failure_kind=(
                 latest_mon.failure_kind if latest_mon is not None else None
             ),
+            **oracle_coverage.gate_kwargs(),
         )

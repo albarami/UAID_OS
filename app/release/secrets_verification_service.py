@@ -7,7 +7,7 @@ unsupported managers ⇒ ``unsupported_manager``) → write an immutable ``conne
 ``secret_reference_checks`` row recording **only** `(manager, reference_name, outcome, resolved)`.
 **NO secret value** is ever stored/logged/audited/returned. No declared references ⇒ audited
 ``secrets_unbound``, no write; a broker deny skips that reference (no write). **Store-only — never flips an
-A5 gate / readiness level; ruleset stays slice31.v1.** Admin/internal — no HTTP endpoint. ``actor`` is an
+A5 gate / readiness level; the current A5 ruleset is slice43.v1.** Admin/internal — no HTTP endpoint. ``actor`` is an
 untrusted caller label.
 """
 

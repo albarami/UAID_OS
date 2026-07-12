@@ -4,9 +4,10 @@ Fail-closed and **non-authorizing**: **gate #1 (R5 intake)** passes at R5; **gat
 target, Slice 30), #3 (branch protection, Slice 28), and #11 (monitoring/alerts, Slice 31)** are
 PASS-capable (each a binding-bound latest-wins ladder; passes on connector_verified + fresh +
 sufficient evidence). The other partial-context gates (#5/#6/#7/#8/#9/#12) return
-``insufficient_evidence`` and the sourceless gates (#4/#10/#13) return ``no_evidence_source:<subsystem>``.
+``insufficient_evidence``; gate #4 is fail-closed and PASS-capable from complete Slice-43 evidence;
+the remaining sourceless gates (#10/#13) return ``no_evidence_source:<subsystem>``.
 Gates #5/#6 carry finding-count context; gate #7's reason narrows to ``no_issue_provenance`` once a
-frozen release candidate exists; ``ruleset_version`` is ``slice31.v1``. ``a5_satisfied`` and
+frozen release candidate exists; ``ruleset_version`` is ``slice43.v1``. ``a5_satisfied`` and
 ``can_go_live_autonomously`` are always false (≥9 gates unmet). Docker-free for the pure engine; ``db``
 for the repository (compute-on-read, no persistence).
 """
@@ -37,8 +38,8 @@ from app.release.production_autonomy import (
 # became PASS-capable. Both still appear in PARTIAL_GATES because this baseline passes no
 # deployment/monitoring evidence, so the no-evidence default is insufficient_evidence
 # (no_environment_declaration / no_monitoring_declaration).
-PARTIAL_GATES = {2, 3, 5, 6, 7, 8, 9, 11, 12}
-SOURCELESS_GATES = {4, 10, 13}
+PARTIAL_GATES = {2, 3, 4, 5, 6, 7, 8, 9, 11, 12}
+SOURCELESS_GATES = {10, 13}
 
 
 def _eval(readiness_level="R5", **ctx):
@@ -114,7 +115,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice31.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice43.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
