@@ -1,27 +1,27 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-12T04:17:26+00:00",
+  "timestamp": "2026-07-12T09:11:44+00:00",
   "source": "post-merge-docs-reconciliation",
   "partial": false,
   "phase": "Phase 5",
   "phase_name": "Review, verification, and evidence",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-43-PLAN.md",
-  "task": "Slice 43",
+  "plan": ".planning/SLICE-44-PLAN.md",
+  "task": "Slice 44",
   "total_tasks": null,
   "status": "merged",
   "completed_tasks": [
-    "Slice 43 merged via PR #76 (squash commit 52785b3); A5 gate #4 is PASS-capable under ruleset slice43.v1"
+    "Slice 44 merged via PR #78 (squash commit 33fb926); A5 gate #5 is PASS-capable under ruleset slice44.v1"
   ],
   "remaining_tasks": [
-    "Slice 44 — Security reviewer / scan provenance (planned, not started)"
+    "Slice 45 — Shortcut detector execution (planned, not started)"
   ],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    "Slice 44 is the next planned item after merged Slice 43"
+    "Slice 45 is the next planned item after merged Slice 44"
   ],
   "uncommitted_files": [],
-  "next_action": "Draft and submit the Slice 44 plan for review; do not start implementation before approval.",
-  "context_notes": "Post-Slice-43 checkpoint: migration 0042 is the Alembic head, A5 ruleset is slice43.v1, readiness remains slice20.v1, and go-live remains false. No Slice-44 branch, code, test, or migration has been started."
+  "next_action": "Draft and submit the Slice 45 plan for review; do not start implementation before approval.",
+  "context_notes": "Post-Slice-44 checkpoint: migration 0043 is the Alembic head, A5 ruleset is slice44.v1, readiness remains slice20.v1, and go-live remains false. No Slice-45 branch, code, test, or migration has been started."
 }

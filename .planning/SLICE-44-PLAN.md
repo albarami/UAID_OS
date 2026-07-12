@@ -1,6 +1,6 @@
 # Slice 44 — Security reviewer / scan provenance (A5 gate #5) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-44-1…6 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #78 (squash commit `33fb926`); this v1 plan is retained as the approved design rationale for Slice 44.
 
 > **Persona.** Senior application-security verification and PostgreSQL governance architect, applying
 > fail-closed evidence design, tenant isolation, and Sanad / No-Free-Facts discipline.

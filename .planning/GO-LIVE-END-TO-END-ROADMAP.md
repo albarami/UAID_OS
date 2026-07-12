@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 4 (current-state reconciliation after Slice 43 merged; immediate-next marker advanced to Slice 44).
-**Baseline state:** Post–Slice 43 (`main` at `52785b3`; Slice 43 merged via PR #76 at `52785b3`; Alembic head `0042_test_oracles`; A5 evaluator `ruleset_version = "slice43.v1"`; readiness `ruleset_version = "slice20.v1"`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-43 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 43 are merged; Slice 44 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 5 (current-state reconciliation after Slice 44 merged; immediate-next marker advanced to Slice 45).
+**Baseline state:** Post–Slice 44 (`main` at `33fb926`; Slice 44 merged via PR #78 at `33fb926`; Alembic head `0043_security_scan_provenance`; A5 evaluator `ruleset_version = "slice44.v1"`; readiness `ruleset_version = "slice20.v1"`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-44 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 44 are merged; Slice 45 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -406,24 +406,24 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That non-critical-oracle coverage = go-live; that judgment thresholds are universal (illustrative defaults, §14.3).
 - **Exit.** Critical-oracle execution + results; gate #4 passes when all critical pass; go-live false.
 
-#### Slice 44 — Security reviewer / scan provenance (gate #5) — **NEXT PLANNED (NOT STARTED)**
+#### Slice 44 — Security reviewer / scan provenance (gate #5) — **MERGED (PR #78, `33fb926`)**
 - **Goal.** Authoritative security-scan coverage (authz/injection/secrets/unsafe-tool/supply-chain, §13.5 archetype + §15) feeding `release_findings` with **verified scan provenance**, so "no unaccepted critical security findings" is provable. Gate #5 PASS-capable.
 - **Why now.** §26.5 review; gate #5 needs scan coverage a store alone cannot supply (`production_autonomy.py:186-188`).
 - **Spec grounding.** §13.5 (1315–1345), §9.5.1 security-reviewer archetype (l.920); App. B #5 (2989); §15 security; tmpl `15_*`; §16 threats.
 - **Files.** `app/verify/security_scan.py` + provenance writer into `release_findings`; gate-#5 logic.
-- **Migration.** Any additive revision after current head `0042` is to be determined by the reviewed Slice-44 plan.
-- **Tenant/RLS/FK/audit/immutability.** RLS; scan provenance verified (not `caller_supplied_unverified`); critical findings stay non-acceptable (`findings.py`); audited.
-- **Tests.** Gate #5 passes only with verified scan coverage AND zero unaccepted critical security findings; absent coverage ⇒ `insufficient_evidence`.
+- **Migration.** `0043` — append-only `security_scan_runs` / `security_scan_category_results` plus direct verified-scan attachments on `release_findings`; tenant-owned, RLS ENABLE+FORCE.
+- **Tenant/RLS/FK/audit/immutability.** RLS; connector-verified scan provenance; the Slice-23 findings lifecycle remains authoritative and critical findings stay non-acceptable; audit carries safe metadata only.
+- **Tests.** Gate #5 passes only with verified five-category scan coverage AND zero open critical security findings from any provenance; absent/incomplete/untrusted coverage ⇒ `insufficient_evidence`.
 - **A5 gate(s) advanced.** **#5 → PASS-capable**.
 - **Must NOT claim.** Absence of findings without scan coverage; critical findings remain hard blockers.
-- **Exit.** Verified security-scan provenance; gate #5 passes when coverage + zero unaccepted critical; go-live false.
+- **Exit.** SATISFIED by PR #78 (`33fb926`): verified exact-binding security-scan provenance is present; gate #5 is PASS-capable under `slice44.v1`; readiness remains `slice20.v1`; go-live remains false.
 
-#### Slice 45 — Shortcut detector execution (gate #6)
+#### Slice 45 — Shortcut detector execution (gate #6) — **NEXT PLANNED (NOT STARTED)**
 - **Goal.** Run the §13.4 shortcut/fake-done checklist as an independent reviewer feeding `release_findings` (shortcut type) with verified provenance. Gate #6 PASS-capable.
 - **Why now.** §26.5 "shortcut detector"; §2.1 "No fake done" enforcement at release.
 - **Spec grounding.** §13.4 (1298–1313); App. B #6 (2990); §9.5.1; §2.1 (l.129–149).
 - **Files.** `app/verify/shortcut_detector.py` + provenance writer; gate-#6 logic.
-- **Migration.** additive provenance columns; `0043`.
+- **Migration.** Any additive revision after current head `0043` is to be determined by the reviewed Slice-45 plan.
 - **Tenant/RLS/FK/audit/immutability.** RLS; verified provenance; critical non-acceptable; audited.
 - **Tests.** Gate #6 passes only with detector coverage + zero unaccepted critical shortcut findings; planted-shortcut fixtures detected.
 - **A5 gate(s) advanced.** **#6 → PASS-capable**.
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-12): Slice 43 is MERGED.** PR #76 landed as squash commit `52785b3`. Migration `0042_test_oracles` is the Alembic head; Appendix-B gate #4 is PASS-capable under A5 ruleset `slice43.v1`; readiness remains `slice20.v1`; go-live remains hard-false (`CLAUDE.md` “Current status”; `migrations/versions/0042_test_oracles.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
+> **Current state (2026-07-12): Slice 44 is MERGED.** PR #78 landed as squash commit `33fb926`. Migration `0043_security_scan_provenance` is the Alembic head; Appendix-B gate #5 is PASS-capable under A5 ruleset `slice44.v1`; readiness remains `slice20.v1`; go-live remains hard-false (`CLAUDE.md` “Current status”; `migrations/versions/0043_security_scan_provenance.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
 
-**Next planned (not started): Slice 44 — Security reviewer / scan provenance (gate #5).** This is the next unsatisfied item in the §5 sequence after merged Slice 43. Its eventual reviewed plan must ground any implementation in spec §13.5, §15, and Appendix-B gate #5; this sequencing marker does not authorize implementation.
+**Next planned (not started): Slice 45 — Shortcut detector execution (gate #6).** This is the next unsatisfied item in the §5 sequence after merged Slice 44. Its eventual reviewed plan must ground any implementation in spec §13.4, §2.1, and Appendix-B gate #6; this sequencing marker does not authorize implementation.
 
-**Boundary:** no Slice-44 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-44 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** no Slice-45 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-45 plan for review; implementation remains blocked until that plan is approved.
 
 ---
 
@@ -895,10 +895,10 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–42 now follow the actual migration chain through `0041`, while the Slice-43 `0042` number remains an expected next revision, not a created migration. "PASS-capable" means capability after the named slice, not present reality; Track-B scheduling was builder discretion (D-6).
-- **No implementation hidden in planning.** This reconciliation changes only `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-41/Slice-42 plan headers; no code, test, migration, runtime, or product file is changed. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
-- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority; gate #1 alone is correctly described as already PASS-capable at R5 *without* request-auth (the Rev-1 contradiction is fixed). No gate is marked PASS on a store/declaration alone.
+- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–44 now follow the actual migration chain through `0043`. Future migration numbering from Slice 45 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **No implementation hidden in planning.** This Rev-5 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-44 plan header. Slice-44 implementation was already reviewed and merged via PR #78; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
+- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#11 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
 - **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated.
-- **Residual uncertainty.** Far-term table shapes (S43–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
+- **Residual uncertainty.** Far-term table shapes (S45–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
 
 — End of roadmap —
