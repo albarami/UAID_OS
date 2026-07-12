@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 3 (current-state reconciliation after Slice 42 merged; immediate-next marker advanced to Slice 43).
-**Baseline state:** Post–Slice 42 (`main` at `c5557ca`; Slice 42 merged via PR #73 at `c7f245e`; Alembic head `0041_task_contracts`; A5 evaluator `ruleset_version = "slice31.v1"`; readiness `ruleset_version = "slice20.v1"`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-42 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 42 are merged; Slice 43 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 4 (current-state reconciliation after Slice 43 merged; immediate-next marker advanced to Slice 44).
+**Baseline state:** Post–Slice 43 (`main` at `52785b3`; Slice 43 merged via PR #76 at `52785b3`; Alembic head `0042_test_oracles`; A5 evaluator `ruleset_version = "slice43.v1"`; readiness `ruleset_version = "slice20.v1"`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-43 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 43 are merged; Slice 44 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -394,24 +394,24 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That a verdict = acceptance verification (Slice 46) or oracle pass (Slice 43).
 - **Exit.** SATISFIED by PR #73 (`c7f245e`): task contracts + reviewer registrations + reported verdicts recorded; the structural self-review/done gate is present; go-live remains false.
 
-#### Slice 43 — Test-oracle execution subsystem (gate #4) — **NEXT PLANNED (NOT STARTED)**
+#### Slice 43 — Test-oracle execution subsystem (gate #4) — **MERGED (PR #76, `52785b3`)**
 - **Goal.** Execute the three §14.2 oracle types (specified / reference / judgment, with §14.3 judgment controls) against critical features, producing per-oracle pass/fail `test_results`. "No oracle, no go-live" enforced (§14.4). Gate #4 PASS-capable.
 - **Why now.** §26.5 "test oracle framework"; gate #4 is core to §24.1.
 - **Spec grounding.** §14.1–14.4 (1349–1409); App. B #4 (2988); tmpl `09_test_oracles.yaml`; §24.1 "all required test oracles pass".
 - **Files.** `app/verify/oracles.py` + runners (specified/reference/judgment) + `app/models/test_result.py` + repo; CI evidence (Slice 26/28) as the run substrate.
-- **Migration.** Expected next revision `0042` — `test_oracle_runs` / `test_results`; tenant-owned, RLS, append-only. No Slice-43 migration exists yet.
+- **Migration.** `0042` — `test_oracle_runs` / `test_results`; tenant-owned, RLS ENABLE+FORCE, append-only.
 - **Tenant/RLS/FK/audit/immutability.** RLS; results immutable; judgment oracles need ≥2 evaluator lineages + IRR (§14.3); audited.
 - **Tests.** Specified pass/fail; reference drift tolerance; judgment rubric + IRR floor; critical feature without valid oracle ⇒ not production-ready (§14.4).
 - **A5 gate(s) advanced.** **#4 → PASS-capable** (passes when all *critical* oracles pass).
 - **Must NOT claim.** That non-critical-oracle coverage = go-live; that judgment thresholds are universal (illustrative defaults, §14.3).
 - **Exit.** Critical-oracle execution + results; gate #4 passes when all critical pass; go-live false.
 
-#### Slice 44 — Security reviewer / scan provenance (gate #5)
+#### Slice 44 — Security reviewer / scan provenance (gate #5) — **NEXT PLANNED (NOT STARTED)**
 - **Goal.** Authoritative security-scan coverage (authz/injection/secrets/unsafe-tool/supply-chain, §13.5 archetype + §15) feeding `release_findings` with **verified scan provenance**, so "no unaccepted critical security findings" is provable. Gate #5 PASS-capable.
 - **Why now.** §26.5 review; gate #5 needs scan coverage a store alone cannot supply (`production_autonomy.py:186-188`).
 - **Spec grounding.** §13.5 (1315–1345), §9.5.1 security-reviewer archetype (l.920); App. B #5 (2989); §15 security; tmpl `15_*`; §16 threats.
 - **Files.** `app/verify/security_scan.py` + provenance writer into `release_findings`; gate-#5 logic.
-- **Migration.** likely additive scan-coverage/provenance columns; `0042`.
+- **Migration.** Any additive revision after current head `0042` is to be determined by the reviewed Slice-44 plan.
 - **Tenant/RLS/FK/audit/immutability.** RLS; scan provenance verified (not `caller_supplied_unverified`); critical findings stay non-acceptable (`findings.py`); audited.
 - **Tests.** Gate #5 passes only with verified scan coverage AND zero unaccepted critical security findings; absent coverage ⇒ `insufficient_evidence`.
 - **A5 gate(s) advanced.** **#5 → PASS-capable**.
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-11): Slice 42 is MERGED.** PR #73 landed at `c7f245e`; `main` is at the follow-up status commit `c5557ca`. The Slice-42 scope is a contract + verdict-record + structural-gate layer; it does not execute test oracles and flips no A5 gate (`CLAUDE.md` “Current status”; git history).
+> **Current state (2026-07-12): Slice 43 is MERGED.** PR #76 landed as squash commit `52785b3`. Migration `0042_test_oracles` is the Alembic head; Appendix-B gate #4 is PASS-capable under A5 ruleset `slice43.v1`; readiness remains `slice20.v1`; go-live remains hard-false (`CLAUDE.md` “Current status”; `migrations/versions/0042_test_oracles.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
 
-**Next planned (not started): Slice 43 — Test-oracle execution subsystem (gate #4).** This is the next unsatisfied item in the §5 sequence after merged Slice 42. It implements the Phase-5 test-oracle framework required by spec §26.5 and advances Appendix-B gate #4 (“all critical test oracles pass”).
+**Next planned (not started): Slice 44 — Security reviewer / scan provenance (gate #5).** This is the next unsatisfied item in the §5 sequence after merged Slice 43. Its eventual reviewed plan must ground any implementation in spec §13.5, §15, and Appendix-B gate #5; this sequencing marker does not authorize implementation.
 
-**Boundary:** no Slice-43 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-43 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** no Slice-44 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-44 plan for review; implementation remains blocked until that plan is approved.
 
 ---
 

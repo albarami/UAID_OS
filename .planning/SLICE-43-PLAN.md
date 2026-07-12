@@ -1,6 +1,6 @@
 # Slice 43 — Test-oracle execution subsystem (A5 gate #4) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-43-1…5 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #76 (squash commit `52785b3`); this v1 plan is retained as the approved design rationale for Slice 43.
 
 > **Persona.** Senior verification-platform and PostgreSQL governance architect, applying fail-closed
 > evidence design, tenant isolation, and Sanad / No-Free-Facts discipline.
