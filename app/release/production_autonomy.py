@@ -7,11 +7,11 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Gate #1 (R5 intake complete)** passes at ``R5``; **gate #2 (deployment target, Slice 30)**, **gate #3
   (branch protection, Slice 28)**, and **gate #11 (monitoring/alerts, Slice 31)** are **PASS-capable**
   — each via a binding-bound, latest-wins, connector_verified + fresh ladder (see below).
-- The **six** partial-context gates (#5, #6, #7, #8, #9, #12) return ``insufficient_evidence``:
-  the system has a *primitive* (**Slice-23 security findings store, #5**;
-  **Slice-23 shortcut findings store, #6**; **Slice-22 risk-acceptance store, #7**; AC provenance;
+- The **five** partial-context gates (#6, #7, #8, #9, #12) return ``insufficient_evidence``:
+  the system has a *primitive* (**Slice-23 shortcut findings store, #6**;
+  **Slice-22 risk-acceptance store, #7**; AC provenance;
   cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
-  they never pass. #5/#6 are ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
+  they never pass. #6 is ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
   can't prove absence of findings without authoritative scan coverage); #7 (**Slice-24 open-issue +
   Slice-25 release-binding stores**) is ``insufficient_evidence`` — its reason narrows from
   ``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a FROZEN release
@@ -36,13 +36,16 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   project test oracle under a conservative scope, using one selected declared-repo + commit binding and
   exact-definition latest-wins runs. Empty, invalid, unrun, failed, untrusted, incomplete, or inadequate
   judgment evidence fails closed; only complete non-vacuous coverage passes.
+- **Slice 44 (#5 security scan provenance — PASS-capable):** evaluates connector-observed exact-binding
+  coverage for all five mandatory categories and then blocks on every open critical security finding,
+  regardless of its provenance.
 - The **two** remaining sourceless gates (#10, #13) return ``no_evidence_source:<subsystem>``.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates even
 when #1/#2/#3/#4/#11 pass). ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice43.v1``.
+``slice44.v1``.
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice43.v1"
+A5_RULESET_VERSION = "slice44.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -172,6 +175,18 @@ def evaluate_production_autonomy(
     test_oracle_judgment_control_failed_count: int = 0,
     test_oracle_failed_count: int = 0,
     test_oracle_passed_count: int = 0,
+    # Slice 44 — gate #5 connector-observed exact-binding security coverage.
+    security_scan_scope_resolved: bool = True,
+    security_scan_binding_resolved: bool = False,
+    security_scan_run_present: bool = False,
+    security_scan_artifact_trusted: bool = False,
+    security_scan_execution_failed: bool = False,
+    security_scan_coverage_complete: bool = False,
+    security_scan_evidence_consistent: bool = False,
+    security_scan_mandatory_category_count: int = 5,
+    security_scan_completed_category_count: int = 0,
+    security_scan_failed_category_count: int = 0,
+    security_scan_finding_count: int = 0,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -249,18 +264,88 @@ def evaluate_production_autonomy(
         },
     )
 
-    # Slice 23: the security/shortcut finding STORES now exist, but authoritative scan coverage does
-    # not — an empty store can't prove "no findings exist". Gates #5/#6 move from no_evidence_source
-    # to insufficient_evidence; the counts are context only and never flip the status.
-    gate5 = _insufficient(
-        5,
-        "no_unaccepted_critical_security_findings",
-        "no_finding_provenance_or_scan_source",
-        {
-            "open_security_finding_count": open_security_finding_count,
-            "open_unaccepted_critical_security_finding_count": open_unaccepted_critical_security_finding_count,
-        },
+    # Slice 44: coverage proves that all five mandatory scanner categories ran for one exact
+    # connector-observed repo/commit/manifest binding. It cannot prove universal absence. Any open
+    # critical security finding remains blocking regardless of whether it came from a scan.
+    _gate5_name = "no_unaccepted_critical_security_findings"
+    _gate5_counts_consistent = (
+        security_scan_mandatory_category_count == 5
+        and security_scan_completed_category_count >= 0
+        and security_scan_failed_category_count >= 0
+        and security_scan_completed_category_count + security_scan_failed_category_count
+        == security_scan_mandatory_category_count
+        and security_scan_finding_count >= 0
+        and open_security_finding_count >= 0
+        and open_unaccepted_critical_security_finding_count >= 0
+        and open_unaccepted_critical_security_finding_count <= open_security_finding_count
+        and (
+            not security_scan_coverage_complete
+            or (
+                security_scan_completed_category_count == security_scan_mandatory_category_count
+                and security_scan_failed_category_count == 0
+            )
+        )
     )
+    _gate5_evidence_consistent = (
+        security_scan_evidence_consistent and _gate5_counts_consistent
+    )
+    _gate5_ctx = {
+        "security_scan_scope_resolved": security_scan_scope_resolved,
+        "security_scan_binding_resolved": security_scan_binding_resolved,
+        "security_scan_run_present": security_scan_run_present,
+        "security_scan_artifact_trusted": security_scan_artifact_trusted,
+        "security_scan_execution_failed": security_scan_execution_failed,
+        "security_scan_coverage_complete": security_scan_coverage_complete,
+        "security_scan_evidence_consistent": _gate5_evidence_consistent,
+        "security_scan_mandatory_category_count": security_scan_mandatory_category_count,
+        "security_scan_completed_category_count": security_scan_completed_category_count,
+        "security_scan_failed_category_count": security_scan_failed_category_count,
+        "security_scan_finding_count": security_scan_finding_count,
+        "open_security_finding_count": open_security_finding_count,
+        "open_unaccepted_critical_security_finding_count": (
+            open_unaccepted_critical_security_finding_count
+        ),
+    }
+    if not security_scan_scope_resolved:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_scope_unresolved", _gate5_ctx
+        )
+    elif not security_scan_binding_resolved:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_binding_unresolved", _gate5_ctx
+        )
+    elif not security_scan_run_present:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_not_executed", _gate5_ctx
+        )
+    elif not security_scan_artifact_trusted:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_observed_unverified", _gate5_ctx
+        )
+    elif security_scan_execution_failed:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_execution_failed", _gate5_ctx
+        )
+    elif not security_scan_coverage_complete:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_coverage_incomplete", _gate5_ctx
+        )
+    elif not _gate5_evidence_consistent:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:security_scan_evidence_inconsistent", _gate5_ctx
+        )
+    elif open_unaccepted_critical_security_finding_count > 0:
+        gate5 = _insufficient(
+            5, _gate5_name, "insufficient_evidence:critical_security_findings_open", _gate5_ctx
+        )
+    else:
+        gate5 = GateResult(
+            5,
+            _gate5_name,
+            STATUS_PASSED,
+            "passed:no_unaccepted_critical_security_findings_verified",
+            _gate5_ctx,
+        )
     gate6 = _insufficient(
         6,
         "no_unaccepted_critical_shortcut_findings",
