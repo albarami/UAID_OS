@@ -11,6 +11,11 @@ from app.models.agent_tool_allowlist import AgentToolAllowlist
 from app.models.agent_version import AgentVersion
 from app.models.approval import Approval
 from app.models.approval_event import ApprovalEvent
+from app.models.acceptance_verification import (
+    AcceptanceCriterionAuthorshipRecord,
+    AcceptanceVerificationResult,
+    AcceptanceVerificationRun,
+)
 from app.models.audit_log import AuditLog
 from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
@@ -83,6 +88,9 @@ __all__ = [
     "AutonomyPolicy",
     "Approval",
     "ApprovalEvent",
+    "AcceptanceCriterionAuthorshipRecord",
+    "AcceptanceVerificationRun",
+    "AcceptanceVerificationResult",
     "ToolCall",
     "AgentToolAllowlist",
     "AgentBlueprint",

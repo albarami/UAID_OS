@@ -3,7 +3,7 @@
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
 migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
-``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#11 are now PASS-capable,
+``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#6/#8/#11 are PASS-capable,
 remaining gates stay unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
@@ -12,7 +12,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gates #2/#12 context: an ``autonomy_policies`` row exists, a ``budgets`` row exists, the
   ``environments_and_deployment_targets`` category is declared;
 - gate #5 (Slice 44): connector-observed exact-binding security scan coverage plus the existing
-  all-source open-critical count; gate #6 remains the Slice-23 shortcut-finding context store;
+  all-source open-critical count; gate #6 (Slice 45): exact-binding hybrid shortcut coverage;
+- gate #8 (Slice 46): non-vacuous canonical-AC scope plus current DB-bound authorship evidence;
 - gate #7 (Slice 22 + 24 + 25): ``RiskAcceptanceRepository.count_active_nonblocking`` +
   ``ReleaseIssueRepository`` open counts + ``ReleaseCandidateRepository.count_frozen`` /
   ``latest_frozen`` + bound-issue counts — surfaced as ``context``. The reason narrows to
@@ -34,6 +35,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
   project test oracle, selecting one declared-repo + commit binding and exact-definition latest runs.
 - gate #5 (Slice 44): compute-on-read latest security coverage for the declared repository and
   code-owned scanner manifest, with a later failed attempt superseding an older pass.
+- gate #8 (Slice 46): compute-on-read latest exact scope/authorship binding; only DB-verified
+  independent-agent lineage is gate-eligible, while unknown/unapproved/disputed evidence blocks.
 Nothing here authorizes go-live.
 """
 
@@ -53,6 +56,7 @@ from app.release.production_autonomy import (
     evaluate_production_autonomy,
 )
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from app.repositories.acceptance_verification import AcceptanceVerificationRepository
 from app.repositories.ci_evidence import CIEvidenceRepository
 from app.repositories.deployments import DeploymentTargetRepository
 from app.repositories.monitoring_evidence import MonitoringEvidenceRepository
@@ -177,6 +181,9 @@ class ProductionAutonomyRepository:
         shortcut_coverage = await ShortcutDetectorRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        acceptance_coverage = await AcceptanceVerificationRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -252,4 +259,5 @@ class ProductionAutonomyRepository:
             **oracle_coverage.gate_kwargs(),
             **security_coverage.gate_kwargs(),
             **shortcut_coverage.gate_kwargs(),
+            **acceptance_coverage.gate_kwargs(),
         )
