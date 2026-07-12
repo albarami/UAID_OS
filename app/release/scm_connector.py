@@ -13,9 +13,18 @@ HTTP call exists only in ``GitHubSCMConnector`` and is not run in CI.
 
 from __future__ import annotations
 
+import io
+import json
+import re
+import zipfile
 from typing import Any, Protocol
 
 from app.release.pr_evidence import normalize_approvals, parse_iso_timestamp
+from app.verify.oracle_source import MAX_RESULT_ARTIFACT_BYTES, validate_result_artifact
+
+_TEST_ORACLE_ARTIFACT_NAME = "uaid-test-oracle-results"
+_TEST_ORACLE_RESULT_FILE = "test-oracle-results.json"
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
 class SCMConnectorError(Exception):
@@ -36,6 +45,40 @@ class SCMConnector(Protocol):
         """Return MAPPED PR-evidence fields, or ``None`` if not configured. Raise
         ``SCMConnectorError`` on a PR/reviews provider/transport failure (fail-closed, B-29-7)."""
         ...
+
+    async def fetch_test_oracle_artifact(
+        self, *, repo_ref: str, commit_sha: str
+    ) -> dict | None:
+        """Return a validated ``slice43.results.v1`` Actions artifact for the exact commit."""
+        ...
+
+
+def parse_github_test_oracle_artifact_archive(
+    archive_bytes: bytes, *, expected_commit_sha: str
+) -> dict:
+    """Parse one bounded GitHub Actions ZIP without paths, extras, encryption, or zip bombs."""
+    if not isinstance(archive_bytes, bytes) or len(archive_bytes) > MAX_RESULT_ARTIFACT_BYTES:
+        raise SCMConnectorError("github test-oracle artifact archive is oversized")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            infos = archive.infolist()
+            if len(infos) != 1 or infos[0].filename != _TEST_ORACLE_RESULT_FILE:
+                raise SCMConnectorError(
+                    "github artifact must contain exactly one test-oracle result file"
+                )
+            info = infos[0]
+            if info.flag_bits & 0x1 or info.is_dir() or info.file_size > MAX_RESULT_ARTIFACT_BYTES:
+                raise SCMConnectorError("github test-oracle artifact member is unsafe")
+            raw = archive.read(info)
+    except SCMConnectorError:
+        raise
+    except (zipfile.BadZipFile, KeyError, RuntimeError) as exc:
+        raise SCMConnectorError("github test-oracle artifact archive was malformed") from exc
+    try:
+        payload = json.loads(raw)
+        return validate_result_artifact(payload, expected_commit_sha=expected_commit_sha)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        raise SCMConnectorError("github test-oracle artifact payload was malformed") from exc
 
 
 # GitHub check-run conclusion -> our observed CHECK_STATES (B-29-1).
@@ -203,9 +246,16 @@ def map_github_branch_protection(payload: Any) -> dict:
 class FakeSCMConnector:
     """Test/CI connector — no network, no token. Returns a canned mapped result, ``None``, or raises."""
 
-    def __init__(self, result: dict | None = None, *, error: Exception | None = None):
+    def __init__(
+        self,
+        result: dict | None = None,
+        *,
+        error: Exception | None = None,
+        test_oracle_artifact: dict | None = None,
+    ):
         self._result = result
         self._error = error
+        self._test_oracle_artifact = test_oracle_artifact
 
     async def fetch_branch_protection(self, *, repo_ref: str, branch: str) -> dict | None:
         if self._error is not None:
@@ -216,6 +266,17 @@ class FakeSCMConnector:
         if self._error is not None:
             raise self._error
         return self._result
+
+    async def fetch_test_oracle_artifact(
+        self, *, repo_ref: str, commit_sha: str
+    ) -> dict | None:
+        if self._error is not None:
+            raise self._error
+        if self._test_oracle_artifact is None:
+            return None
+        return validate_result_artifact(
+            self._test_oracle_artifact, expected_commit_sha=commit_sha
+        )
 
 
 class GitHubSCMConnector:
@@ -334,3 +395,106 @@ class GitHubSCMConnector:
             raise
         except Exception as exc:  # unexpected mapping failure ⇒ fail-closed
             raise SCMConnectorError("github pull-request response was malformed") from exc
+
+    async def fetch_test_oracle_artifact(
+        self, *, repo_ref: str, commit_sha: str
+    ) -> dict | None:
+        """Fetch the latest successful exact-commit Actions result artifact.
+
+        The GitHub adapter is shipped but never exercised in CI. Redirect targets and
+        credentials are never persisted or returned.
+        """
+        if _COMMIT_SHA_RE.fullmatch(commit_sha) is None:
+            raise SCMConnectorError("commit_sha must be 40 lowercase hexadecimal characters")
+        import httpx
+
+        base_url = f"https://api.github.com/repos/{repo_ref}"
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                runs_response = await client.get(
+                    f"{base_url}/actions/runs",
+                    headers=headers,
+                    params={
+                        "head_sha": commit_sha,
+                        "status": "completed",
+                        "per_page": 100,
+                    },
+                )
+                if runs_response.status_code != 200:
+                    raise SCMConnectorError(
+                        f"github workflow runs not available (status {runs_response.status_code})"
+                    )
+                runs_payload = runs_response.json()
+                runs = runs_payload.get("workflow_runs") if isinstance(runs_payload, dict) else None
+                candidates = [
+                    run
+                    for run in runs or []
+                    if isinstance(run, dict)
+                    and run.get("head_sha") == commit_sha
+                    and run.get("status") == "completed"
+                    and run.get("conclusion") == "success"
+                    and isinstance(run.get("id"), int)
+                ]
+                if not candidates:
+                    raise SCMConnectorError("no successful workflow run for requested commit")
+                run = max(candidates, key=lambda item: item["id"])
+                artifacts_response = await client.get(
+                    f"{base_url}/actions/runs/{run['id']}/artifacts",
+                    headers=headers,
+                    params={"per_page": 100},
+                )
+                if artifacts_response.status_code != 200:
+                    raise SCMConnectorError(
+                        "github workflow artifacts not available "
+                        f"(status {artifacts_response.status_code})"
+                    )
+                artifacts_payload = artifacts_response.json()
+                artifacts = (
+                    artifacts_payload.get("artifacts")
+                    if isinstance(artifacts_payload, dict)
+                    else None
+                )
+                matches = [
+                    artifact
+                    for artifact in artifacts or []
+                    if isinstance(artifact, dict)
+                    and artifact.get("name") == _TEST_ORACLE_ARTIFACT_NAME
+                    and artifact.get("expired") is False
+                    and isinstance(artifact.get("id"), int)
+                    and isinstance(artifact.get("size_in_bytes"), int)
+                    and artifact["size_in_bytes"] <= MAX_RESULT_ARTIFACT_BYTES
+                ]
+                if not matches:
+                    raise SCMConnectorError("no bounded test-oracle artifact for requested commit")
+                artifact = max(matches, key=lambda item: item["id"])
+                chunks: list[bytes] = []
+                total = 0
+                async with client.stream(
+                    "GET",
+                    f"{base_url}/actions/artifacts/{artifact['id']}/zip",
+                    headers=headers,
+                ) as archive_response:
+                    if archive_response.status_code != 200:
+                        raise SCMConnectorError(
+                            "github test-oracle artifact not available "
+                            f"(status {archive_response.status_code})"
+                        )
+                    async for chunk in archive_response.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_RESULT_ARTIFACT_BYTES:
+                            raise SCMConnectorError(
+                                "github test-oracle artifact archive is oversized"
+                            )
+                        chunks.append(chunk)
+        except SCMConnectorError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise SCMConnectorError("github test-oracle artifact request failed") from exc
+        return parse_github_test_oracle_artifact_archive(
+            b"".join(chunks), expected_commit_sha=commit_sha
+        )

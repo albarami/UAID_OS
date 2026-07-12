@@ -54,6 +54,8 @@ from app.models.task_contract import (
     TaskContractEvent,
     TaskContractReviewer,
 )
+from app.models.test_oracle_run import TestOracleRun
+from app.models.test_result import TestResult
 from app.models.release_finding import ReleaseFinding
 from app.models.release_finding_event import ReleaseFindingEvent
 from app.models.release_candidate import ReleaseCandidate
@@ -119,6 +121,8 @@ __all__ = [
     "TaskContractReviewer",
     "TaskContractEvent",
     "ReviewReport",
+    "TestOracleRun",
+    "TestResult",
     "RiskAcceptanceRecord",
     "RiskAcceptanceEvent",
     "ReleaseFinding",

@@ -863,7 +863,7 @@ async def test_gate2_negative_refresh_supersedes_passing(dt_ctx):
 @pytest.mark.db
 async def test_no_other_gate_regression_and_ruleset(dt_ctx):
     # The deliverable edits gate #2 ONLY. Every other gate stays byte-identical; ruleset has since
-    # advanced to slice31.v1 (later slices), but gate #2 still passes — the invariant here is unchanged.
+    # advanced to slice43.v1 (later slices), but gate #2 still passes — the invariant here is unchanged.
     from app.repositories.production_autonomy import ProductionAutonomyRepository
     from app.tenancy import TenantContext, tenant_scope
 
@@ -880,7 +880,7 @@ async def test_no_other_gate_regression_and_ruleset(dt_ctx):
     assert before_others == after_others  # every non-#2 gate byte-identical
     assert _gate2(before)["status"] == "insufficient_evidence"
     assert _gate2(after)["status"] == "passed"
-    assert after["ruleset_version"] == "slice31.v1"
+    assert after["ruleset_version"] == "slice43.v1"
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
 
 

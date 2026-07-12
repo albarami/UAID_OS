@@ -6,7 +6,7 @@ A broker-gated **Jira** connector reflects external PM issues into an immutable,
 ``connector_verified`` = OBSERVATION-verified (not issue-provenance-complete). Jira-status → §12.3 column via
 ``map_board_column`` with an **``unmapped``** fail-closed sentinel for unknown statuses. Idempotent
 latest-wins keyed by ``(tenant, project, external_system, instance_key, external_ref)``. **Store/infra-only —
-no release_issues/production_autonomy/readiness change; ruleset stays slice31.v1.**
+no release_issues/production_autonomy/readiness change; current ruleset is slice43.v1.**
 
 Docker-free for the pure validators / board-column map; ``db`` for the store, DB guard, resolver, broker-
 gated service, idempotent sync, and the ``before==after`` no-A5-impact guard.
@@ -584,7 +584,7 @@ async def test_no_a5_impact_before_equals_after(pm_ctx):
         assert result.wrote == 1  # mappings WERE written...
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
     assert before == after  # ...yet the A5 report is byte-identical (no release_issues created)
-    assert after["ruleset_version"] == "slice31.v1"
+    assert after["ruleset_version"] == "slice43.v1"
 
 
 @pytest.mark.db

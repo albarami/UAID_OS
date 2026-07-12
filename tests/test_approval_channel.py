@@ -5,7 +5,7 @@ Wires the Slice-4 approval engine to a human surface: a **tier-only** risk route
 (protocol + Fake + dashboard; externals deferred), and an immutable append-only `approval_notifications`
 log. One authoritative `request_and_notify_approval` writes **both** an `approval_events` and an
 `approval_notifications` row; `ApprovalRepository` is untouched. **No secret material; no A5/readiness flip
-(ruleset stays slice31.v1); verified identity reused from Slice 27.**
+(ruleset is now slice43.v1); verified identity reused from Slice 27.**
 
 Docker-free for the pure router + validators; `db` for the store, DB guard, orchestration, no-regression,
 and the `before==after` no-gate-flip guard.
@@ -415,7 +415,7 @@ async def test_no_regression_is_blocked_unchanged(an_ctx):
 
 @pytest.mark.db
 async def test_no_a5_impact_before_equals_after(an_ctx):
-    # Store/infra-only: requesting+notifying an approval does not change the A5 report; ruleset slice31.v1.
+    # Store/infra-only: requesting+notifying an approval does not change the A5 report; ruleset slice43.v1.
     from app.approvals.channels.adapter import FakeChannel
     from app.approvals.channels.service import request_and_notify_approval
     from app.repositories.production_autonomy import ProductionAutonomyRepository
@@ -431,4 +431,4 @@ async def test_no_a5_impact_before_equals_after(an_ctx):
         )
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
     assert before == after  # no gate flip
-    assert after["ruleset_version"] == "slice31.v1"
+    assert after["ruleset_version"] == "slice43.v1"

@@ -660,7 +660,7 @@ async def test_production_autonomy_endpoint_returns_report(api_ctx):
     assert body["a5_satisfied"] is False
     assert body["can_go_live_autonomously"] is False
     assert len(body["gates"]) == 13
-    assert body["ruleset_version"] == "slice31.v1"
+    assert body["ruleset_version"] == "slice43.v1"
 
 
 @pytest.mark.db
@@ -672,7 +672,7 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
         )
     assert r.status_code == 200
     body = r.json()["production_autonomy"]
-    assert body["ruleset_version"] == "slice31.v1"
+    assert body["ruleset_version"] == "slice43.v1"
     assert all("context" in g and isinstance(g["context"], dict) for g in body["gates"])
     by_num = {g["number"]: g for g in body["gates"]}
     g7 = by_num[7]

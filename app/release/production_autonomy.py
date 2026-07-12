@@ -32,14 +32,17 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   (a verified+fresh but unreadable provider — **honest, never "inactive"**, B4) →
   ``monitoring_or_alerts_inactive`` → **``passed``** when the latest is ``connector_verified`` +
   valid-read + ``overall_active`` + fresh. Context carries the read-state (never a URL/host).
-- The **three** sourceless gates (#4, #10, #13) return ``no_evidence_source:<subsystem>`` — they await
-  Phase 5/6 evidence subsystems.
+- **Slice 43 (#4 test-oracle execution — PASS-capable):** evaluates every structurally valid canonical
+  project test oracle under a conservative scope, using one selected declared-repo + commit binding and
+  exact-definition latest-wins runs. Empty, invalid, unrun, failed, untrusted, incomplete, or inadequate
+  judgment evidence fails closed; only complete non-vacuous coverage passes.
+- The **two** remaining sourceless gates (#10, #13) return ``no_evidence_source:<subsystem>``.
 
-``a5_satisfied`` is true only if **all 13** gates pass (still impossible — ≥9 gates remain unmet even
-with gates #1/#2/#3/#11 passing). ``can_go_live_autonomously`` is **hard-false always** — go-live
+``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates even
+when #1/#2/#3/#4/#11 pass). ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice31.v1``.
+``slice43.v1``.
 """
 
 from __future__ import annotations
@@ -48,7 +51,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice31.v1"
+A5_RULESET_VERSION = "slice43.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -156,6 +159,19 @@ def evaluate_production_autonomy(
     latest_monitoring_overall_active: bool | None = None,
     latest_monitoring_fresh: bool = False,
     latest_monitoring_failure_kind: str | None = None,
+    # Slice 43 — gate #4 conservative canonical-oracle scope and exact-binding coverage.
+    test_oracle_scope_resolved: bool = True,
+    test_oracle_scope_count: int = 0,
+    test_oracle_valid_definition_count: int = 0,
+    test_oracle_invalid_definition_count: int = 0,
+    test_oracle_binding_present: bool = False,
+    test_oracle_unrun_count: int = 0,
+    test_oracle_untrusted_count: int = 0,
+    test_oracle_incomplete_count: int = 0,
+    test_oracle_execution_failed_count: int = 0,
+    test_oracle_judgment_control_failed_count: int = 0,
+    test_oracle_failed_count: int = 0,
+    test_oracle_passed_count: int = 0,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -322,12 +338,148 @@ def evaluate_production_autonomy(
             11, _gate11_name, STATUS_PASSED, "monitoring_and_alerts_active_verified", _gate11_ctx
         )
 
+    # Slice 43: Appendix-B gate #4, conservatively scoped to ALL structurally valid canonical
+    # project test_oracle artifacts (OD-43-1). Counts are safe metadata only. A pass requires a
+    # non-empty scope and complete exact-repo+commit latest-wins coverage; no vacuous truth.
+    _gate4_name = "all_critical_test_oracles_pass"
+    _gate4_ctx = {
+        "scope_resolved": test_oracle_scope_resolved,
+        "scoped_oracle_count": test_oracle_scope_count,
+        "valid_definition_count": test_oracle_valid_definition_count,
+        "invalid_definition_count": test_oracle_invalid_definition_count,
+        "binding_present": test_oracle_binding_present,
+        "unrun_count": test_oracle_unrun_count,
+        "untrusted_count": test_oracle_untrusted_count,
+        "incomplete_count": test_oracle_incomplete_count,
+        "execution_failed_count": test_oracle_execution_failed_count,
+        "judgment_control_failed_count": test_oracle_judgment_control_failed_count,
+        "failed_count": test_oracle_failed_count,
+        "passed_count": test_oracle_passed_count,
+    }
+    if not test_oracle_scope_resolved:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_scope_unresolved",
+            _gate4_ctx,
+        )
+    elif test_oracle_scope_count <= 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:no_proven_critical_oracle_scope",
+            _gate4_ctx,
+        )
+    elif (
+        test_oracle_valid_definition_count < 0
+        or test_oracle_invalid_definition_count < 0
+        or test_oracle_valid_definition_count + test_oracle_invalid_definition_count
+        != test_oracle_scope_count
+    ):
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_evidence_inconsistent",
+            _gate4_ctx,
+        )
+    elif test_oracle_invalid_definition_count > 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_feature_without_valid_oracle",
+            _gate4_ctx,
+        )
+    elif not test_oracle_binding_present:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_binding_unresolved",
+            _gate4_ctx,
+        )
+    elif any(
+        count < 0
+        for count in (
+            test_oracle_unrun_count,
+            test_oracle_untrusted_count,
+            test_oracle_incomplete_count,
+            test_oracle_execution_failed_count,
+            test_oracle_judgment_control_failed_count,
+            test_oracle_failed_count,
+            test_oracle_passed_count,
+        )
+    ) or (
+        test_oracle_unrun_count
+        + test_oracle_untrusted_count
+        + test_oracle_incomplete_count
+        + test_oracle_execution_failed_count
+        + test_oracle_judgment_control_failed_count
+        + test_oracle_failed_count
+        + test_oracle_passed_count
+        != test_oracle_valid_definition_count
+    ):
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_evidence_inconsistent",
+            _gate4_ctx,
+        )
+    elif test_oracle_unrun_count > 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_not_executed",
+            _gate4_ctx,
+        )
+    elif test_oracle_untrusted_count > 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_observation_untrusted",
+            _gate4_ctx,
+        )
+    elif test_oracle_incomplete_count > 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_incomplete",
+            _gate4_ctx,
+        )
+    elif test_oracle_execution_failed_count > 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_execution_failed",
+            _gate4_ctx,
+        )
+    elif test_oracle_judgment_control_failed_count > 0:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_judgment_controls_failed",
+            _gate4_ctx,
+        )
+    elif test_oracle_failed_count > 0 or test_oracle_passed_count != test_oracle_scope_count:
+        gate4 = _insufficient(
+            4,
+            _gate4_name,
+            "insufficient_evidence:critical_oracle_failed",
+            _gate4_ctx,
+        )
+    else:
+        gate4 = GateResult(
+            4,
+            _gate4_name,
+            STATUS_PASSED,
+            "passed:all_critical_test_oracles_pass_verified",
+            _gate4_ctx,
+        )
+
     # Gates with no evidence source at all (await Phase 5/6 subsystems).
     gates = [
         gate1,
         gate2,
         gate3,
-        _no_source(4, "all_critical_test_oracles_pass", "test_oracle_execution"),
+        gate4,
         gate5,
         gate6,
         gate7,

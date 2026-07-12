@@ -7,7 +7,7 @@ leakage:** no value is stored/logged/audited/persisted/returned/bound; the only 
 in-process ``env`` non-empty inspection (B4/B6). Honesty (B1/B2): ``manager`` is bounded safe text (a non-
 ``env`` manager ⇒ ``unsupported_manager`` + not-resolved); ``reference_name`` is a bounded shape that
 ACCEPTS legit names like ``prod/db_password`` / ``app/api_key`` (no denylist). **Store-only — no A5/readiness
-change; ruleset stays slice31.v1.**
+change; current ruleset is slice43.v1.**
 
 Docker-free for the pure validators / shapes / outcome builders; ``db`` for the store, DB guard, broker-
 gated service, zero-leak proof, and the no-A5-impact (``before==after``) regression.
@@ -630,7 +630,7 @@ async def test_service_broker_denied_no_write(src_ctx):
 @pytest.mark.db
 async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
     # Store-only: recording secret-reference evidence feeds NO gate and does not change the A5 report
-    # or the readiness level; ruleset stays slice31.v1.
+    # or the readiness level; current ruleset is slice43.v1.
     from app.release.secrets_connector import EnvSecretsManagerConnector
     from app.release.secrets_verification_service import refresh_secret_reference_evidence
     from app.repositories.production_autonomy import ProductionAutonomyRepository
@@ -659,7 +659,7 @@ async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
         readiness_after = (await ReadinessRepository(session, ctx).evaluate(p1)).readiness_level
     assert before == after  # ...yet the A5 report is byte-identical (store-only)
     assert readiness_before == readiness_after  # and readiness is unchanged
-    assert after["ruleset_version"] == "slice31.v1"  # no ruleset bump
+    assert after["ruleset_version"] == "slice43.v1"  # current A5 ruleset
 
 
 # --- DB-backed: malformed-reference skipping (D-32-10 fail-closed) -------------
