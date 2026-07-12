@@ -423,6 +423,27 @@ async def test_direct_sql_rejects_success_without_results(acceptance_db_ctx, adm
 
 
 @pytest.mark.db
+async def test_direct_sql_rejects_blank_failure_code(acceptance_db_ctx, admin_engine):
+    from app.verify.acceptance import verifier_contract_hash
+
+    ctx = acceptance_db_ctx
+    with pytest.raises(Exception, match="failure_code_bounded"):
+        async with admin_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO acceptance_verification_runs (tenant_id,project_id,scope_digest,"
+                    "authorship_digest,schema_version,verifier_contract_hash,execution_status,"
+                    "execution_provenance,failure_code,reported_scope_count,reported_eligible_count,"
+                    "reported_unapproved_count,reported_disputed_count,reported_missing_or_untrusted_count,"
+                    "reported_controls_failed_count,evidence_consistent,verdict) VALUES "
+                    "(:t,:p,:d,:d,'slice46.acceptance_verification.v1',:c,'failed',"
+                    "'system_executed_structural','',0,0,0,0,0,0,false,'blocked')"
+                ),
+                {"t": ctx["tenant"], "p": ctx["project"], "d": "sha256:" + "9" * 64, "c": verifier_contract_hash()},
+            )
+
+
+@pytest.mark.db
 async def test_acceptance_evidence_is_hidden_cross_tenant(acceptance_db_ctx, admin_engine, rls_engine):
     ctx = acceptance_db_ctx
     generator, reviewer, approval = await _seed_agent_pair_and_approval(admin_engine, ctx)

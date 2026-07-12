@@ -60,6 +60,7 @@ class AcceptanceVerificationRun(Base):
         CheckConstraint("execution_status IN ('succeeded','failed','refused')", name="execution_status"),
         CheckConstraint("execution_provenance = 'system_executed_structural'", name="execution_provenance"),
         CheckConstraint("verdict IN ('eligible','blocked')", name="verdict"),
+        CheckConstraint("failure_code IS NULL OR (octet_length(failure_code) BETWEEN 1 AND 128 AND btrim(failure_code) <> '')", name="failure_code_bounded"),
         CheckConstraint("reported_scope_count BETWEEN 0 AND 10000 AND reported_eligible_count BETWEEN 0 AND 10000 AND reported_unapproved_count BETWEEN 0 AND 10000 AND reported_disputed_count BETWEEN 0 AND 10000 AND reported_missing_or_untrusted_count BETWEEN 0 AND 10000 AND reported_controls_failed_count BETWEEN 0 AND 10000", name="counts_bounded"),
         UniqueConstraint("id", "project_id", "tenant_id", name="uq_avr_id_project_tenant"),
         Index("ix_acceptance_verification_latest", "tenant_id", "project_id", "scope_digest", "authorship_digest", "verifier_contract_hash", "created_at", "id"),

@@ -83,6 +83,7 @@ def upgrade() -> None:
         sa.CheckConstraint("execution_status IN ('succeeded','failed','refused')", name="ck_avr_execution_status"),
         sa.CheckConstraint("execution_provenance = 'system_executed_structural'", name="ck_avr_execution_provenance"),
         sa.CheckConstraint("verdict IN ('eligible','blocked')", name="ck_avr_verdict"),
+        sa.CheckConstraint("failure_code IS NULL OR (octet_length(failure_code) BETWEEN 1 AND 128 AND btrim(failure_code) <> '')", name="ck_avr_failure_code_bounded"),
         sa.CheckConstraint("reported_scope_count BETWEEN 0 AND 10000 AND reported_eligible_count BETWEEN 0 AND 10000 AND reported_unapproved_count BETWEEN 0 AND 10000 AND reported_disputed_count BETWEEN 0 AND 10000 AND reported_missing_or_untrusted_count BETWEEN 0 AND 10000 AND reported_controls_failed_count BETWEEN 0 AND 10000", name="ck_avr_counts_bounded"),
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="RESTRICT", name="fk_avr_tenant_id_tenants"),
         sa.ForeignKeyConstraint(["project_id", "tenant_id"], ["projects.id", "projects.tenant_id"], ondelete="RESTRICT", name="project_tenant"),
