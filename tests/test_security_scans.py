@@ -69,6 +69,28 @@ def test_complete_five_category_zero_finding_artifact_is_coverage_complete():
     assert artifact.coverage.complete is True
     assert artifact.coverage.finding_count == 0
     assert artifact.coverage.failed_category_count == 0
+    assert json.loads(json.dumps(artifact.to_dict()))["schema_version"] == (
+        "slice44.security_scan.v1"
+    )
+
+
+def test_gate5_evidence_is_a_pure_deterministic_value_object():
+    from app.verify.security_scan import Gate5Evidence
+
+    evidence = Gate5Evidence(
+        scope_resolved=True,
+        binding_resolved=True,
+        run_present=True,
+        artifact_trusted=True,
+        execution_failed=False,
+        coverage_complete=True,
+        evidence_consistent=True,
+        mandatory_category_count=5,
+        completed_category_count=5,
+        failed_category_count=0,
+        finding_count=0,
+    )
+    assert evidence.to_dict() == evidence.gate_kwargs()
 
 
 def test_missing_category_never_becomes_clean_coverage():

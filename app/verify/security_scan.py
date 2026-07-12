@@ -90,8 +90,9 @@ SCANNER_ALLOWLIST: dict[str, dict[str, Any]] = {
     },
 }
 
-_SEVERITY_MAPS: dict[str, dict[str, str]] = {
-    key: {severity: severity for severity in SEVERITIES} for key in SCANNER_ALLOWLIST
+_SEVERITY_MAPS: dict[tuple[str, str], dict[str, str]] = {
+    (key, contract["scanner_version"]): {severity: severity for severity in SEVERITIES}
+    for key, contract in SCANNER_ALLOWLIST.items()
 }
 
 
@@ -106,6 +107,14 @@ class ScannerManifestEntry:
     rule_pack_hash: str
     supported_categories: tuple[str, ...]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "scanner_key": self.scanner_key,
+            "scanner_version": self.scanner_version,
+            "rule_pack_hash": self.rule_pack_hash,
+            "supported_categories": list(self.supported_categories),
+        }
+
 
 @dataclass(frozen=True)
 class NormalizedSecurityFinding:
@@ -114,6 +123,15 @@ class NormalizedSecurityFinding:
     summary: str
     detail: str
     evidence_ref: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "fingerprint": self.fingerprint,
+            "severity": self.severity,
+            "summary": self.summary,
+            "detail": self.detail,
+            "evidence_ref": self.evidence_ref,
+        }
 
 
 @dataclass(frozen=True)
@@ -125,6 +143,16 @@ class CategoryCoverage:
     coverage_status: str
     findings: tuple[NormalizedSecurityFinding, ...]
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "category": self.category,
+            "scanner_key": self.scanner_key,
+            "scanner_version": self.scanner_version,
+            "rule_pack_hash": self.rule_pack_hash,
+            "coverage_status": self.coverage_status,
+            "findings": [finding.to_dict() for finding in self.findings],
+        }
+
 
 @dataclass(frozen=True)
 class SecurityCoverageDecision:
@@ -133,6 +161,15 @@ class SecurityCoverageDecision:
     completed_category_count: int
     failed_category_count: int
     finding_count: int
+
+    def to_dict(self) -> dict[str, bool | int]:
+        return {
+            "complete": self.complete,
+            "mandatory_category_count": self.mandatory_category_count,
+            "completed_category_count": self.completed_category_count,
+            "failed_category_count": self.failed_category_count,
+            "finding_count": self.finding_count,
+        }
 
 
 @dataclass(frozen=True)
@@ -144,6 +181,50 @@ class SecurityScanArtifact:
     scanner_manifest_hash: str
     artifact_digest: str
     coverage: SecurityCoverageDecision
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "commit_sha": self.commit_sha,
+            "scanner_manifest": [entry.to_dict() for entry in self.scanner_manifest],
+            "categories": [category.to_dict() for category in self.categories],
+            "scanner_manifest_hash": self.scanner_manifest_hash,
+            "artifact_digest": self.artifact_digest,
+            "coverage": self.coverage.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class Gate5Evidence:
+    scope_resolved: bool
+    binding_resolved: bool
+    run_present: bool
+    artifact_trusted: bool
+    execution_failed: bool
+    coverage_complete: bool
+    evidence_consistent: bool
+    mandatory_category_count: int
+    completed_category_count: int
+    failed_category_count: int
+    finding_count: int
+
+    def gate_kwargs(self) -> dict[str, bool | int]:
+        return {
+            "security_scan_scope_resolved": self.scope_resolved,
+            "security_scan_binding_resolved": self.binding_resolved,
+            "security_scan_run_present": self.run_present,
+            "security_scan_artifact_trusted": self.artifact_trusted,
+            "security_scan_execution_failed": self.execution_failed,
+            "security_scan_coverage_complete": self.coverage_complete,
+            "security_scan_evidence_consistent": self.evidence_consistent,
+            "security_scan_mandatory_category_count": self.mandatory_category_count,
+            "security_scan_completed_category_count": self.completed_category_count,
+            "security_scan_failed_category_count": self.failed_category_count,
+            "security_scan_finding_count": self.finding_count,
+        }
+
+    def to_dict(self) -> dict[str, bool | int]:
+        return self.gate_kwargs()
 
 
 def canonical_digest(value: Any) -> str:
@@ -212,7 +293,8 @@ def _finding(raw: Any, scanner_key: str) -> NormalizedSecurityFinding:
         raise InvalidSecurityScanArtifact("finding fields are unknown or missing")
     fingerprint = _hash("fingerprint", raw.get("fingerprint"))
     provider_severity = _text("severity", raw.get("severity"), MAX_KEY)
-    severity = _SEVERITY_MAPS[scanner_key].get(provider_severity)
+    scanner_version = SCANNER_ALLOWLIST[scanner_key]["scanner_version"]
+    severity = _SEVERITY_MAPS[(scanner_key, scanner_version)].get(provider_severity)
     if severity is None:
         raise InvalidSecurityScanArtifact("severity is unknown for this scanner")
     return NormalizedSecurityFinding(
@@ -329,6 +411,14 @@ def code_owned_manifest_hash() -> str:
     )
 
 
+def scanner_manifest_hash(entries: Sequence[ScannerManifestEntry]) -> str:
+    return canonical_digest(_manifest_payload(entries))
+
+
+def artifact_digest(payload: Mapping[str, Any]) -> str:
+    return canonical_digest(dict(payload))
+
+
 def validate_security_scan_artifact(
     payload: Mapping[str, Any], *, expected_commit_sha: str
 ) -> SecurityScanArtifact:
@@ -349,7 +439,7 @@ def validate_security_scan_artifact(
         commit_sha=commit_sha,
         scanner_manifest=manifest,
         categories=categories,
-        scanner_manifest_hash=canonical_digest(_manifest_payload(manifest)),
-        artifact_digest=canonical_digest(dict(payload)),
+        scanner_manifest_hash=scanner_manifest_hash(manifest),
+        artifact_digest=artifact_digest(payload),
         coverage=evaluate_security_coverage(categories),
     )

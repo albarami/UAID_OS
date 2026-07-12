@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,42 +20,13 @@ from app.verify.security_scan import (
     MANDATORY_CATEGORIES,
     SCHEMA_VERSION,
     CategoryCoverage,
+    Gate5Evidence,
     SecurityScanArtifact,
     canonical_digest,
     code_owned_manifest_hash,
 )
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-
-
-@dataclass(frozen=True)
-class SecurityScanCoverage:
-    scope_resolved: bool
-    binding_resolved: bool
-    run_present: bool
-    artifact_trusted: bool
-    execution_failed: bool
-    coverage_complete: bool
-    evidence_consistent: bool
-    mandatory_category_count: int
-    completed_category_count: int
-    failed_category_count: int
-    finding_count: int
-
-    def gate_kwargs(self) -> dict[str, bool | int]:
-        return {
-            "security_scan_scope_resolved": self.scope_resolved,
-            "security_scan_binding_resolved": self.binding_resolved,
-            "security_scan_run_present": self.run_present,
-            "security_scan_artifact_trusted": self.artifact_trusted,
-            "security_scan_execution_failed": self.execution_failed,
-            "security_scan_coverage_complete": self.coverage_complete,
-            "security_scan_evidence_consistent": self.evidence_consistent,
-            "security_scan_mandatory_category_count": self.mandatory_category_count,
-            "security_scan_completed_category_count": self.completed_category_count,
-            "security_scan_failed_category_count": self.failed_category_count,
-            "security_scan_finding_count": self.finding_count,
-        }
 
 
 class SecurityScanRepository(TenantScopedRepository):
@@ -92,7 +62,7 @@ class SecurityScanRepository(TenantScopedRepository):
             )
         return await self._record_observation(project_id, repo_hash, artifact, actor)
 
-    async def coverage_for_project(self, project_id: uuid.UUID) -> SecurityScanCoverage:
+    async def coverage_for_project(self, project_id: uuid.UUID) -> Gate5Evidence:
         declared = await resolve_declared_repo(self.session, self.context, project_id)
         if declared is None:
             return self._empty(binding=False)
@@ -127,7 +97,7 @@ class SecurityScanRepository(TenantScopedRepository):
             row.coverage_status in {"completed_clean", "completed_with_findings"}
             for row in categories
         )
-        return SecurityScanCoverage(
+        return Gate5Evidence(
             scope_resolved=True,
             binding_resolved=True,
             run_present=True,
@@ -282,8 +252,8 @@ class SecurityScanRepository(TenantScopedRepository):
         )
 
     @staticmethod
-    def _empty(*, binding: bool) -> SecurityScanCoverage:
-        return SecurityScanCoverage(
+    def _empty(*, binding: bool) -> Gate5Evidence:
+        return Gate5Evidence(
             scope_resolved=True,
             binding_resolved=binding,
             run_present=False,
