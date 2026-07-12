@@ -557,6 +557,24 @@ findings, and planted `slice45.shortcut_fixtures.v1` cases prove only their name
 is `slice45.v1`; readiness remains `slice20.v1`; remaining gates are not thereby satisfied and go-live
 remains hard-false. Verified suites: `make test` 830 passing / 755 deselected and `make test-db` 755
 passing / 830 deselected. Merged via PR #80 (squash commit `d063ebe`).**
+**Slice 46 adds the structural acceptance-authorship VERIFIER + EXACT-BINDING EVIDENCE +
+A5-GATE-#8 layer — all structurally valid canonical project `acceptance_criterion` artifacts are
+conservatively gate-bearing scope; `app/verify/acceptance.py` implements the versioned
+`slice46.acceptance_verification.v1` / `slice46.authorship.v1` eligibility contract, while
+`app/repositories/acceptance_verification.py` records canonical scope/authorship digests and selects
+latest exact-binding evidence with no wall-clock TTL. **Honesty crux:** only
+`system_authored_independent_approved` backed end-to-end by a real active, qualified, same-project
+reviewer instance, DB-proven generator/reviewer blueprint+version+model-route separation, and an
+FK-bound request-authenticated approval decision is gate-eligible. Human-owner approval remains
+non-gating because request authentication proves key custody, not a human signature or authority;
+unknown authorship, `system_authored_unapproved`, unresolved `disputed`, unverified approvals, empty
+scope, or inconsistent evidence fail closed. Migration `0045` adds tenant-owned, RLS ENABLE+FORCE,
+append-only `acceptance_criterion_authorship_records`, `acceptance_verification_runs`, and
+`acceptance_verification_results`; it does not touch the layered Slice-23/44/45 findings guard.
+Appendix-B A5 gate #8 is now **PASS-capable** only through that DB-verified independent-agent lineage
+path under A5 ruleset `slice46.v1`; readiness remains `slice20.v1`, the remaining gates are not thereby
+satisfied, and go-live remains hard-false. Verified suites: `make test` 851 passing / 763 deselected and
+`make test-db` 763 passing / 851 deselected. Merged via PR #82 (squash commit `caee2bf`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1199,11 +1217,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 830 passing (Docker-free); `make test-db` → 755 passing (DB-backed: tenancy,
+  **`make test` → 851 passing (Docker-free); `make test-db` → 763 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1306,8 +1324,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 830 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 755 passing
+make test                                  # Docker-free tests (no services) — 851 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 763 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
