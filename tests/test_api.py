@@ -660,7 +660,7 @@ async def test_production_autonomy_endpoint_returns_report(api_ctx):
     assert body["a5_satisfied"] is False
     assert body["can_go_live_autonomously"] is False
     assert len(body["gates"]) == 13
-    assert body["ruleset_version"] == "slice44.v1"
+    assert body["ruleset_version"] == "slice45.v1"
 
 
 @pytest.mark.db
@@ -672,7 +672,7 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
         )
     assert r.status_code == 200
     body = r.json()["production_autonomy"]
-    assert body["ruleset_version"] == "slice44.v1"
+    assert body["ruleset_version"] == "slice45.v1"
     assert all("context" in g and isinstance(g["context"], dict) for g in body["gates"])
     by_num = {g["number"]: g for g in body["gates"]}
     g7 = by_num[7]
@@ -699,7 +699,7 @@ async def test_production_autonomy_endpoint_returns_slice25_context_shape(api_ct
         assert by_num[n]["reason"] == (
             "insufficient_evidence:security_scan_binding_unresolved"
             if n == 5
-            else "no_finding_provenance_or_scan_source"
+            else "insufficient_evidence:shortcut_review_binding_unresolved"
         )
     assert "open_security_finding_count" in by_num[5]["context"]
     assert "open_unaccepted_critical_security_finding_count" in by_num[5]["context"]

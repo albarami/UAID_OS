@@ -7,12 +7,11 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Gate #1 (R5 intake complete)** passes at ``R5``; **gate #2 (deployment target, Slice 30)**, **gate #3
   (branch protection, Slice 28)**, and **gate #11 (monitoring/alerts, Slice 31)** are **PASS-capable**
   — each via a binding-bound, latest-wins, connector_verified + fresh ladder (see below).
-- The **five** partial-context gates (#6, #7, #8, #9, #12) return ``insufficient_evidence``:
-  the system has a *primitive* (**Slice-23 shortcut findings store, #6**;
+- The **four** partial-context gates (#7, #8, #9, #12) return ``insufficient_evidence``:
+  the system has a *primitive* (
   **Slice-22 risk-acceptance store, #7**; AC provenance;
   cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
-  they never pass. #6 is ``insufficient_evidence:no_finding_provenance_or_scan_source`` (a store
-  can't prove absence of findings without authoritative scan coverage); #7 (**Slice-24 open-issue +
+  they never pass. #7 (**Slice-24 open-issue +
   Slice-25 release-binding stores**) is ``insufficient_evidence`` — its reason narrows from
   ``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a FROZEN release
   candidate exists (the release-binding half is satisfied), but issue provenance/completeness still
@@ -39,13 +38,16 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Slice 44 (#5 security scan provenance — PASS-capable):** evaluates connector-observed exact-binding
   coverage for all five mandatory categories and then blocks on every open critical security finding,
   regardless of its provenance.
+- **Slice 45 (#6 shortcut detector execution — PASS-capable):** evaluates system-executed deterministic
+  and blind independent-review coverage for all twelve mandatory categories over a connector-verified
+  exact-commit corpus, then blocks on every open critical shortcut finding regardless of provenance.
 - The **two** remaining sourceless gates (#10, #13) return ``no_evidence_source:<subsystem>``.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates even
 when #1/#2/#3/#4/#11 pass). ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice44.v1``.
+``slice45.v1``.
 """
 
 from __future__ import annotations
@@ -54,7 +56,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice44.v1"
+A5_RULESET_VERSION = "slice45.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -187,6 +189,20 @@ def evaluate_production_autonomy(
     security_scan_completed_category_count: int = 0,
     security_scan_failed_category_count: int = 0,
     security_scan_finding_count: int = 0,
+    # Slice 45 — gate #6 hybrid exact-binding shortcut-review coverage.
+    shortcut_review_scope_resolved: bool = True,
+    shortcut_review_binding_resolved: bool = False,
+    shortcut_review_run_present: bool = False,
+    shortcut_review_corpus_trusted: bool = False,
+    shortcut_review_execution_failed: bool = False,
+    shortcut_review_independence_resolved: bool = False,
+    shortcut_review_coverage_complete: bool = False,
+    shortcut_review_evidence_consistent: bool = False,
+    shortcut_review_mandatory_category_count: int = 12,
+    shortcut_review_completed_category_count: int = 0,
+    shortcut_review_failed_category_count: int = 0,
+    shortcut_review_reviewer_count: int = 0,
+    shortcut_review_finding_count: int = 0,
 ) -> ProductionAutonomyReport:
     """Deterministic, fail-closed A5 evaluation. Context booleans are recorded as *context only* —
     they never flip a gate to ``passed`` (deny-by-default). Defaults are False (fail-closed)."""
@@ -346,15 +362,116 @@ def evaluate_production_autonomy(
             "passed:no_unaccepted_critical_security_findings_verified",
             _gate5_ctx,
         )
-    gate6 = _insufficient(
-        6,
-        "no_unaccepted_critical_shortcut_findings",
-        "no_finding_provenance_or_scan_source",
-        {
-            "open_shortcut_finding_count": open_shortcut_finding_count,
-            "open_unaccepted_critical_shortcut_finding_count": open_unaccepted_critical_shortcut_finding_count,
-        },
+    # Slice 45: all twelve mandatory §13.4 categories require trusted exact-binding hybrid
+    # execution and DB-provable registered-builder/reviewer separation. Any open critical
+    # shortcut finding blocks regardless of provenance.
+    _gate6_name = "no_unaccepted_critical_shortcut_findings"
+    _gate6_counts_consistent = (
+        shortcut_review_mandatory_category_count == 12
+        and shortcut_review_completed_category_count >= 0
+        and shortcut_review_failed_category_count >= 0
+        and shortcut_review_reviewer_count >= 0
+        and shortcut_review_finding_count >= 0
+        and open_shortcut_finding_count >= 0
+        and open_unaccepted_critical_shortcut_finding_count >= 0
+        and open_unaccepted_critical_shortcut_finding_count <= open_shortcut_finding_count
+        and (
+            not shortcut_review_coverage_complete
+            or (
+                shortcut_review_completed_category_count
+                == shortcut_review_mandatory_category_count
+                and shortcut_review_failed_category_count == 0
+                and shortcut_review_reviewer_count >= 2
+            )
+        )
     )
+    _gate6_evidence_consistent = (
+        shortcut_review_evidence_consistent and _gate6_counts_consistent
+    )
+    _gate6_ctx = {
+        "shortcut_review_scope_resolved": shortcut_review_scope_resolved,
+        "shortcut_review_binding_resolved": shortcut_review_binding_resolved,
+        "shortcut_review_run_present": shortcut_review_run_present,
+        "shortcut_review_corpus_trusted": shortcut_review_corpus_trusted,
+        "shortcut_review_execution_failed": shortcut_review_execution_failed,
+        "shortcut_review_independence_resolved": shortcut_review_independence_resolved,
+        "shortcut_review_coverage_complete": shortcut_review_coverage_complete,
+        "shortcut_review_evidence_consistent": _gate6_evidence_consistent,
+        "shortcut_review_mandatory_category_count": shortcut_review_mandatory_category_count,
+        "shortcut_review_completed_category_count": shortcut_review_completed_category_count,
+        "shortcut_review_failed_category_count": shortcut_review_failed_category_count,
+        "shortcut_review_reviewer_count": shortcut_review_reviewer_count,
+        "shortcut_review_finding_count": shortcut_review_finding_count,
+        "open_shortcut_finding_count": open_shortcut_finding_count,
+        "open_unaccepted_critical_shortcut_finding_count": (
+            open_unaccepted_critical_shortcut_finding_count
+        ),
+    }
+    if not shortcut_review_scope_resolved:
+        gate6 = _insufficient(
+            6, _gate6_name, "insufficient_evidence:shortcut_review_scope_unresolved", _gate6_ctx
+        )
+    elif not shortcut_review_binding_resolved:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:shortcut_review_binding_unresolved",
+            _gate6_ctx,
+        )
+    elif not shortcut_review_run_present:
+        gate6 = _insufficient(
+            6, _gate6_name, "insufficient_evidence:shortcut_review_not_executed", _gate6_ctx
+        )
+    elif not shortcut_review_corpus_trusted:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:shortcut_review_observed_unverified",
+            _gate6_ctx,
+        )
+    elif shortcut_review_execution_failed:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:shortcut_review_execution_failed",
+            _gate6_ctx,
+        )
+    elif not shortcut_review_independence_resolved:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:shortcut_review_independence_unproven",
+            _gate6_ctx,
+        )
+    elif not shortcut_review_coverage_complete:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:shortcut_review_coverage_incomplete",
+            _gate6_ctx,
+        )
+    elif not _gate6_evidence_consistent:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:shortcut_review_evidence_inconsistent",
+            _gate6_ctx,
+        )
+    elif open_unaccepted_critical_shortcut_finding_count > 0:
+        gate6 = _insufficient(
+            6,
+            _gate6_name,
+            "insufficient_evidence:critical_shortcut_findings_open",
+            _gate6_ctx,
+        )
+    else:
+        gate6 = GateResult(
+            6,
+            _gate6_name,
+            STATUS_PASSED,
+            "passed:no_unaccepted_critical_shortcut_findings_verified",
+            _gate6_ctx,
+        )
 
     # Slice 28: gate #3 is PASS-capable. The "latest" inputs are the snapshot for the CURRENTLY
     # DECLARED repo/branch (B1-cont — bound by the repo at evaluation time); the ladder is keyed ONLY

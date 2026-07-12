@@ -272,7 +272,7 @@ def test_a5_gate4_fail_closed_ladder_and_only_exact_complete_coverage_passes(
     gate = _gate4(report)
     assert gate["status"] == status
     assert gate["reason"] == reason
-    assert report.to_dict()["ruleset_version"] == "slice44.v1"
+    assert report.to_dict()["ruleset_version"] == "slice45.v1"
     assert report.to_dict()["can_go_live_autonomously"] is False
 
 
