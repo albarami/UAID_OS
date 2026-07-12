@@ -7,7 +7,7 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Gate #1 (R5 intake complete)** passes at ``R5``; **gate #2 (deployment target, Slice 30)**, **gate #3
   (branch protection, Slice 28)**, and **gate #11 (monitoring/alerts, Slice 31)** are **PASS-capable**
   — each via a binding-bound, latest-wins, connector_verified + fresh ladder (see below).
-- The **four** partial-context gates (#7, #8, #9, #12) return ``insufficient_evidence``:
+- Gates #7, #9, and #12 remain partial-context ``insufficient_evidence`` gates:
   the system has a *primitive* (
   **Slice-22 risk-acceptance store, #7**; AC provenance;
   cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
@@ -47,7 +47,7 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 when #1/#2/#3/#4/#11 pass). ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice45.v1``.
+``slice46.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice45.v1"
+A5_RULESET_VERSION = "slice46.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -129,7 +129,18 @@ def evaluate_production_autonomy(
     autonomy_policy_present: bool = False,
     cost_policy_present: bool = False,
     environments_declared: bool = False,
-    generated_ac_provenance_ok: bool = False,
+    acceptance_scope_resolved: bool = True,
+    acceptance_binding_resolved: bool = False,
+    acceptance_scope_count: int = 0,
+    acceptance_verification_run_present: bool = False,
+    acceptance_verification_failed: bool = False,
+    acceptance_missing_authorship_count: int = 0,
+    acceptance_untrusted_count: int = 0,
+    acceptance_disputed_count: int = 0,
+    acceptance_unapproved_count: int = 0,
+    acceptance_controls_failed_count: int = 0,
+    acceptance_eligible_count: int = 0,
+    acceptance_evidence_consistent: bool = False,
     active_risk_acceptance_count: int = 0,
     open_issue_count: int = 0,
     open_blocking_issue_count: int = 0,
@@ -231,13 +242,55 @@ def evaluate_production_autonomy(
         gate2 = GateResult(
             2, _gate2_name, STATUS_PASSED, "production_deployment_target_available_verified"
         )
-    gate8 = _insufficient(
-        8,
-        "no_unapproved_generated_ac_in_critical_gates",
-        "ac_provenance_present_but_no_release_gate_binding"
-        if generated_ac_provenance_ok
-        else "ac_provenance_context_only_no_release_gate_binding",
-    )
+    _gate8_name = "no_unapproved_generated_ac_in_critical_gates"
+    _gate8_ctx = {
+        "acceptance_scope_resolved": acceptance_scope_resolved,
+        "acceptance_binding_resolved": acceptance_binding_resolved,
+        "acceptance_scope_count": acceptance_scope_count,
+        "acceptance_verification_run_present": acceptance_verification_run_present,
+        "acceptance_verification_failed": acceptance_verification_failed,
+        "acceptance_missing_authorship_count": acceptance_missing_authorship_count,
+        "acceptance_untrusted_count": acceptance_untrusted_count,
+        "acceptance_disputed_count": acceptance_disputed_count,
+        "acceptance_unapproved_count": acceptance_unapproved_count,
+        "acceptance_controls_failed_count": acceptance_controls_failed_count,
+        "acceptance_eligible_count": acceptance_eligible_count,
+        "acceptance_evidence_consistent": acceptance_evidence_consistent,
+        "approval_provenance_tier": "db_verified_independent_agent_lineage",
+        "human_owner_approval_gate_eligible": False,
+    }
+    if not acceptance_scope_resolved:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_scope_unresolved", _gate8_ctx)
+    elif not acceptance_binding_resolved:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_binding_unresolved", _gate8_ctx)
+    elif acceptance_scope_count <= 0:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:no_proven_release_gating_acceptance_scope", _gate8_ctx)
+    elif not acceptance_verification_run_present:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_verification_not_run", _gate8_ctx)
+    elif acceptance_verification_failed:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_verification_failed", _gate8_ctx)
+    elif acceptance_missing_authorship_count > 0:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_authorship_missing", _gate8_ctx)
+    elif acceptance_untrusted_count > 0:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:authorship_approval_unverified", _gate8_ctx)
+    elif acceptance_disputed_count > 0:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:disputed_acceptance_criteria_in_release_scope", _gate8_ctx)
+    elif acceptance_unapproved_count > 0:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:unapproved_generated_acceptance_criteria_in_release_scope", _gate8_ctx)
+    elif acceptance_controls_failed_count > 0:
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_authorship_controls_failed", _gate8_ctx)
+    elif (
+        not acceptance_evidence_consistent
+        or acceptance_eligible_count != acceptance_scope_count
+        or any(count < 0 for count in (
+            acceptance_scope_count, acceptance_missing_authorship_count, acceptance_untrusted_count,
+            acceptance_disputed_count, acceptance_unapproved_count, acceptance_controls_failed_count,
+            acceptance_eligible_count,
+        ))
+    ):
+        gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_evidence_inconsistent", _gate8_ctx)
+    else:
+        gate8 = GateResult(8, _gate8_name, STATUS_PASSED, "passed:no_unapproved_generated_acceptance_criteria_in_critical_gates_verified", _gate8_ctx)
     gate9 = _insufficient(
         9,
         "cost_forecast_within_policy",

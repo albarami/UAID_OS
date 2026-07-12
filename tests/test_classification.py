@@ -735,7 +735,7 @@ async def test_no_a5_or_readiness_impact_before_equals_after(cls_ctx):
         ).readiness_level
     # ...yet neither the A5 report nor the readiness level changed.
     assert before_pa == after_pa
-    assert after_pa["ruleset_version"] == "slice45.v1"
+    assert after_pa["ruleset_version"] == "slice46.v1"
     assert before_level == after_level
 
 
