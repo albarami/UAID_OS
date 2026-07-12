@@ -33,6 +33,7 @@ HARD_REFUSAL_CATEGORIES = (
 STATUSES = ("active", "expired", "revoked", "superseded")
 TERMINAL_STATUSES = ("expired", "revoked", "superseded")
 APPROVAL_AUTHORITY_SOURCE = "approval_matrix"
+SUBJECT_TYPES = ("release_issue", "release_finding")
 
 # One-way transitions from active only.
 _ALLOWED_TRANSITIONS = {
@@ -45,6 +46,7 @@ _ALLOWED_TRANSITIONS = {
 REQUIRED_FIELDS = (
     "release_id",
     "issue_id",
+    "subject_type",
     "severity",
     "reason_for_acceptance",
     "business_impact",
@@ -83,6 +85,8 @@ def validate_new_record(record: dict) -> None:
             raise InvalidRiskAcceptance(f"missing or empty required field: {field}")
     if record["severity"] not in SEVERITIES:
         raise InvalidRiskAcceptance(f"invalid severity: {record['severity']!r}")
+    if record["subject_type"] not in SUBJECT_TYPES:
+        raise InvalidRiskAcceptance(f"invalid subject_type: {record['subject_type']!r}")
     if not isinstance(record["accepted_by"], list) or len(record["accepted_by"]) == 0:
         raise InvalidRiskAcceptance("accepted_by must be a non-empty list")
     if record["approval_authority_source"] != APPROVAL_AUTHORITY_SOURCE:

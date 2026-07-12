@@ -8,7 +8,9 @@ each writing an append-only event and an audit entry with **safe metadata only**
 ``request_authenticated`` only when ``context.actor`` IS the signer (actor-bound: principal == payload
 ``approver`` and in ``accepted_by``), else ``caller_supplied_unverified`` — key-custody, **not** a human
 signature. Records never enable go-live. Run inside ``tenant_scope``; the ``actor`` arg is an untrusted
-label, while ``context.actor`` (if set) is the verified principal.
+label, while ``context.actor`` (if set) is the verified principal. Slice 47 requires new records to
+resolve one exact frozen candidate and one bound issue or uniquely bridged finding; historical NULL
+``subject_type`` rows remain visibly legacy-unbound.
 """
 
 import uuid
@@ -20,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
 from app.identity import CALLER_SUPPLIED_UNVERIFIED, REQUEST_AUTHENTICATED
+from app.models.release_candidate import ReleaseCandidate
+from app.models.release_candidate_issue_binding import ReleaseCandidateIssueBinding
+from app.models.release_issue import ReleaseIssue
 from app.models.risk_acceptance_event import RiskAcceptanceEvent
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.release.risk_acceptance import (
@@ -38,6 +43,7 @@ class RiskAcceptanceRepository(TenantScopedRepository):
         self, *, project_id: uuid.UUID, payload: dict, actor: str
     ) -> RiskAcceptanceRecord:
         validate_new_record(payload)  # fail-closed: required fields + hard-refusal rejection
+        await self._require_subject_binding(project_id, payload)
         # Slice 27: stamp the verified tier ONLY when the authenticated principal IS the signer
         # (actor-bound). A claimed-verified acceptance for someone else is refused, never downgraded.
         approver_provenance = CALLER_SUPPLIED_UNVERIFIED
@@ -53,6 +59,7 @@ class RiskAcceptanceRepository(TenantScopedRepository):
             project_id=project_id,
             release_id=payload["release_id"],
             issue_id=payload["issue_id"],
+            subject_type=payload["subject_type"],
             severity=payload["severity"],
             affected_requirements=list(payload.get("affected_requirements") or []),
             reason_for_acceptance=payload["reason_for_acceptance"],
@@ -76,6 +83,64 @@ class RiskAcceptanceRepository(TenantScopedRepository):
         await self._event(row, "created", actor)
         await self._audit(row, "intake.risk_acceptance_created", actor)
         return row
+
+    async def _require_subject_binding(self, project_id: uuid.UUID, payload: dict) -> None:
+        """Require one frozen exact-release candidate containing the ruled subject."""
+
+        try:
+            subject_id = uuid.UUID(payload["issue_id"])
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise InvalidRiskAcceptance("issue_id must be a UUID for a new bound record") from exc
+        candidate_id = (
+            await self.session.execute(
+                select(ReleaseCandidate.id).where(
+                    ReleaseCandidate.tenant_id == self.context.tenant_id,
+                    ReleaseCandidate.project_id == project_id,
+                    ReleaseCandidate.release_ref == payload["release_id"],
+                    ReleaseCandidate.status == "frozen",
+                )
+            )
+        ).scalar_one_or_none()
+        if candidate_id is None:
+            raise InvalidRiskAcceptance("release_id must resolve to one same-project frozen candidate")
+
+        conditions = [
+            ReleaseCandidateIssueBinding.tenant_id == self.context.tenant_id,
+            ReleaseCandidateIssueBinding.project_id == project_id,
+            ReleaseCandidateIssueBinding.release_candidate_id == candidate_id,
+        ]
+        if payload["subject_type"] == "release_issue":
+            conditions.append(ReleaseCandidateIssueBinding.release_issue_id == subject_id)
+        else:
+            conditions.extend(
+                (
+                    ReleaseIssue.id == ReleaseCandidateIssueBinding.release_issue_id,
+                    ReleaseIssue.tenant_id == ReleaseCandidateIssueBinding.tenant_id,
+                    ReleaseIssue.project_id == project_id,
+                    ReleaseIssue.source_finding_id == subject_id,
+                    ReleaseIssue.blocking_category.is_(None),
+                    ReleaseIssue.severity != "critical",
+                )
+            )
+        count = int(
+            (
+                await self.session.execute(
+                    select(func.count())
+                    .select_from(ReleaseCandidateIssueBinding)
+                    .outerjoin(
+                        ReleaseIssue,
+                        (ReleaseIssue.id == ReleaseCandidateIssueBinding.release_issue_id)
+                        & (
+                            ReleaseIssue.tenant_id
+                            == ReleaseCandidateIssueBinding.tenant_id
+                        ),
+                    )
+                    .where(*conditions)
+                )
+            ).scalar_one()
+        )
+        if count != 1:
+            raise InvalidRiskAcceptance("release/subject binding is not exact")
 
     async def revoke(self, *, record_id: uuid.UUID, actor: str) -> RiskAcceptanceRecord:
         return await self._transition(record_id, "revoked", "revoked", actor)
@@ -115,6 +180,25 @@ class RiskAcceptanceRepository(TenantScopedRepository):
             RiskAcceptanceRecord.status == "active",
             RiskAcceptanceRecord.blocking_category.is_(None),
             RiskAcceptanceRecord.expiry_date >= date.today(),
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def count_release_bound_active(self, project_id: uuid.UUID) -> int:
+        stmt = select(func.count()).where(
+            RiskAcceptanceRecord.tenant_id == self.context.tenant_id,
+            RiskAcceptanceRecord.project_id == project_id,
+            RiskAcceptanceRecord.subject_type.is_not(None),
+            RiskAcceptanceRecord.status == "active",
+            RiskAcceptanceRecord.blocking_category.is_(None),
+            RiskAcceptanceRecord.expiry_date >= date.today(),
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def count_legacy_unbound(self, project_id: uuid.UUID) -> int:
+        stmt = select(func.count()).where(
+            RiskAcceptanceRecord.tenant_id == self.context.tenant_id,
+            RiskAcceptanceRecord.project_id == project_id,
+            RiskAcceptanceRecord.subject_type.is_(None),
         )
         return int((await self.session.execute(stmt)).scalar_one())
 
@@ -158,6 +242,7 @@ class RiskAcceptanceRepository(TenantScopedRepository):
                 "risk_acceptance_record_id": str(row.id),
                 "project_id": str(row.project_id),
                 "issue_id": row.issue_id,
+                "subject_type": row.subject_type,
                 "release_id": row.release_id,
                 "severity": row.severity,
                 "status": row.status,

@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -40,6 +41,20 @@ class RiskAcceptanceRecord(Base):
             ondelete="RESTRICT",
             name="project_tenant",
         ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "release_id"],
+            [
+                "release_candidates.tenant_id",
+                "release_candidates.project_id",
+                "release_candidates.release_ref",
+            ],
+            ondelete="RESTRICT",
+            name="fk_risk_acceptance_release_ref",
+        ),
+        CheckConstraint(
+            "subject_type IS NULL OR subject_type IN ('release_issue','release_finding')",
+            name="subject_type_valid",
+        ),
         # FK target for risk_acceptance_events (record pinned to its tenant).
         UniqueConstraint("id", "tenant_id", name="uq_risk_acceptance_records_id_tenant"),
         Index(
@@ -57,9 +72,11 @@ class RiskAcceptanceRecord(Base):
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="RESTRICT"), nullable=False
     )
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
-    # Free-form external refs this slice (no issue/release entity yet).
+    # Slice 47 keeps the spec-facing string but FK-pins new release refs to release_candidates.
     release_id: Mapped[str] = mapped_column(Text, nullable=False)
     issue_id: Mapped[str] = mapped_column(Text, nullable=False)
+    # NULL is legacy-only; the Slice-47 guard requires a subject kind on every new row.
+    subject_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     severity: Mapped[str] = mapped_column(Text, nullable=False)
     affected_requirements: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")

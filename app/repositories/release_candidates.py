@@ -10,8 +10,9 @@ untrusted caller label.
 """
 
 import uuid
+from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import Text, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
@@ -19,6 +20,7 @@ from app.models.release_candidate import ReleaseCandidate
 from app.models.release_candidate_event import ReleaseCandidateEvent
 from app.models.release_candidate_issue_binding import ReleaseCandidateIssueBinding
 from app.models.release_issue import ReleaseIssue
+from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.release.release_candidates import validate_new_candidate, validate_transition
 from app.tenancy import TenantContext, TenantScopedRepository
 
@@ -132,6 +134,95 @@ class ReleaseCandidateRepository(TenantScopedRepository):
         ``bound_open_blocking_issue_count`` under the lifecycle (documented, no fabricated
         distinction; kept distinct per the A5 gate-#7 context contract)."""
         return await self._bound_count(candidate_id, blocking=True)
+
+    async def bound_issue_count(self, candidate_id: uuid.UUID) -> int:
+        return await self._bound_all_count(candidate_id)
+
+    async def bound_trusted_issue_count(self, candidate_id: uuid.UUID) -> int:
+        return await self._bound_all_count(
+            candidate_id,
+            ReleaseIssue.source_provenance == "db_verified_trusted_release_finding",
+            ReleaseIssue.source_finding_id.is_not(None),
+        )
+
+    async def bound_untrusted_issue_count(self, candidate_id: uuid.UUID) -> int:
+        return await self._bound_all_count(
+            candidate_id,
+            or_(
+                ReleaseIssue.source_provenance != "db_verified_trusted_release_finding",
+                ReleaseIssue.source_finding_id.is_(None),
+            ),
+        )
+
+    async def bound_finding_bridge_issue_count(self, candidate_id: uuid.UUID) -> int:
+        return await self.bound_trusted_issue_count(candidate_id)
+
+    async def bound_bridge_type_count(self, candidate_id: uuid.UUID, finding_type: str) -> int:
+        if finding_type not in {"security", "shortcut"}:
+            raise ValueError("finding_type must be security or shortcut")
+        return await self._bound_all_count(
+            candidate_id,
+            ReleaseIssue.source_provenance == "db_verified_trusted_release_finding",
+            ReleaseIssue.source_finding_id.is_not(None),
+            ReleaseIssue.issue_category == finding_type,
+        )
+
+    async def bound_accepted_issue_count(self, candidate_id: uuid.UUID) -> int:
+        return await self._bound_all_count(candidate_id, ReleaseIssue.status == "accepted")
+
+    async def bound_release_consistent_accepted_issue_count(
+        self, candidate_id: uuid.UUID
+    ) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ReleaseCandidateIssueBinding)
+            .join(
+                ReleaseIssue,
+                (ReleaseIssue.id == ReleaseCandidateIssueBinding.release_issue_id)
+                & (ReleaseIssue.tenant_id == ReleaseCandidateIssueBinding.tenant_id),
+            )
+            .join(
+                ReleaseCandidate,
+                (ReleaseCandidate.id == ReleaseCandidateIssueBinding.release_candidate_id)
+                & (ReleaseCandidate.tenant_id == ReleaseCandidateIssueBinding.tenant_id)
+                & (ReleaseCandidate.project_id == ReleaseCandidateIssueBinding.project_id),
+            )
+            .join(
+                RiskAcceptanceRecord,
+                (RiskAcceptanceRecord.id == ReleaseIssue.risk_acceptance_record_id)
+                & (RiskAcceptanceRecord.tenant_id == ReleaseIssue.tenant_id)
+                & (RiskAcceptanceRecord.project_id == ReleaseIssue.project_id),
+            )
+            .where(
+                ReleaseCandidateIssueBinding.tenant_id == self.context.tenant_id,
+                ReleaseCandidateIssueBinding.release_candidate_id == candidate_id,
+                ReleaseIssue.status == "accepted",
+                RiskAcceptanceRecord.subject_type == "release_issue",
+                RiskAcceptanceRecord.issue_id == func.cast(ReleaseIssue.id, Text),
+                RiskAcceptanceRecord.release_id == ReleaseCandidate.release_ref,
+                RiskAcceptanceRecord.status == "active",
+                RiskAcceptanceRecord.expiry_date >= date.today(),
+                RiskAcceptanceRecord.blocking_category.is_(None),
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def _bound_all_count(self, candidate_id: uuid.UUID, *extra_conditions) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(ReleaseCandidateIssueBinding)
+            .join(
+                ReleaseIssue,
+                (ReleaseIssue.id == ReleaseCandidateIssueBinding.release_issue_id)
+                & (ReleaseIssue.tenant_id == ReleaseCandidateIssueBinding.tenant_id),
+            )
+            .where(
+                ReleaseCandidateIssueBinding.tenant_id == self.context.tenant_id,
+                ReleaseCandidateIssueBinding.release_candidate_id == candidate_id,
+                *extra_conditions,
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
 
     async def _bound_count(self, candidate_id: uuid.UUID, *, blocking: bool | None = None) -> int:
         conds = [

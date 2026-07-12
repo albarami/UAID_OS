@@ -15,6 +15,7 @@ from app.models.security_scan_category_result import SecurityScanCategoryResult
 from app.models.security_scan_run import SecurityScanRun
 from app.release.project_repo import resolve_declared_repo
 from app.release.scm_connector import SCMConnector, SCMConnectorError
+from app.repositories.release_issues import ReleaseIssueRepository
 from app.tenancy import TenantContext, TenantScopedRepository
 from app.verify.security_scan import (
     MANDATORY_CATEGORIES,
@@ -225,6 +226,13 @@ class SecurityScanRepository(TenantScopedRepository):
                     event_type="created",
                     actor=actor,
                 )
+            )
+            await ReleaseIssueRepository(
+                self.session, self.context
+            ).create_from_trusted_finding(
+                project_id=run.project_id,
+                finding_id=row.id,
+                actor=actor,
             )
         await self.session.flush()
 

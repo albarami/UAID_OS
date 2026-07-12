@@ -6,8 +6,9 @@ hard-refusal ``blocking_category``) issues can never be accepted and must be ``b
 ``accepted`` requires a usable risk-acceptance record (active + non-expired +
 non-blocking + same tenant/project + ``issue_id == issue.id``). Per transition only the relevant
 lifecycle fields are mutable; all identity/prose/source fields are immutable after create.
-``source``/``source_provenance`` are UNVERIFIED — not authoritative issue provenance. These issues
-never enable go-live.
+Slice 47 adds an immutable one-to-one ``source_finding_id`` path whose trusted provenance is accepted
+only when the DB proves the exact Slice-44/45 attachment and code-owned derivation. Manual issue
+sources remain caller-supplied and unverified. These issues never enable go-live.
 """
 
 import uuid
@@ -45,7 +46,20 @@ class ReleaseIssue(Base):
             ondelete="RESTRICT",
             name="risk_acceptance_tenant",
         ),
+        ForeignKeyConstraint(
+            ["source_finding_id", "tenant_id"],
+            ["release_findings.id", "release_findings.tenant_id"],
+            ondelete="RESTRICT",
+            name="source_finding_tenant",
+        ),
         UniqueConstraint("id", "tenant_id", name="uq_release_issues_id_tenant"),
+        Index(
+            "uq_release_issues_source_finding",
+            "tenant_id",
+            "source_finding_id",
+            unique=True,
+            postgresql_where=text("source_finding_id IS NOT NULL"),
+        ),
         Index(
             "ix_release_issues_tenant_project_status",
             "tenant_id",
@@ -71,6 +85,7 @@ class ReleaseIssue(Base):
     source_provenance: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'caller_supplied_unverified'")
     )
+    source_finding_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'open'"))
     risk_acceptance_record_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True

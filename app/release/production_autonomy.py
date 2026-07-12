@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice46.v1"
+A5_RULESET_VERSION = "slice47.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -151,6 +151,16 @@ def evaluate_production_autonomy(
     bound_open_issue_count: int = 0,
     bound_open_blocking_issue_count: int = 0,
     bound_open_unaccepted_blocking_issue_count: int = 0,
+    bound_issue_count: int = 0,
+    bound_trusted_issue_count: int = 0,
+    bound_untrusted_issue_count: int = 0,
+    bound_finding_bridge_issue_count: int = 0,
+    bound_security_bridge_issue_count: int = 0,
+    bound_shortcut_bridge_issue_count: int = 0,
+    bound_accepted_issue_count: int = 0,
+    bound_release_consistent_accepted_issue_count: int = 0,
+    release_bound_active_risk_acceptance_count: int = 0,
+    legacy_unbound_risk_acceptance_count: int = 0,
     open_security_finding_count: int = 0,
     open_unaccepted_critical_security_finding_count: int = 0,
     open_shortcut_finding_count: int = 0,
@@ -305,16 +315,42 @@ def evaluate_production_autonomy(
         if autonomy_policy_present
         else "no_a5_preapproved_release",
     )
-    # Slice 24 added the open-issue store; Slice 25 adds the release-binding store. When a FROZEN
-    # release candidate exists, the *release-binding* half is satisfied, so the reason narrows from
-    # no_issue_provenance_or_release_binding → no_issue_provenance. The *issue-provenance* half
-    # (reviewer/CI/verifier completeness) still does not exist, so gate #7 NEVER passes — the counts
-    # are context only and never flip the status.
-    gate7_reason = (
-        "no_issue_provenance"
-        if frozen_release_candidate_count > 0
-        else "no_issue_provenance_or_release_binding"
+    # Slice 47: trusted finding lineage and exact risk/release joins make the KNOWN bound issue set
+    # inspectable. They still cannot prove issue-set completeness: gate #7 has no passed branch until
+    # the separately reviewed Slice-50 release verdict exists.
+    gate7_counts_consistent = (
+        all(
+            count >= 0
+            for count in (
+                bound_issue_count,
+                bound_trusted_issue_count,
+                bound_untrusted_issue_count,
+                bound_finding_bridge_issue_count,
+                bound_security_bridge_issue_count,
+                bound_shortcut_bridge_issue_count,
+                bound_accepted_issue_count,
+                bound_release_consistent_accepted_issue_count,
+                release_bound_active_risk_acceptance_count,
+                legacy_unbound_risk_acceptance_count,
+            )
+        )
+        and bound_trusted_issue_count + bound_untrusted_issue_count == bound_issue_count
+        and bound_finding_bridge_issue_count == bound_trusted_issue_count
+        and bound_security_bridge_issue_count + bound_shortcut_bridge_issue_count
+        == bound_finding_bridge_issue_count
+        and bound_release_consistent_accepted_issue_count <= bound_accepted_issue_count
+        and bound_accepted_issue_count <= bound_issue_count
     )
+    if frozen_release_candidate_count <= 0:
+        gate7_reason = "insufficient_evidence:no_issue_provenance_or_release_binding"
+    elif bound_issue_count == 0:
+        gate7_reason = "insufficient_evidence:no_declared_issue_inventory_or_release_verdict"
+    elif not gate7_counts_consistent or bound_untrusted_issue_count > 0:
+        gate7_reason = "insufficient_evidence:bound_issue_provenance_incomplete"
+    elif bound_release_consistent_accepted_issue_count != bound_accepted_issue_count:
+        gate7_reason = "insufficient_evidence:risk_acceptance_release_binding_incomplete"
+    else:
+        gate7_reason = "insufficient_evidence:verified_known_issue_set_but_no_release_verdict"
     gate7 = _insufficient(
         7,
         "approved_risk_acceptance_records",
@@ -330,6 +366,21 @@ def evaluate_production_autonomy(
             "bound_open_issue_count": bound_open_issue_count,
             "bound_open_blocking_issue_count": bound_open_blocking_issue_count,
             "bound_open_unaccepted_blocking_issue_count": bound_open_unaccepted_blocking_issue_count,
+            "bound_issue_count": bound_issue_count,
+            "bound_trusted_issue_count": bound_trusted_issue_count,
+            "bound_untrusted_issue_count": bound_untrusted_issue_count,
+            "bound_finding_bridge_issue_count": bound_finding_bridge_issue_count,
+            "bound_security_bridge_issue_count": bound_security_bridge_issue_count,
+            "bound_shortcut_bridge_issue_count": bound_shortcut_bridge_issue_count,
+            "bound_accepted_issue_count": bound_accepted_issue_count,
+            "bound_release_consistent_accepted_issue_count": (
+                bound_release_consistent_accepted_issue_count
+            ),
+            "release_bound_active_risk_acceptance_count": (
+                release_bound_active_risk_acceptance_count
+            ),
+            "legacy_unbound_risk_acceptance_count": legacy_unbound_risk_acceptance_count,
+            "issue_provenance_consistent": gate7_counts_consistent,
         },
     )
 

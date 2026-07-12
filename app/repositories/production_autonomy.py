@@ -14,11 +14,9 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gate #5 (Slice 44): connector-observed exact-binding security scan coverage plus the existing
   all-source open-critical count; gate #6 (Slice 45): exact-binding hybrid shortcut coverage;
 - gate #8 (Slice 46): non-vacuous canonical-AC scope plus current DB-bound authorship evidence;
-- gate #7 (Slice 22 + 24 + 25): ``RiskAcceptanceRepository.count_active_nonblocking`` +
-  ``ReleaseIssueRepository`` open counts + ``ReleaseCandidateRepository.count_frozen`` /
-  ``latest_frozen`` + bound-issue counts — surfaced as ``context``. The reason narrows to
-  ``no_issue_provenance`` when a frozen release candidate exists; it stays
-  ``insufficient_evidence`` and never passes;
+- gate #7 (Slice 47): latest-frozen candidate membership, DB-verified finding-bridge provenance,
+  exact release-bound risk-acceptance consistency, and visible legacy-unbound counts. Its ruled
+  five-rung ladder remains ``insufficient_evidence`` everywhere pending the Slice-50 verdict;
 - gate #3 (Slice 26 + 28): the latest ``branch_protection_snapshots`` row **for the project's currently
   declared repo/branch** (``resolve_declared_repo`` + ``latest_branch_protection_for_repo``) plus
   freshness (``CI_EVIDENCE_MAX_AGE_HOURS``). Gate #3 **PASSes** on repo-bound + ``connector_verified`` +
@@ -123,9 +121,8 @@ class ProductionAutonomyRepository:
         environments_declared = any(
             c.category == _ENV_CATEGORY and c.status == "declared" for c in categories
         )
-        active_risk_acceptance_count = await RiskAcceptanceRepository(
-            self.session, self.context
-        ).count_active_nonblocking(project_id)
+        risk_acceptances = RiskAcceptanceRepository(self.session, self.context)
+        active_risk_acceptance_count = await risk_acceptances.count_active_nonblocking(project_id)
         issues = ReleaseIssueRepository(self.session, self.context)
         findings = ReleaseFindingRepository(self.session, self.context)
         candidates = ReleaseCandidateRepository(self.session, self.context)
@@ -170,8 +167,32 @@ class ProductionAutonomyRepository:
             bound_open_unaccepted_blocking = (
                 await candidates.bound_open_unaccepted_blocking_issue_count(latest_frozen.id)
             )
+            bound_issue_count = await candidates.bound_issue_count(latest_frozen.id)
+            bound_trusted_issue_count = await candidates.bound_trusted_issue_count(latest_frozen.id)
+            bound_untrusted_issue_count = await candidates.bound_untrusted_issue_count(
+                latest_frozen.id
+            )
+            bound_finding_bridge_issue_count = (
+                await candidates.bound_finding_bridge_issue_count(latest_frozen.id)
+            )
+            bound_security_bridge_issue_count = await candidates.bound_bridge_type_count(
+                latest_frozen.id, "security"
+            )
+            bound_shortcut_bridge_issue_count = await candidates.bound_bridge_type_count(
+                latest_frozen.id, "shortcut"
+            )
+            bound_accepted_issue_count = await candidates.bound_accepted_issue_count(
+                latest_frozen.id
+            )
+            bound_release_consistent_accepted_issue_count = (
+                await candidates.bound_release_consistent_accepted_issue_count(latest_frozen.id)
+            )
         else:
             bound_open = bound_open_blocking = bound_open_unaccepted_blocking = 0
+            bound_issue_count = bound_trusted_issue_count = bound_untrusted_issue_count = 0
+            bound_finding_bridge_issue_count = 0
+            bound_security_bridge_issue_count = bound_shortcut_bridge_issue_count = 0
+            bound_accepted_issue_count = bound_release_consistent_accepted_issue_count = 0
         oracle_coverage = await TestOracleRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
@@ -206,6 +227,22 @@ class ProductionAutonomyRepository:
             bound_open_issue_count=bound_open,
             bound_open_blocking_issue_count=bound_open_blocking,
             bound_open_unaccepted_blocking_issue_count=bound_open_unaccepted_blocking,
+            bound_issue_count=bound_issue_count,
+            bound_trusted_issue_count=bound_trusted_issue_count,
+            bound_untrusted_issue_count=bound_untrusted_issue_count,
+            bound_finding_bridge_issue_count=bound_finding_bridge_issue_count,
+            bound_security_bridge_issue_count=bound_security_bridge_issue_count,
+            bound_shortcut_bridge_issue_count=bound_shortcut_bridge_issue_count,
+            bound_accepted_issue_count=bound_accepted_issue_count,
+            bound_release_consistent_accepted_issue_count=(
+                bound_release_consistent_accepted_issue_count
+            ),
+            release_bound_active_risk_acceptance_count=(
+                await risk_acceptances.count_release_bound_active(project_id)
+            ),
+            legacy_unbound_risk_acceptance_count=(
+                await risk_acceptances.count_legacy_unbound(project_id)
+            ),
             open_security_finding_count=await findings.count_open(project_id, "security"),
             open_unaccepted_critical_security_finding_count=(
                 await findings.count_open_unaccepted_critical(project_id, "security")

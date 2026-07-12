@@ -110,6 +110,34 @@ async def id_ctx(admin_engine):
                 t=out[tn],
                 s=f"id-{proj}-{sfx}",
             )
+    from app.repositories.release_candidates import ReleaseCandidateRepository
+    from app.repositories.release_issues import ReleaseIssueRepository
+    from app.tenancy import TenantContext, tenant_scope
+
+    context = TenantContext(out["t1"])
+    async with tenant_scope(context) as session:
+        issue = await ReleaseIssueRepository(session, context).create(
+            project_id=out["p1"],
+            payload={
+                "issue_category": "approval",
+                "severity": "low",
+                "blocking": False,
+                "summary": "identity fixture",
+                "detail": "fixture",
+                "source": "test",
+            },
+            actor="fixture",
+        )
+        candidates = ReleaseCandidateRepository(session, context)
+        candidate = await candidates.create(
+            project_id=out["p1"], payload={"release_ref": f"ID-{sfx}"}, actor="fixture"
+        )
+        await candidates.bind_issue(
+            candidate_id=candidate.id, release_issue_id=issue.id, actor="fixture"
+        )
+        await candidates.freeze(candidate_id=candidate.id, actor="fixture")
+        out["issue_id"] = issue.id
+        out["release_ref"] = candidate.release_ref
     return out
 
 
@@ -129,10 +157,11 @@ async def _issue_raw_key(admin_engine, tenant_id, subject, actor_type, status="a
     return raw
 
 
-def _ra_payload(**over):
+def _ra_payload(ctx, **over):
     p = {
-        "release_id": "r1",
-        "issue_id": "i1",
+        "release_id": ctx["release_ref"],
+        "issue_id": str(ctx["issue_id"]),
+        "subject_type": "release_issue",
         "severity": "low",
         "reason_for_acceptance": "x",
         "business_impact": "x",
@@ -273,7 +302,7 @@ async def test_risk_acceptance_verified_actor_bound(id_ctx):
     ctx = TenantContext(id_ctx["t1"], actor=validate_actor("alice", "human"))
     async with tenant_scope(ctx) as s:
         row = await RiskAcceptanceRepository(s, ctx).create(
-            project_id=id_ctx["p1"], payload=_ra_payload(), actor="ignored"
+            project_id=id_ctx["p1"], payload=_ra_payload(id_ctx), actor="ignored"
         )
         assert row.approver_provenance == "request_authenticated"
 
@@ -288,11 +317,19 @@ async def test_risk_acceptance_verified_signer_mismatch_refused(id_ctx):
     async with tenant_scope(ctx) as s:
         repo = RiskAcceptanceRepository(s, ctx)
         with pytest.raises(InvalidRiskAcceptance):  # approver != verified subject
-            await repo.create(project_id=id_ctx["p1"], payload=_ra_payload(approver="carol"), actor="x")
+            await repo.create(
+                project_id=id_ctx["p1"],
+                payload=_ra_payload(id_ctx, approver="carol"),
+                actor="x",
+            )
     async with tenant_scope(ctx) as s:
         repo = RiskAcceptanceRepository(s, ctx)
         with pytest.raises(InvalidRiskAcceptance):  # verified subject not among accepted_by
-            await repo.create(project_id=id_ctx["p1"], payload=_ra_payload(accepted_by=["bob"]), actor="x")
+            await repo.create(
+                project_id=id_ctx["p1"],
+                payload=_ra_payload(id_ctx, accepted_by=["bob"]),
+                actor="x",
+            )
 
 
 @pytest.mark.db
@@ -303,7 +340,7 @@ async def test_risk_acceptance_unverified_default(id_ctx):
     ctx = TenantContext(id_ctx["t1"])  # no actor
     async with tenant_scope(ctx) as s:
         row = await RiskAcceptanceRepository(s, ctx).create(
-            project_id=id_ctx["p1"], payload=_ra_payload(), actor="x"
+            project_id=id_ctx["p1"], payload=_ra_payload(id_ctx), actor="x"
         )
         assert row.approver_provenance == "caller_supplied_unverified"
 
