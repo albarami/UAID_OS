@@ -1,6 +1,6 @@
 # Slice 47 — Issue provenance + findings→issue bridge + deferred risk-acceptance release FK (A5 gate #7, partial) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-47-1…8 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #84 (squash commit `5f3e693`); this v1 plan is retained as the approved design rationale for Slice 47.
 
 > **Persona.** Senior release-governance, evidence-provenance, and PostgreSQL security architect applying
 > fail-closed release binding, tenant isolation, append-only history, and Sanad / No-Free-Facts discipline.
