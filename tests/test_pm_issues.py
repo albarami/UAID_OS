@@ -584,7 +584,7 @@ async def test_no_a5_impact_before_equals_after(pm_ctx):
         assert result.wrote == 1  # mappings WERE written...
         after = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
     assert before == after  # ...yet the A5 report is byte-identical (no release_issues created)
-    assert after["ruleset_version"] == "slice43.v1"
+    assert after["ruleset_version"] == "slice44.v1"
 
 
 @pytest.mark.db

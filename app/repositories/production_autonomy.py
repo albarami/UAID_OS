@@ -3,7 +3,7 @@
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
 migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
-``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#11 are now PASS-capable,
+``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#11 are now PASS-capable,
 remaining gates stay unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
@@ -11,9 +11,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
   snapshot required);
 - gates #2/#12 context: an ``autonomy_policies`` row exists, a ``budgets`` row exists, the
   ``environments_and_deployment_targets`` category is declared;
-- gates #5/#6 (Slice 23): ``ReleaseFindingRepository.count_open`` /
-  ``count_open_unaccepted_critical`` for ``security`` and ``shortcut`` — surfaced as the four
-  ``context`` counts; both stay ``insufficient_evidence:no_finding_provenance_or_scan_source``;
+- gate #5 (Slice 44): connector-observed exact-binding security scan coverage plus the existing
+  all-source open-critical count; gate #6 remains the Slice-23 shortcut-finding context store;
 - gate #7 (Slice 22 + 24 + 25): ``RiskAcceptanceRepository.count_active_nonblocking`` +
   ``ReleaseIssueRepository`` open counts + ``ReleaseCandidateRepository.count_frozen`` /
   ``latest_frozen`` + bound-issue counts — surfaced as ``context``. The reason narrows to
@@ -33,6 +32,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
   (never "inactive", B4).
 - gate #4 (Slice 43): compute-on-read conservative coverage over every structurally valid canonical
   project test oracle, selecting one declared-repo + commit binding and exact-definition latest runs.
+- gate #5 (Slice 44): compute-on-read latest security coverage for the declared repository and
+  code-owned scanner manifest, with a later failed attempt superseding an older pass.
 Nothing here authorizes go-live.
 """
 
@@ -62,6 +63,7 @@ from app.repositories.release_candidates import ReleaseCandidateRepository
 from app.repositories.release_findings import ReleaseFindingRepository
 from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
+from app.repositories.security_scans import SecurityScanRepository
 from app.repositories.test_oracles import TestOracleRepository
 from app.tenancy import TenantContext
 
@@ -168,6 +170,9 @@ class ProductionAutonomyRepository:
         oracle_coverage = await TestOracleRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        security_coverage = await SecurityScanRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -241,4 +246,5 @@ class ProductionAutonomyRepository:
                 latest_mon.failure_kind if latest_mon is not None else None
             ),
             **oracle_coverage.gate_kwargs(),
+            **security_coverage.gate_kwargs(),
         )

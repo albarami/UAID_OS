@@ -45,6 +45,8 @@ from app.models.pm_issue_mapping import PMIssueMapping
 from app.models.project import Project
 from app.models.project_run import ProjectRun
 from app.models.secret_reference_check import SecretReferenceCheck
+from app.models.security_scan_category_result import SecurityScanCategoryResult
+from app.models.security_scan_run import SecurityScanRun
 from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
 from app.models.readiness_report import ReadinessReportRecord
 from app.models.review_report import ReviewReport
@@ -91,6 +93,8 @@ __all__ = [
     "DeploymentTargetSnapshot",
     "MonitoringStatusSnapshot",
     "SecretReferenceCheck",
+    "SecurityScanRun",
+    "SecurityScanCategoryResult",
     "ApprovalNotification",
     "PMIssueMapping",
     "RunCheckpoint",
