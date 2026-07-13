@@ -43,6 +43,7 @@ class Budget(Base, TimestampMixin):
             name="max_daily_non_negative",
         ),
         UniqueConstraint("tenant_id", "project_id"),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_budgets_id_project_tenant"),
         Index(None, "tenant_id"),
     )
 

@@ -23,6 +23,13 @@ from app.models.base import Base
 from app.models.branch_protection_snapshot import BranchProtectionSnapshot
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
+from app.models.cost_forecast import (
+    CostForecastDimensionResult,
+    CostForecastInputLine,
+    CostForecastLedgerEventRef,
+    CostForecastPolicyVersion,
+    CostForecastRun,
+)
 from app.models.deployment_target_snapshot import DeploymentTargetSnapshot
 from app.models.document import Document
 from app.models.document_classification import DocumentClassification
@@ -120,6 +127,11 @@ __all__ = [
     "AgentFailureEvent",
     "CostEvent",
     "Budget",
+    "CostForecastPolicyVersion",
+    "CostForecastRun",
+    "CostForecastLedgerEventRef",
+    "CostForecastInputLine",
+    "CostForecastDimensionResult",
     "BranchProtectionSnapshot",
     "PullRequestEvidenceSnapshot",
     "DeploymentTargetSnapshot",

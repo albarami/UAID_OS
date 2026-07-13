@@ -8,7 +8,7 @@ verified-evidence paths; the baseline has no such evidence, so they return ``ins
 Gates #9/#12 remain partial-context only;
 the remaining sourceless gates (#10/#13) return ``no_evidence_source:<subsystem>``.
 Gate #7 uses the Slice-50 generated-verdict ladder over exact Slice-47/49 evidence;
-``ruleset_version`` is ``slice50.v1``. ``a5_satisfied`` and
+``ruleset_version`` is ``slice51.v1``. ``a5_satisfied`` and
 ``can_go_live_autonomously`` remain false. Docker-free for the pure engine; ``db``
 for the repository (compute-on-read, no persistence).
 """
@@ -115,7 +115,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice50.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice51.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",

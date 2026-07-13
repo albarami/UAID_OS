@@ -26,6 +26,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -79,6 +80,7 @@ class CostEvent(Base):
         ),
         Index("ix_cost_events_tenant_project", "tenant_id", "project_id"),
         Index("ix_cost_events_tenant_project_occurred", "tenant_id", "project_id", "occurred_at"),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_cost_events_id_project_tenant"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

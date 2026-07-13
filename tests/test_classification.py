@@ -733,9 +733,20 @@ async def test_no_a5_or_readiness_impact_before_equals_after(cls_ctx):
         after_level = (
             await ReadinessRepository(session, ctx).evaluate(project_id=p1)
         ).readiness_level
-    # ...yet neither the A5 report nor the readiness level changed.
-    assert before_pa == after_pa
-    assert after_pa["ruleset_version"] == "slice50.v1"
+    # ...yet no gate other than Slice-51 cost-forecast evidence changed. The LLM call
+    # records one incurred-cost event, so gate #9 must expose the new safe count.
+    before_gates = {gate["number"]: gate for gate in before_pa["gates"]}
+    after_gates = {gate["number"]: gate for gate in after_pa["gates"]}
+    assert {number: gate for number, gate in before_gates.items() if number != 9} == {
+        number: gate for number, gate in after_gates.items() if number != 9
+    }
+    assert before_gates[9]["status"] == after_gates[9]["status"]
+    assert before_gates[9]["reason"] == after_gates[9]["reason"]
+    assert (
+        after_gates[9]["context"]["ledger_event_count"]
+        == before_gates[9]["context"]["ledger_event_count"] + 1
+    )
+    assert after_pa["ruleset_version"] == "slice51.v1"
     assert before_level == after_level
 
 
