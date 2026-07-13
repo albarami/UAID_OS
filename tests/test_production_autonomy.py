@@ -467,7 +467,8 @@ async def test_db_evaluate_is_read_only(pa_ctx, admin_engine):
 @pytest.mark.db
 async def test_db_gate7_reads_active_risk_acceptance_count(pa_ctx):
     # The A5 repo wires RiskAcceptanceRepository.count_active_nonblocking into gate #7 context;
-    # gate #7 stays insufficient_evidence (never passes) regardless of the count.
+    # this fixture deliberately creates no Slice-49 core, so the first unmet Slice-50 rung is the
+    # audited-core requirement.  The acceptance count remains context only and cannot skip it.
     from datetime import date
 
     from app.repositories.production_autonomy import ProductionAutonomyRepository
@@ -524,7 +525,10 @@ async def test_db_gate7_reads_active_risk_acceptance_count(pa_ctx):
         rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
     g7 = _gate(rep, 7)
     assert g7["status"] == "insufficient_evidence"
-    assert g7["reason"] == "insufficient_evidence:bound_issue_provenance_incomplete"
+    assert g7["reason"] == "insufficient_evidence:no_audited_release_evidence_core"
+    assert g7["context"]["evidence_core_present"] is False
+    assert g7["context"]["evidence_core_audited"] is False
+    assert g7["context"]["verdict_run_present"] is False
     assert g7["context"]["active_risk_acceptance_count"] == 1
     assert rep.to_dict()["a5_satisfied"] is False
 
@@ -623,8 +627,8 @@ async def test_db_gate7_reads_issue_counts(pa_ctx):
 
 @pytest.mark.db
 async def test_db_gate7_narrows_with_frozen_release_candidate(pa_ctx):
-    # A frozen release candidate (with a bound issue) supplies the release-binding half: gate #7
-    # reason narrows to incomplete bound provenance and surfaces context, but never passes.
+    # A frozen release candidate (with a bound issue) supplies the release-binding half.  This
+    # fixture deliberately creates no Slice-49 core, so gate #7 must stop at that exact next rung.
     from app.repositories.production_autonomy import ProductionAutonomyRepository
     from app.repositories.release_candidates import ReleaseCandidateRepository
     from app.repositories.release_issues import ReleaseIssueRepository
@@ -652,7 +656,10 @@ async def test_db_gate7_narrows_with_frozen_release_candidate(pa_ctx):
         rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
     g7 = _gate(rep, 7)
     assert g7["status"] == "insufficient_evidence"
-    assert g7["reason"] == "insufficient_evidence:bound_issue_provenance_incomplete"
+    assert g7["reason"] == "insufficient_evidence:no_audited_release_evidence_core"
+    assert g7["context"]["evidence_core_present"] is False
+    assert g7["context"]["evidence_core_audited"] is False
+    assert g7["context"]["verdict_run_present"] is False
     assert g7["context"]["frozen_release_candidate_count"] == 1
     assert g7["context"]["latest_frozen_release_candidate_id"] == str(rc.id)
     assert g7["context"]["latest_frozen_release_ref"] == "REL-A"

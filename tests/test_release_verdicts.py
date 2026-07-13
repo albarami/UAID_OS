@@ -744,7 +744,7 @@ async def test_hard_blocker_cannot_be_downgraded_and_audit_excludes_prose(
 
     forged_run_id = uuid.uuid4()
     forged_verdict_id = uuid.uuid4()
-    with pytest.raises(DBAPIError, match="frozen/core evidence"):
+    with pytest.raises(DBAPIError) as rejected_forgery:
         async with db_session.begin_nested():
             await db_session.execute(text("SET CONSTRAINTS ALL DEFERRED"))
             await db_session.execute(
@@ -801,6 +801,34 @@ async def test_hard_blocker_cannot_be_downgraded_and_audit_excludes_prose(
                 {"verdict_id": forged_verdict_id, "old_id": verdict.id},
             )
             await db_session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    # Multiple independent deferred guards protect this invariant.  Their evaluation order is not
+    # contractual: an input-digest guard may reject before the frozen/core projection guard.  Prove
+    # a Slice-50 DB guard rejected the attack and, more importantly, no forged downgrade survived.
+    assert "release verdict" in str(rejected_forgery.value).lower()
+    assert (
+        await _scalar(
+            db_session,
+            "SELECT count(*) FROM release_verdict_runs WHERE id=:id",
+            id=forged_run_id,
+        )
+        == 0
+    )
+    assert (
+        await _scalar(
+            db_session,
+            "SELECT count(*) FROM release_verdicts WHERE id=:id",
+            id=forged_verdict_id,
+        )
+        == 0
+    )
+    assert (
+        await _scalar(
+            db_session,
+            "SELECT blocking_issue_count FROM release_verdicts WHERE id=:id",
+            id=verdict.id,
+        )
+        > 0
+    )
     from app.repositories.release_verdicts import ReleaseVerdictRepositoryError
 
     with pytest.raises(ReleaseVerdictRepositoryError, match="core_issue_projection_stale"):
