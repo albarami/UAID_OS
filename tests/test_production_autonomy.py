@@ -3,12 +3,13 @@
 Fail-closed and **non-authorizing**: **gate #1 (R5 intake)** passes at R5; **gates #2 (deployment
 target, Slice 30), #3 (branch protection, Slice 28), and #11 (monitoring/alerts, Slice 31)** are
 PASS-capable (each a binding-bound latest-wins ladder; passes on connector_verified + fresh +
-sufficient evidence). The other partial-context gates (#5/#6/#7/#8/#9/#12) return
-``insufficient_evidence``; gate #4 is fail-closed and PASS-capable from complete Slice-43 evidence;
+sufficient evidence). Gates #4/#5/#6/#7/#8 are fail-closed and PASS-capable from their respective
+verified-evidence paths; the baseline has no such evidence, so they return ``insufficient_evidence``.
+Gates #9/#12 remain partial-context only;
 the remaining sourceless gates (#10/#13) return ``no_evidence_source:<subsystem>``.
-Gates #5/#6 carry finding-count context; gate #7 uses the Slice-47 five-rung no-PASS ladder;
-``ruleset_version`` is ``slice47.v1``. ``a5_satisfied`` and
-``can_go_live_autonomously`` are always false (≥9 gates unmet). Docker-free for the pure engine; ``db``
+Gate #7 uses the Slice-50 generated-verdict ladder over exact Slice-47/49 evidence;
+``ruleset_version`` is ``slice50.v1``. ``a5_satisfied`` and
+``can_go_live_autonomously`` remain false. Docker-free for the pure engine; ``db``
 for the repository (compute-on-read, no persistence).
 """
 
@@ -114,7 +115,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice47.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice50.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",
@@ -126,21 +127,17 @@ def test_report_keys_and_ruleset():
 
 
 def test_gate7_reason_depends_on_frozen_release():
-    # no frozen release ⇒ full reason; ≥1 frozen release ⇒ narrowed reason (still insufficient).
+    # no frozen release ⇒ full reason; ≥1 frozen release without a core ⇒ the Slice-50 core rung.
     g7_none = _gate(_eval(readiness_level="R5"), 7)
     assert g7_none["gate"] == "approved_risk_acceptance_records"
     assert g7_none["status"] == "insufficient_evidence"
-    assert g7_none["reason"] == (
-        "insufficient_evidence:no_issue_provenance_or_release_binding"
-    )
+    assert g7_none["reason"] == ("insufficient_evidence:no_issue_provenance_or_release_binding")
     g7_frozen = _gate(
         evaluate_production_autonomy("p", readiness_level="R5", frozen_release_candidate_count=1),
         7,
     )
     assert g7_frozen["status"] == "insufficient_evidence"  # never passes
-    assert g7_frozen["reason"] == (
-        "insufficient_evidence:no_declared_issue_inventory_or_release_verdict"
-    )
+    assert g7_frozen["reason"] == "insufficient_evidence:no_audited_release_evidence_core"
     for k in (
         "active_risk_acceptance_count",
         "open_issue_count",
@@ -184,9 +181,7 @@ def test_gate7_context_carries_release_binding_keys():
         bound_open_unaccepted_blocking_issue_count=3,
     )
     g7 = _gate(rep, 7)
-    assert g7["reason"] == (
-        "insufficient_evidence:no_declared_issue_inventory_or_release_verdict"
-    )
+    assert g7["reason"] == "insufficient_evidence:no_audited_release_evidence_core"
     assert g7["context"]["frozen_release_candidate_count"] == 2
     assert g7["context"]["latest_frozen_release_ref"] == "REL-9"
     assert g7["context"]["bound_open_blocking_issue_count"] == 3
@@ -622,9 +617,7 @@ async def test_db_gate7_reads_issue_counts(pa_ctx):
     assert g7["context"]["open_blocking_issue_count"] == 1
     assert g7["context"]["open_unaccepted_blocking_issue_count"] == 1
     assert g7["status"] == "insufficient_evidence"
-    assert g7["reason"] == (
-        "insufficient_evidence:no_issue_provenance_or_release_binding"
-    )
+    assert g7["reason"] == ("insufficient_evidence:no_issue_provenance_or_release_binding")
     assert rep.to_dict()["a5_satisfied"] is False
 
 

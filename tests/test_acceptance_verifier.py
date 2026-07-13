@@ -155,7 +155,7 @@ def test_gate8_pass_is_narrow_and_go_live_remains_false():
         acceptance_eligible_count=1,
         acceptance_evidence_consistent=True,
     )
-    assert A5_RULESET_VERSION == "slice47.v1"
+    assert A5_RULESET_VERSION == "slice50.v1"
     assert report.a5_satisfied is False
     assert report.to_dict()["can_go_live_autonomously"] is False
 

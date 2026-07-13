@@ -659,7 +659,7 @@ async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
         readiness_after = (await ReadinessRepository(session, ctx).evaluate(p1)).readiness_level
     assert before == after  # ...yet the A5 report is byte-identical (store-only)
     assert readiness_before == readiness_after  # and readiness is unchanged
-    assert after["ruleset_version"] == "slice47.v1"  # current A5 ruleset
+    assert after["ruleset_version"] == "slice50.v1"  # current A5 ruleset
 
 
 # --- DB-backed: malformed-reference skipping (D-32-10 fail-closed) -------------

@@ -3,7 +3,7 @@
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
 migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
-``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#6/#8/#11 are PASS-capable,
+``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#6/#7/#8/#11 are PASS-capable,
 remaining gates stay unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
@@ -14,9 +14,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gate #5 (Slice 44): connector-observed exact-binding security scan coverage plus the existing
   all-source open-critical count; gate #6 (Slice 45): exact-binding hybrid shortcut coverage;
 - gate #8 (Slice 46): non-vacuous canonical-AC scope plus current DB-bound authorship evidence;
-- gate #7 (Slice 47): latest-frozen candidate membership, DB-verified finding-bridge provenance,
-  exact release-bound risk-acceptance consistency, and visible legacy-unbound counts. Its ruled
-  five-rung ladder remains ``insufficient_evidence`` everywhere pending the Slice-50 verdict;
+- gate #7 (Slices 47 + 50): latest-frozen candidate membership and a latest-wins, DB-bound generated
+  release verdict over the re-audited Slice-49 core; legacy issue/risk counts remain context only;
 - gate #3 (Slice 26 + 28): the latest ``branch_protection_snapshots`` row **for the project's currently
   declared repo/branch** (``resolve_declared_repo`` + ``latest_branch_protection_for_repo``) plus
   freshness (``CI_EVIDENCE_MAX_AGE_HOURS``). Gate #3 **PASSes** on repo-bound + ``connector_verified`` +
@@ -64,6 +63,7 @@ from app.repositories.readiness import ReadinessRepository
 from app.repositories.release_candidates import ReleaseCandidateRepository
 from app.repositories.release_findings import ReleaseFindingRepository
 from app.repositories.release_issues import ReleaseIssueRepository
+from app.repositories.release_verdicts import ReleaseVerdictRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
 from app.repositories.security_scans import SecurityScanRepository
 from app.repositories.shortcut_detectors import ShortcutDetectorRepository
@@ -205,6 +205,9 @@ class ProductionAutonomyRepository:
         acceptance_coverage = await AcceptanceVerificationRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        verdict_coverage = await ReleaseVerdictRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -297,4 +300,5 @@ class ProductionAutonomyRepository:
             **security_coverage.gate_kwargs(),
             **shortcut_coverage.gate_kwargs(),
             **acceptance_coverage.gate_kwargs(),
+            **verdict_coverage.gate_kwargs(),
         )

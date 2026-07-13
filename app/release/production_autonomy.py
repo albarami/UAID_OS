@@ -7,15 +7,12 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Gate #1 (R5 intake complete)** passes at ``R5``; **gate #2 (deployment target, Slice 30)**, **gate #3
   (branch protection, Slice 28)**, and **gate #11 (monitoring/alerts, Slice 31)** are **PASS-capable**
   — each via a binding-bound, latest-wins, connector_verified + fresh ladder (see below).
-- Gates #7, #9, and #12 remain partial-context ``insufficient_evidence`` gates:
-  the system has a *primitive* (
-  **Slice-22 risk-acceptance store, #7**; AC provenance;
-  cost stop-decision; A5 policy enum + approval engine) but **no production-autonomy evidence**, so
-  they never pass. #7 (**Slice-24 open-issue +
-  Slice-25 release-binding stores**) is ``insufficient_evidence`` — its reason narrows from
-  ``no_issue_provenance_or_release_binding`` to ``no_issue_provenance`` once a FROZEN release
-  candidate exists (the release-binding half is satisfied), but issue provenance/completeness still
-  does not exist, so it never passes. Their counts are context only and never authorize.
+- Gates #9 and #12 remain partial-context ``insufficient_evidence`` gates: their cost-policy and
+  approval primitives do not yet provide production-autonomy evidence, so they never pass.
+- **Slice 50 (#7 release issue disposition — PASS-capable):** evaluates a generated DB-bound verdict
+  over one re-audited Slice-49 core and its exact frozen candidate. Only a current, consistent,
+  gate-eligible ``passed``/``passed_with_limitations`` attestation can pass; no caller verdict or
+  legacy Slice-47 counts can do so. Its scope is only ``known_bound_issue_disposition``.
 - **Slice 28 (#3 branch protection — PASS-capable):** gate #3 evaluates the latest snapshot for the
   project's **currently declared** repo/branch (B1-cont) via a latest-wins ladder —
   ``branch_protection_repo_unbound`` → ``no_branch_protection_evidence`` →
@@ -43,11 +40,11 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   exact-commit corpus, then blocks on every open critical shortcut finding regardless of provenance.
 - The **two** remaining sourceless gates (#10, #13) return ``no_evidence_source:<subsystem>``.
 
-``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates even
-when #1/#2/#3/#4/#11 pass). ``can_go_live_autonomously`` is **hard-false always** — go-live
+``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates).
+``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice46.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
+``slice50.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
 """
 
 from __future__ import annotations
@@ -56,7 +53,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice47.v1"
+A5_RULESET_VERSION = "slice50.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -161,6 +158,18 @@ def evaluate_production_autonomy(
     bound_release_consistent_accepted_issue_count: int = 0,
     release_bound_active_risk_acceptance_count: int = 0,
     legacy_unbound_risk_acceptance_count: int = 0,
+    # Slice 50 — exact frozen-candidate/core/input-bound release verdict evidence.
+    release_evidence_core_present: bool = False,
+    release_evidence_core_audited: bool = False,
+    release_verdict_run_present: bool = False,
+    release_verdict_attempt_failed: bool = False,
+    release_verdict_binding_current: bool = False,
+    release_verdict_evidence_consistent: bool = False,
+    release_verdict_spec_verdict: str | None = None,
+    release_verdict_gate_eligible: bool = False,
+    release_verdict_reason_code: str | None = None,
+    release_verdict_decision_scope: str | None = None,
+    release_verdict_execution_provenance: str | None = None,
     open_security_finding_count: int = 0,
     open_unaccepted_critical_security_finding_count: int = 0,
     open_shortcut_finding_count: int = 0,
@@ -315,9 +324,8 @@ def evaluate_production_autonomy(
         if autonomy_policy_present
         else "no_a5_preapproved_release",
     )
-    # Slice 47: trusted finding lineage and exact risk/release joins make the KNOWN bound issue set
-    # inspectable. They still cannot prove issue-set completeness: gate #7 has no passed branch until
-    # the separately reviewed Slice-50 release verdict exists.
+    # Slice 50: a verdict is a bounded, system-derived disposition over one exact frozen candidate
+    # and re-audited Slice-49 core.  It does not prove issue-set completeness or authorize go-live.
     gate7_counts_consistent = (
         all(
             count >= 0
@@ -341,48 +349,127 @@ def evaluate_production_autonomy(
         and bound_release_consistent_accepted_issue_count <= bound_accepted_issue_count
         and bound_accepted_issue_count <= bound_issue_count
     )
-    if frozen_release_candidate_count <= 0:
-        gate7_reason = "insufficient_evidence:no_issue_provenance_or_release_binding"
-    elif bound_issue_count == 0:
-        gate7_reason = "insufficient_evidence:no_declared_issue_inventory_or_release_verdict"
-    elif not gate7_counts_consistent or bound_untrusted_issue_count > 0:
-        gate7_reason = "insufficient_evidence:bound_issue_provenance_incomplete"
-    elif bound_release_consistent_accepted_issue_count != bound_accepted_issue_count:
-        gate7_reason = "insufficient_evidence:risk_acceptance_release_binding_incomplete"
-    else:
-        gate7_reason = "insufficient_evidence:verified_known_issue_set_but_no_release_verdict"
-    gate7 = _insufficient(
-        7,
-        "approved_risk_acceptance_records",
-        gate7_reason,
-        {
-            "active_risk_acceptance_count": active_risk_acceptance_count,
-            "open_issue_count": open_issue_count,
-            "open_blocking_issue_count": open_blocking_issue_count,
-            "open_unaccepted_blocking_issue_count": open_unaccepted_blocking_issue_count,
-            "frozen_release_candidate_count": frozen_release_candidate_count,
-            "latest_frozen_release_candidate_id": latest_frozen_release_candidate_id,
-            "latest_frozen_release_ref": latest_frozen_release_ref,
-            "bound_open_issue_count": bound_open_issue_count,
-            "bound_open_blocking_issue_count": bound_open_blocking_issue_count,
-            "bound_open_unaccepted_blocking_issue_count": bound_open_unaccepted_blocking_issue_count,
-            "bound_issue_count": bound_issue_count,
-            "bound_trusted_issue_count": bound_trusted_issue_count,
-            "bound_untrusted_issue_count": bound_untrusted_issue_count,
-            "bound_finding_bridge_issue_count": bound_finding_bridge_issue_count,
-            "bound_security_bridge_issue_count": bound_security_bridge_issue_count,
-            "bound_shortcut_bridge_issue_count": bound_shortcut_bridge_issue_count,
-            "bound_accepted_issue_count": bound_accepted_issue_count,
-            "bound_release_consistent_accepted_issue_count": (
-                bound_release_consistent_accepted_issue_count
-            ),
-            "release_bound_active_risk_acceptance_count": (
-                release_bound_active_risk_acceptance_count
-            ),
-            "legacy_unbound_risk_acceptance_count": legacy_unbound_risk_acceptance_count,
-            "issue_provenance_consistent": gate7_counts_consistent,
-        },
+    _gate7_name = "approved_risk_acceptance_records"
+    _gate7_ctx = {
+        "active_risk_acceptance_count": active_risk_acceptance_count,
+        "open_issue_count": open_issue_count,
+        "open_blocking_issue_count": open_blocking_issue_count,
+        "open_unaccepted_blocking_issue_count": open_unaccepted_blocking_issue_count,
+        "frozen_release_candidate_count": frozen_release_candidate_count,
+        "latest_frozen_release_candidate_id": latest_frozen_release_candidate_id,
+        "latest_frozen_release_ref": latest_frozen_release_ref,
+        "bound_open_issue_count": bound_open_issue_count,
+        "bound_open_blocking_issue_count": bound_open_blocking_issue_count,
+        "bound_open_unaccepted_blocking_issue_count": bound_open_unaccepted_blocking_issue_count,
+        "bound_issue_count": bound_issue_count,
+        "bound_trusted_issue_count": bound_trusted_issue_count,
+        "bound_untrusted_issue_count": bound_untrusted_issue_count,
+        "bound_finding_bridge_issue_count": bound_finding_bridge_issue_count,
+        "bound_security_bridge_issue_count": bound_security_bridge_issue_count,
+        "bound_shortcut_bridge_issue_count": bound_shortcut_bridge_issue_count,
+        "bound_accepted_issue_count": bound_accepted_issue_count,
+        "bound_release_consistent_accepted_issue_count": (
+            bound_release_consistent_accepted_issue_count
+        ),
+        "release_bound_active_risk_acceptance_count": (release_bound_active_risk_acceptance_count),
+        "legacy_unbound_risk_acceptance_count": legacy_unbound_risk_acceptance_count,
+        "issue_provenance_consistent": gate7_counts_consistent,
+        "evidence_core_present": release_evidence_core_present,
+        "evidence_core_audited": release_evidence_core_audited,
+        "verdict_run_present": release_verdict_run_present,
+        "verdict_attempt_failed": release_verdict_attempt_failed,
+        "verdict_binding_current": release_verdict_binding_current,
+        "verdict_evidence_consistent": release_verdict_evidence_consistent,
+        "spec_verdict": release_verdict_spec_verdict,
+        "verdict_reason_code": release_verdict_reason_code,
+        "verdict_execution_provenance": release_verdict_execution_provenance,
+        "decision_scope": release_verdict_decision_scope,
+        "verdict_gate_eligible": release_verdict_gate_eligible,
+    }
+    _verdict_shape_valid = (
+        release_verdict_decision_scope == "known_bound_issue_disposition"
+        and release_verdict_execution_provenance == "system_derived_release_verdict"
+        and release_verdict_spec_verdict
+        in {
+            "passed",
+            "passed_with_limitations",
+            "failed_blocking_issue",
+            "failed_missing_evidence",
+            "requires_human_decision",
+            "not_applicable",
+        }
     )
+    if frozen_release_candidate_count <= 0:
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:no_issue_provenance_or_release_binding",
+            _gate7_ctx,
+        )
+    elif not release_evidence_core_present or not release_evidence_core_audited:
+        gate7 = _insufficient(
+            7, _gate7_name, "insufficient_evidence:no_audited_release_evidence_core", _gate7_ctx
+        )
+    elif release_verdict_run_present and (
+        release_verdict_attempt_failed
+        or not release_verdict_binding_current
+        or not release_verdict_evidence_consistent
+        or not gate7_counts_consistent
+        or (release_verdict_spec_verdict is not None and not _verdict_shape_valid)
+    ):
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:release_verdict_evidence_incomplete_or_stale",
+            _gate7_ctx,
+        )
+    elif not release_verdict_run_present or release_verdict_spec_verdict is None:
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:verified_known_issue_set_but_no_release_verdict",
+            _gate7_ctx,
+        )
+    elif release_verdict_spec_verdict == "failed_missing_evidence":
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:release_verdict_failed_missing_evidence",
+            _gate7_ctx,
+        )
+    elif release_verdict_spec_verdict == "failed_blocking_issue":
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:release_verdict_failed_blocking_issue",
+            _gate7_ctx,
+        )
+    elif release_verdict_spec_verdict == "requires_human_decision":
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:release_verdict_requires_human_decision",
+            _gate7_ctx,
+        )
+    elif release_verdict_spec_verdict == "not_applicable":
+        gate7 = _insufficient(
+            7, _gate7_name, "insufficient_evidence:release_verdict_not_applicable", _gate7_ctx
+        )
+    elif not release_verdict_gate_eligible:
+        gate7 = _insufficient(
+            7,
+            _gate7_name,
+            "insufficient_evidence:release_limitations_not_authoritatively_accepted",
+            _gate7_ctx,
+        )
+    else:
+        gate7 = GateResult(
+            7,
+            _gate7_name,
+            STATUS_PASSED,
+            "passed:bound_release_issue_disposition_verdict_current",
+            _gate7_ctx,
+        )
 
     # Slice 44: coverage proves that all five mandatory scanner categories ran for one exact
     # connector-observed repo/commit/manifest binding. It cannot prove universal absence. Any open

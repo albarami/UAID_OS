@@ -296,16 +296,16 @@ async def test_fake_llm_supports_a_deterministic_response_sequence():
     assert (first.text, second.text) == ("first", "second")
 
 
-def test_slice48_does_not_change_a5_or_readiness_rulesets():
+def test_slice50_advances_a5_while_readiness_stays_byte_stable():
     from pathlib import Path
 
     from app.intake.readiness import RULESET_VERSION as READINESS_RULESET_VERSION
     from app.release.production_autonomy import A5_RULESET_VERSION
 
-    assert A5_RULESET_VERSION == "slice47.v1"
+    assert A5_RULESET_VERSION == "slice50.v1"
     assert READINESS_RULESET_VERSION == "slice20.v1"
     assert hashlib.sha256(Path("app/release/production_autonomy.py").read_bytes()).hexdigest() == (
-        "c2e28277e429b701f952a44f66a512477dee4a6c0fa4608a27a1a735ca49f1da"
+        "7074856949510923bfd0742ed8819f1caf797d1eea0333deac7d1ec1bf616cf6"
     )
     assert hashlib.sha256(Path("app/intake/readiness.py").read_bytes()).hexdigest() == (
         "7671979fa7d4f700436439965a85df22052a384b1245bc9a1bfacc261ac63b26"

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.release.evidence_pack import (
     MAX_JSON_BYTES,
@@ -13,6 +14,7 @@ from app.release.evidence_pack import (
     EvidencePackContractError,
     canonical_json_bytes,
     digest_bytes,
+    validate_canonical_payload,
     validate_semantic_payload,
 )
 
@@ -29,6 +31,25 @@ class ReleaseVerdictAttestation:
     evidence_pack_id: uuid.UUID
     verdict: str
     attestation_provenance: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class _DBBoundReleaseVerdictAttestation:
+    """Repository-only projection of an exact FK-loaded immutable Slice-50 row."""
+
+    id: uuid.UUID
+    evidence_pack_id: uuid.UUID
+    spec_verdict: str
+    canonical_verdict: str
+    reason_code: str
+    decision_scope: str
+    attestation_provenance: str
+    verdict_contract_version: str
+    projection_contract_version: str
+    verdict_contract_hash: str
+    input_digest: str
+    core_content_hash: str
     created_at: datetime
 
 
@@ -72,6 +93,51 @@ def build_canonical_export(
     # object carrying the right-looking strings is caller-shaped and refused.
     # Slice 50 must replace this refusal with a repository-loaded FK-bound row.
     raise CanonicalExportUnavailable("db_bound_slice50_verdict_store_not_implemented")
+
+
+def _build_db_bound_canonical_export(
+    core: CoreAssembly,
+    *,
+    verdict_attestation: _DBBoundReleaseVerdictAttestation,
+) -> ExportArtifact:
+    """Finalize exact core bytes with a repository-loaded verdict attestation."""
+
+    validate_semantic_payload(core.payload, canonical_export=False)
+    if verdict_attestation.core_content_hash != core.content_hash:
+        raise CanonicalExportUnavailable("verdict_core_binding_mismatch")
+    payload = json.loads(core.canonical_text)
+    payload["verdict"] = verdict_attestation.canonical_verdict
+    payload["verdict_attestation"] = {
+        "id": str(verdict_attestation.id),
+        "evidence_pack_id": str(verdict_attestation.evidence_pack_id),
+        "spec_verdict": verdict_attestation.spec_verdict,
+        "canonical_verdict": verdict_attestation.canonical_verdict,
+        "reason_code": verdict_attestation.reason_code,
+        "decision_scope": verdict_attestation.decision_scope,
+        "attestation_provenance": verdict_attestation.attestation_provenance,
+        "verdict_contract_version": verdict_attestation.verdict_contract_version,
+        "projection_contract_version": verdict_attestation.projection_contract_version,
+        "verdict_contract_hash": verdict_attestation.verdict_contract_hash,
+        "input_digest": verdict_attestation.input_digest,
+        "core_content_hash": verdict_attestation.core_content_hash,
+        "created_at": verdict_attestation.created_at.astimezone(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+    }
+    payload["signatures"] = []
+    payload["signature_status"] = "unsigned_signer_tier_not_implemented"
+    payload["assurance_limitations"] = [
+        "assembled_evidence_does_not_prove_release_readiness",
+        "candidate_has_no_direct_commit_foreign_key",
+        "issue_bindings_do_not_prove_issue_completeness",
+        "release_verdict_bounded_known_issue_disposition_not_go_live_authorization",
+        "signer_tier_deferred_to_slice_60",
+    ]
+    validate_canonical_payload(payload)
+    raw = canonical_json_bytes(payload)
+    if len(raw) > MAX_JSON_BYTES:
+        raise EvidencePackContractError("json_export_size_cap_exceeded")
+    return ExportArtifact("evidence_pack.json", "application/json", raw)
 
 
 def build_markdown_export(core: CoreAssembly) -> ExportArtifact:

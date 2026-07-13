@@ -24,6 +24,7 @@ from app.models.release_candidate import ReleaseCandidate
 from app.models.release_candidate_issue_binding import ReleaseCandidateIssueBinding
 from app.models.release_finding import ReleaseFinding
 from app.models.release_issue import ReleaseIssue
+from app.models.release_verdict import ReleaseVerdict
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.models.intake_artifact import IntakeArtifact
 from app.models.intake_provenance import IntakeProvenance
@@ -34,6 +35,8 @@ from app.models.shortcut_detector_run import ShortcutDetectorRun
 from app.models.acceptance_verification import AcceptanceVerificationRun
 from app.release.evidence_export import (
     CanonicalExportUnavailable,
+    _DBBoundReleaseVerdictAttestation,
+    _build_db_bound_canonical_export,
     ExportArtifact,
     build_canonical_export,
     build_core_preview,
@@ -962,14 +965,63 @@ class EvidencePackRepository(TenantScopedRepository):
 
     async def export_canonical_json(self, pack_id: uuid.UUID, *, actor: str) -> ExportArtifact:
         core = await self._reaudit(pack_id)
+        verdict = (
+            await self.session.execute(
+                select(ReleaseVerdict)
+                .where(
+                    ReleaseVerdict.evidence_pack_id == pack_id,
+                    ReleaseVerdict.tenant_id == self.context.tenant_id,
+                )
+                .order_by(ReleaseVerdict.created_at.desc(), ReleaseVerdict.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if verdict is None:
+            await audit_record(
+                self.session,
+                action="evidence_pack.canonical_export_refused",
+                actor=actor,
+                target=str(pack_id),
+                payload={"reason_code": "real_verdict_attestation_required"},
+            )
+            return build_canonical_export(core, verdict_attestation=None)
+        if verdict.core_content_hash != core.content_hash:
+            raise EvidencePackRepositoryError("verdict_core_binding_mismatch")
+        artifact = _build_db_bound_canonical_export(
+            core,
+            verdict_attestation=_DBBoundReleaseVerdictAttestation(
+                id=verdict.id,
+                evidence_pack_id=verdict.evidence_pack_id,
+                spec_verdict=verdict.spec_verdict,
+                canonical_verdict=verdict.canonical_verdict,
+                reason_code=verdict.reason_code,
+                decision_scope=verdict.decision_scope,
+                attestation_provenance=verdict.execution_provenance,
+                verdict_contract_version=verdict.verdict_contract_version,
+                projection_contract_version=verdict.projection_contract_version,
+                verdict_contract_hash=verdict.verdict_contract_hash,
+                input_digest=verdict.input_digest,
+                core_content_hash=verdict.core_content_hash,
+                created_at=verdict.created_at,
+            ),
+        )
         await audit_record(
             self.session,
-            action="evidence_pack.canonical_export_refused",
+            action="evidence_pack.canonical_exported",
             actor=actor,
             target=str(pack_id),
-            payload={"reason_code": "real_verdict_attestation_required"},
+            payload={
+                "verdict_id": str(verdict.id),
+                "spec_verdict": verdict.spec_verdict,
+                "canonical_verdict": verdict.canonical_verdict,
+                "decision_scope": verdict.decision_scope,
+                "file_name": artifact.file_name,
+                "byte_count": len(artifact.content),
+                "content_hash": digest_bytes(artifact.content),
+                "signature_status": "unsigned_signer_tier_not_implemented",
+            },
         )
-        return build_canonical_export(core, verdict_attestation=None)
+        return artifact
 
 
 __all__ = [
