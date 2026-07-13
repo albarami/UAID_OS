@@ -10,6 +10,7 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings>=2",
     "pyyaml",
+    "jsonschema[format]>=4.25",
     "sqlalchemy>=2",
     "alembic",
     "asyncpg",
