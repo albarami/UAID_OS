@@ -1,6 +1,6 @@
 # Slice 51 — Cost forecast model (A5 gate #9) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-51-1…9 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #92 (squash commit `0dbacb3`); this v1 plan is retained as the approved design rationale for Slice 51.
 
 > **Citation key / Sanad discipline.** `spec:N-M` means numbered lines in
 > `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`; `template21:N-M` means

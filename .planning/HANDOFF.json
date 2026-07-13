@@ -1,29 +1,29 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-13T17:48:26+00:00",
+  "timestamp": "2026-07-13T20:18:52+00:00",
   "source": "post-merge-docs-reconciliation",
   "partial": false,
   "phase": "Phase 6",
   "phase_name": "Production release & operations",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-50-PLAN.md",
-  "task": "Slice 50",
+  "plan": ".planning/SLICE-51-PLAN.md",
+  "task": "Slice 51",
   "total_tasks": null,
   "status": "merged",
   "completed_tasks": [
-    "Slice 50 merged via PR #90 (squash commit 4f2012b); bounded system-derived release verdicts now complete A5 gate #7 and unlock explicitly unsigned canonical evidence-pack export"
+    "Slice 51 merged via PR #92 (squash commit 0dbacb3); system-derived current-UTC-day cost forecasts now make A5 gate #9 PASS-capable over recorded policy and explicitly declared assumptions"
   ],
   "remaining_tasks": [
-    "Slice 51 — Cost forecast model, making A5 gate #9 PASS-capable (planned, not started)"
+    "Slice 52 — Rollback verification, making A5 gate #10 PASS-capable (planned, not started)"
   ],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    "Slice 51 is the next planned item after merged Slice 50",
-    "A5 gate #7 is PASS-capable under slice50.v1, making nine gates PASS-capable; readiness remains slice20.v1",
-    "Canonical evidence_pack.json export is unlocked only from a real DB-bound verdict attestation and remains explicitly unsigned; passed_with_limitations stays unreachable until a verified risk-acceptance authority tier exists"
+    "Slice 52 is the next planned item after merged Slice 51",
+    "A5 gate #9 is PASS-capable under slice51.v1, making ten gates PASS-capable; readiness remains slice20.v1",
+    "A cost forecast is system-derived from recorded policy and explicitly declared assumptions, is current only for its named UTC day, never clears an independent Slice-7 STOP, and remains non-gate-eligible when approval is required"
   ],
   "uncommitted_files": [],
-  "next_action": "Draft and submit the Slice 51 plan for review; do not start implementation before approval.",
-  "context_notes": "Post-Slice-50 checkpoint: migration 0049 is the Alembic head, A5 ruleset is slice50.v1, readiness remains slice20.v1, and verified suites are 931 Docker-free and 791 DB-backed. Gates #1/#2/#3/#4/#5/#6/#7/#8/#11 are PASS-capable, but go-live remains hard-false with both a5_gates_not_all_satisfied and request_authenticated_a5_preapproval_not_implemented intact. Slice-50 verdicts are bounded decisions over known bound issues, not release authorization; canonical export is explicitly unsigned. Repository and ref inspection found no Slice-51 plan, feature branch, code, test, or migration."
+  "next_action": "Draft and submit the Slice 52 plan for review; do not start implementation before approval.",
+  "context_notes": "Post-Slice-51 checkpoint: migration 0050 is the Alembic head, A5 ruleset is slice51.v1, readiness remains slice20.v1, and verified suites are 963 Docker-free and 807 DB-backed. Gates #1/#2/#3/#4/#5/#6/#7/#8/#9/#11 are PASS-capable, but go-live remains hard-false with both a5_gates_not_all_satisfied and request_authenticated_a5_preapproval_not_implemented intact. Slice-51 forecasts are bounded forward estimates over recorded policy and explicitly declared assumptions, not spend guarantees or finance/procurement authority. Repository and ref inspection found no Slice-52 plan, feature branch, code, test, or migration."
 }
