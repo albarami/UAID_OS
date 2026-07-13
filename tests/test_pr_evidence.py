@@ -1070,7 +1070,7 @@ async def test_pr_evidence_does_not_change_a5_report(pr_ctx):
     assert before == after  # byte-identical: PR evidence feeds no gate (the Slice-29 invariant)
     # The ruleset reflects the latest slice that touched the A5 engine (Slice 31 bumped it to
     # slice43.v1); PR evidence still changes nothing — proven by ``before == after`` above.
-    assert after["ruleset_version"] == "slice50.v1"
+    assert after["ruleset_version"] == "slice51.v1"
     assert after["a5_satisfied"] is False
     assert after["can_go_live_autonomously"] is False
 

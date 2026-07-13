@@ -713,8 +713,20 @@ async def test_detect_does_not_change_a5_or_readiness(detect_ctx):
         assert report.contradiction_count == 1
         after = (await pa.evaluate(detect_ctx["p_ok"])).to_dict()
         readiness_after = await ReadinessRepository(session, ctx).latest(detect_ctx["p_ok"])
-    assert before == after  # bit-stable
-    assert after["ruleset_version"] == "slice50.v1"  # current A5 ruleset; unchanged by this feature
+    # The detector's LLM call records one incurred-cost event. Slice 51 therefore
+    # changes gate #9's safe ledger count, while every other gate stays bit-stable.
+    before_gates = {gate["number"]: gate for gate in before["gates"]}
+    after_gates = {gate["number"]: gate for gate in after["gates"]}
+    assert {number: gate for number, gate in before_gates.items() if number != 9} == {
+        number: gate for number, gate in after_gates.items() if number != 9
+    }
+    assert before_gates[9]["status"] == after_gates[9]["status"]
+    assert before_gates[9]["reason"] == after_gates[9]["reason"]
+    assert (
+        after_gates[9]["context"]["ledger_event_count"]
+        == before_gates[9]["context"]["ledger_event_count"] + 1
+    )
+    assert after["ruleset_version"] == "slice51.v1"  # current A5 ruleset; unchanged by this feature
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
     assert readiness_before is None and readiness_after is None  # no readiness side-effect
 

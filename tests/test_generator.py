@@ -914,7 +914,18 @@ async def test_no_a5_readiness_or_spine_impact_before_equals_after(gen_ctx):
             await ReadinessRepository(session, ctx).evaluate(project_id=p1)
         ).readiness_level
         after_spine = await _spine_count(session, gen_ctx["t1"], p1)
-    # ...yet the A5 report, the readiness level, and the binding spine are all unchanged.
-    assert before_pa == after_pa
+    # ...yet no gate other than Slice-51 cost-forecast evidence changed. The LLM call
+    # records one incurred-cost event, so gate #9 must expose the new safe count.
+    before_gates = {gate["number"]: gate for gate in before_pa["gates"]}
+    after_gates = {gate["number"]: gate for gate in after_pa["gates"]}
+    assert {number: gate for number, gate in before_gates.items() if number != 9} == {
+        number: gate for number, gate in after_gates.items() if number != 9
+    }
+    assert before_gates[9]["status"] == after_gates[9]["status"]
+    assert before_gates[9]["reason"] == after_gates[9]["reason"]
+    assert (
+        after_gates[9]["context"]["ledger_event_count"]
+        == before_gates[9]["context"]["ledger_event_count"] + 1
+    )
     assert after_level == before_level
     assert after_spine == before_spine  # NO spine write — promotion is deferred

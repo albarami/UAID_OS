@@ -58,6 +58,7 @@ from app.repositories.ci_evidence import CIEvidenceRepository
 from app.repositories.deployments import DeploymentTargetRepository
 from app.repositories.monitoring_evidence import MonitoringEvidenceRepository
 from app.repositories.cost import BudgetRepository
+from app.repositories.cost_forecasts import CostForecastRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.readiness import ReadinessRepository
 from app.repositories.release_candidates import ReleaseCandidateRepository
@@ -208,11 +209,15 @@ class ProductionAutonomyRepository:
         verdict_coverage = await ReleaseVerdictRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        cost_forecast_coverage = await CostForecastRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
             autonomy_policy_present=autonomy is not None,
             cost_policy_present=budget is not None,
+            **cost_forecast_coverage.gate_kwargs(),
             environments_declared=environments_declared,
             active_risk_acceptance_count=active_risk_acceptance_count,
             open_issue_count=await issues.count_open(project_id),

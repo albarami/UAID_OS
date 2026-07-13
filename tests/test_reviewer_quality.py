@@ -302,10 +302,10 @@ def test_slice50_advances_a5_while_readiness_stays_byte_stable():
     from app.intake.readiness import RULESET_VERSION as READINESS_RULESET_VERSION
     from app.release.production_autonomy import A5_RULESET_VERSION
 
-    assert A5_RULESET_VERSION == "slice50.v1"
+    assert A5_RULESET_VERSION == "slice51.v1"
     assert READINESS_RULESET_VERSION == "slice20.v1"
     assert hashlib.sha256(Path("app/release/production_autonomy.py").read_bytes()).hexdigest() == (
-        "7074856949510923bfd0742ed8819f1caf797d1eea0333deac7d1ec1bf616cf6"
+        "7e0b7dd9abe1c055833db5d2d4baae8c27741523cceebb7bbbf3d6875a8921d3"
     )
     assert hashlib.sha256(Path("app/intake/readiness.py").read_bytes()).hexdigest() == (
         "7671979fa7d4f700436439965a85df22052a384b1245bc9a1bfacc261ac63b26"

@@ -1127,7 +1127,7 @@ def test_gate11_only_no_other_gate_regression():
             assert bg[n]["status"] == "insufficient_evidence" and ag[n]["status"] == "passed"
         else:
             assert bg[n] == ag[n], n  # byte-identical — no other gate moved
-    assert before["ruleset_version"] == after["ruleset_version"] == "slice50.v1"
+    assert before["ruleset_version"] == after["ruleset_version"] == "slice51.v1"
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
 
 

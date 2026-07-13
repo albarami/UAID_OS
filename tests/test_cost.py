@@ -478,7 +478,11 @@ async def test_cost_events_immutable(cost_ctx, rls_engine, admin_engine):
         with pytest.raises(Exception) as ei:
             async with admin_engine.begin() as c:
                 await c.execute(text(stmt), {"i": str(eid)} if ":i" in stmt else {})
-        assert "immutable" in str(ei.value).lower()
+        message = str(ei.value).lower()
+        # Slice 51's additive exact-event composite FK can reject TRUNCATE before
+        # PostgreSQL reaches the existing immutability trigger. Both are DB-level
+        # refusals; UPDATE/DELETE continue to exercise the original trigger.
+        assert "immutable" in message or "cannot truncate" in message
 
 
 @pytest.mark.db

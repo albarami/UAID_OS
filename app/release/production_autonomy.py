@@ -7,8 +7,10 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Gate #1 (R5 intake complete)** passes at ``R5``; **gate #2 (deployment target, Slice 30)**, **gate #3
   (branch protection, Slice 28)**, and **gate #11 (monitoring/alerts, Slice 31)** are **PASS-capable**
   — each via a binding-bound, latest-wins, connector_verified + fresh ladder (see below).
-- Gates #9 and #12 remain partial-context ``insufficient_evidence`` gates: their cost-policy and
-  approval primitives do not yet provide production-autonomy evidence, so they never pass.
+- **Slice 51 (#9 cost forecast — PASS-capable):** evaluates the latest current, exact-bound,
+  system-derived projection over recorded spend and declared remaining-work assumptions. All six
+  budget/policy dimensions must be strictly within their caps, with no STOP or approval trigger.
+- Gate #12 remains a partial-context ``insufficient_evidence`` gate.
 - **Slice 50 (#7 release issue disposition — PASS-capable):** evaluates a generated DB-bound verdict
   over one re-audited Slice-49 core and its exact frozen candidate. Only a current, consistent,
   gate-eligible ``passed``/``passed_with_limitations`` attestation can pass; no caller verdict or
@@ -44,7 +46,7 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice50.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
+``slice51.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice50.v1"
+A5_RULESET_VERSION = "slice51.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -125,6 +127,26 @@ def evaluate_production_autonomy(
     readiness_level: str,
     autonomy_policy_present: bool = False,
     cost_policy_present: bool = False,
+    # Slice 51 — exact release/core/input-bound system-derived cost forecast evidence.
+    cost_forecast_scope_resolved: bool = False,
+    cost_forecast_policy_present: bool = False,
+    cost_forecast_policy_valid: bool = False,
+    cost_forecast_budget_present: bool = False,
+    cost_forecast_budget_valid: bool = False,
+    cost_forecast_history_count: int = 0,
+    cost_forecast_run_present: bool = False,
+    cost_forecast_attempt_failed: bool = False,
+    cost_forecast_binding_current: bool = False,
+    cost_forecast_input_coverage_complete: bool = False,
+    cost_forecast_price_coverage_complete: bool = False,
+    cost_forecast_evidence_consistent: bool = False,
+    cost_forecast_stop_active: bool = False,
+    cost_forecast_all_dimensions_within: bool = False,
+    cost_forecast_approval_required: bool = False,
+    cost_forecast_gate_eligible: bool = False,
+    cost_forecast_dimension_count: int = 0,
+    cost_forecast_utc_date: str | None = None,
+    cost_forecast_execution_provenance: str | None = None,
     environments_declared: bool = False,
     acceptance_scope_resolved: bool = True,
     acceptance_binding_resolved: bool = False,
@@ -310,13 +332,86 @@ def evaluate_production_autonomy(
         gate8 = _insufficient(8, _gate8_name, "insufficient_evidence:acceptance_evidence_inconsistent", _gate8_ctx)
     else:
         gate8 = GateResult(8, _gate8_name, STATUS_PASSED, "passed:no_unapproved_generated_acceptance_criteria_in_critical_gates_verified", _gate8_ctx)
-    gate9 = _insufficient(
-        9,
-        "cost_forecast_within_policy",
-        "cost_stop_decision_only_no_forecast"
-        if cost_policy_present
-        else "no_cost_policy_and_no_forecast",
+    _gate9_name = "cost_forecast_within_policy"
+    _gate9_ctx = {
+        "scope_resolved": cost_forecast_scope_resolved,
+        "structured_policy_present": cost_forecast_policy_present,
+        "structured_policy_valid": cost_forecast_policy_valid,
+        "budget_present": cost_forecast_budget_present,
+        "budget_valid": cost_forecast_budget_valid,
+        "ledger_event_count": cost_forecast_history_count,
+        "run_present": cost_forecast_run_present,
+        "latest_attempt_failed_or_refused": cost_forecast_attempt_failed,
+        "binding_current": cost_forecast_binding_current,
+        "input_coverage_complete": cost_forecast_input_coverage_complete,
+        "price_coverage_complete": cost_forecast_price_coverage_complete,
+        "evidence_consistent": cost_forecast_evidence_consistent,
+        "stop_active": cost_forecast_stop_active,
+        "all_dimensions_within": cost_forecast_all_dimensions_within,
+        "approval_required": cost_forecast_approval_required,
+        "gate_eligible": cost_forecast_gate_eligible,
+        "dimension_count": cost_forecast_dimension_count,
+        "forecast_utc_date": cost_forecast_utc_date,
+        "execution_provenance": cost_forecast_execution_provenance,
+    }
+    _gate9_structurally_consistent = (
+        cost_forecast_evidence_consistent
+        and cost_forecast_history_count >= 0
+        and cost_forecast_dimension_count == 6
+        and cost_forecast_execution_provenance == "system_derived_cost_forecast"
+        and not (
+            cost_forecast_gate_eligible
+            and (
+                cost_forecast_stop_active
+                or not cost_forecast_all_dimensions_within
+                or cost_forecast_approval_required
+            )
+        )
     )
+    if not cost_forecast_scope_resolved:
+        gate9 = _insufficient(9, _gate9_name, "no_current_release_scope", _gate9_ctx)
+    elif not cost_forecast_policy_present:
+        gate9 = _insufficient(9, _gate9_name, "no_current_structured_cost_policy", _gate9_ctx)
+    elif not cost_forecast_policy_valid:
+        gate9 = _insufficient(9, _gate9_name, "cost_policy_invalid", _gate9_ctx)
+    elif not cost_forecast_budget_present:
+        gate9 = _insufficient(9, _gate9_name, "no_current_cost_budget", _gate9_ctx)
+    elif not cost_forecast_budget_valid:
+        gate9 = _insufficient(9, _gate9_name, "cost_budget_invalid", _gate9_ctx)
+    elif cost_forecast_history_count <= 0:
+        gate9 = _insufficient(9, _gate9_name, "no_cost_history", _gate9_ctx)
+    elif not cost_forecast_run_present:
+        gate9 = _insufficient(9, _gate9_name, "cost_forecast_not_run", _gate9_ctx)
+    elif cost_forecast_attempt_failed:
+        gate9 = _insufficient(
+            9, _gate9_name, "cost_forecast_latest_attempt_failed_or_refused", _gate9_ctx
+        )
+    elif not cost_forecast_binding_current:
+        gate9 = _insufficient(9, _gate9_name, "cost_forecast_binding_stale", _gate9_ctx)
+    elif not cost_forecast_input_coverage_complete or not cost_forecast_price_coverage_complete:
+        gate9 = _insufficient(
+            9, _gate9_name, "cost_forecast_input_or_price_coverage_incomplete", _gate9_ctx
+        )
+    elif not _gate9_structurally_consistent:
+        gate9 = _insufficient(9, _gate9_name, "cost_forecast_evidence_inconsistent", _gate9_ctx)
+    elif cost_forecast_stop_active:
+        gate9 = _insufficient(9, _gate9_name, "cost_stop_active", _gate9_ctx)
+    elif not cost_forecast_all_dimensions_within:
+        gate9 = _insufficient(
+            9, _gate9_name, "cost_forecast_limit_reached_or_exceeded", _gate9_ctx
+        )
+    elif cost_forecast_approval_required:
+        gate9 = _insufficient(9, _gate9_name, "cost_forecast_requires_approval", _gate9_ctx)
+    elif not cost_forecast_gate_eligible:
+        gate9 = _insufficient(9, _gate9_name, "cost_forecast_evidence_inconsistent", _gate9_ctx)
+    else:
+        gate9 = GateResult(
+            9,
+            _gate9_name,
+            STATUS_PASSED,
+            "passed:system_derived_cost_forecast_within_recorded_policy",
+            _gate9_ctx,
+        )
     gate12 = _insufficient(
         12,
         "production_deploy_preapproved_under_conditions",
