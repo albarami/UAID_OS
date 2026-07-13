@@ -626,6 +626,28 @@ until a real DB-bound Slice-50 verdict attestation exists, while signed assuranc
 The A5 evaluator is unchanged at ruleset `slice47.v1`, readiness remains `slice20.v1`, no A5 gate flips,
 and go-live remains hard-false. Verified suites: `make test` 902 passing / 788 deselected and
 `make test-db` 788 passing / 902 deselected. Merged via PR #88 (squash commit `0a04aec`).**
+**Slice 50 adds the bounded §24.3 RELEASE-VERDICT + A5-GATE-#7 COMPLETION + CANONICAL-EXPORT
+FINALIZATION layer — `app/release/release_manager.py` implements the six-value normative §24.3 vocabulary
+for bounded verdicts over one exact frozen candidate and one re-audited Slice-49 core, then applies the explicit, versioned,
+lossy `slice50.verdict_projection.v1` mapping into the unchanged four-value canonical evidence-pack
+schema. `app/repositories/release_verdicts.py` records immutable latest-wins attempts, generated
+attestations, and the exact bound-issue child set; DB guards re-derive the input digest and refuse forged
+verdicts, stale core projections, missing children, and hard-blocker downgrades. **Honesty crux:** a
+verdict is a `system_derived_release_verdict` over the bounded known issue disposition; it is not a human
+approval, proof of issue completeness, deployment authority, or go-live authorization. Migration `0049`
+adds tenant-owned, RLS ENABLE+FORCE, append-only `release_verdict_runs`, `release_verdicts`, and
+`release_verdict_issue_results`. Gate #7 is now **PASS-capable** under A5 ruleset `slice50.v1` through a
+current fully clean disposition or the ruled exact zero-member inventory path, making it the ninth
+PASS-capable gate (#1/#2/#3/#4/#5/#6/#7/#8/#11). The pure contract retains
+`passed_with_limitations`, but the repository deliberately stamps `risk_authority_verified=false`, so that
+outcome is unreachable until a future verified authority tier exists; current structurally valid risk
+acceptances route to `requires_human_decision`. Every successful DB-bound verdict outcome unlocks
+re-audited canonical `evidence_pack.json` export for that historical pack with `signatures: []` and
+`signature_status='unsigned_signer_tier_not_implemented'`; export remains evidence, not authorization.
+Readiness remains `slice20.v1`; go-live remains hard-false with both exact no-go reasons
+`a5_gates_not_all_satisfied` and `request_authenticated_a5_preapproval_not_implemented`. Verified suites:
+`make test` 931 passing / 791 deselected and `make test-db` 791 passing / 931 deselected. Merged via PR #90
+(squash commit `4f2012b`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1268,11 +1290,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 902 passing (Docker-free); `make test-db` → 788 passing (DB-backed: tenancy,
+  **`make test` → 931 passing (Docker-free); `make test-db` → 791 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1375,8 +1397,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 902 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 788 passing
+make test                                  # Docker-free tests (no services) — 931 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 791 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

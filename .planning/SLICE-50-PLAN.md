@@ -1,6 +1,6 @@
 # Slice 50 — Release manager + §24.3 release verdict (completes A5 gate #7) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-50-1…10 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #90 (squash commit `4f2012b`); this v1 plan is retained as the approved design rationale for Slice 50.
 
 > **Citation key / Sanad discipline.** `spec:N-M` means numbered lines in
 > `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`; bare
