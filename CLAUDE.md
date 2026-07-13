@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-07-12)
+## Current status (2026-07-13)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -589,6 +589,24 @@ issues, never issue-set completeness. Gate #7 gains a five-rung evidence-backed 
 branch pending the Slice-50 release verdict. A5 ruleset is `slice47.v1`; readiness remains `slice20.v1`;
 go-live remains hard-false. Verified suites: `make test` 876 passing / 769 deselected and `make test-db`
 769 passing / 876 deselected. Merged via PR #84 (squash commit `5f3e693`).**
+**Slice 48 adds the reviewer-QA HARNESS + CHALLENGE-ONLY METRICS + REVERSIBLE ELIGIBILITY OVERLAY —
+`app/verify/reviewer_qa.py` executes blind LLM review over a code-owned, versioned fixture suite spanning
+all five §13.5 challenge families plus clean/negative, edge, adversarial, injection, and incomplete
+controls; CI uses `FakeLLMClient` only. Exact-match scoring against hidden controlled labels feeds
+DB-generated critical-miss and false-approval rates under the canonical 0.00/0.03 thresholds, while the
+canonical 0.05 sampling value is retained only as a policy snapshot with
+`live_sampling_executed=false`. **Honesty crux:** these are challenge-corpus measurements, never live-work
+miss rates, general reviewer competence, or universal recall. Migration `0047` adds global SELECT-only,
+append-only controlled fixture catalogs plus tenant-owned, RLS ENABLE+FORCE, append-only reviewer-quality
+records/results; generated columns and
+deferred guards own rates, status, and the replacement prescription. Threshold breach produces the
+decision-only `suspend_or_downgrade_review_authority_and_trigger_factory_replacement` prescription and
+never mutates `agent_instances`. A reversible eligibility overlay requires current (≤30-day),
+challenge-qualified evidence for new Slice-45 reviewer panels and new Slice-46 independent-agent
+approvals; a breached immutable version cannot self-clear. The A5 evaluator is unchanged at ruleset
+`slice47.v1`, readiness remains `slice20.v1`, no A5 gate flips, and go-live remains hard-false. Verified
+suites: `make test` 889 passing / 779 deselected and `make test-db` 779 passing / 889 deselected. Merged
+via PR #86 (squash commit `da91068`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1231,11 +1249,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 876 passing (Docker-free); `make test-db` → 769 passing (DB-backed: tenancy,
+  **`make test` → 889 passing (Docker-free); `make test-db` → 779 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1338,8 +1356,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 876 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 769 passing
+make test                                  # Docker-free tests (no services) — 889 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 779 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

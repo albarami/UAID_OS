@@ -1,6 +1,6 @@
 # Slice 48 — Reviewer QA harness: planted defects, miss-rate tracking, replacement triggers (§13.5) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-48-1…8 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #86 (squash commit `da91068`); this v1 plan is retained as the approved design rationale for Slice 48.
 
 ## Coordinator rulings (final)
 

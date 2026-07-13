@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 8 (current-state reconciliation after Slice 47 merged; immediate-next marker advanced to Slice 48).
-**Baseline state:** Post–Slice 47 (`main` at `5f3e693`; Slice 47 merged via PR #84 at `5f3e693`; Alembic head `0046_issue_provenance`; A5 evaluator `ruleset_version = "slice47.v1"`; readiness `ruleset_version = "slice20.v1"`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-47 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 47 are merged; Slice 48 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 9 (current-state reconciliation after Slice 48 merged; immediate-next marker advanced to Slice 49).
+**Baseline state:** Post–Slice 48 (`main` at `da91068`; Slice 48 merged via PR #86 at `da91068`; Alembic head `0047_reviewer_quality_assurance`; A5 evaluator `ruleset_version = "slice47.v1"`; readiness `ruleset_version = "slice20.v1"`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-48 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 48 are merged; Slice 49 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -454,24 +454,24 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That a populated store proves *completeness* — completeness comes from the release verdict over bound issues (Slice 50).
 - **Exit.** SATISFIED by PR #84 (`5f3e693`): trusted Slice-44/45 findings bridge one-to-one into release issues; new risk acceptances are exact-release/subject bound; legacy release refs remain visibly unvalidated; gate #7 follows the `slice47.v1` five-rung no-PASS ladder pending the Slice-50 verdict; readiness remains `slice20.v1`; go-live false.
 
-#### Slice 48 — Reviewer QA harness (planted defects, miss-rate, replacement triggers) — **NEXT PLANNED (NOT STARTED)**
-- **Goal.** The §13.5 reviewer-QA program (`reviewer_quality_assurance.yaml`): planted-defect/shortcut sampling, miss-rate tracking, reviewer-replacement threshold, blind challenge reviews — producing `reviewer_quality_records` for the evidence pack.
+#### Slice 48 — Reviewer QA harness (planted defects, miss-rate, replacement triggers) — **MERGED (PR #86, `da91068`)**
+- **Goal.** The §13.5 reviewer-QA program (`reviewer_quality_assurance.yaml`): code-owned planted challenges, challenge-only miss-rate tracking, reviewer-replacement decisions, and blind LLM reviews — producing `reviewer_quality_records` for the evidence pack.
 - **Why now.** §26.5 review-the-reviewers; required for trustworthy gates #4–#8 + evidence-pack `reviewer_quality_records`.
 - **Spec grounding.** §13.5 (1315–1345); `reviewer_quality_assurance.yaml` (sampling 0.05, max critical miss 0.00, max false-approval 0.03); §27.9.
-- **Files.** `app/verify/reviewer_qa.py` + `reviewer_quality_records` store.
-- **Migration.** Any additive revision after current head `0046` is to be determined by the reviewed Slice-48 plan; expected storage includes tenant-aware `reviewer_quality_records`.
-- **Tenant/RLS/FK/audit/immutability.** RLS; records immutable; reviewer suspension audited.
-- **Tests.** Planted-defect injection; miss-rate computed; reviewer above miss threshold suspended (cannot approve high-risk, §13.5 l.1345).
-- **A5 gate(s) advanced.** Indirect (evidence-pack `reviewer_quality_records`; reviewer trust for #4–#8).
-- **Must NOT claim.** That QA passing = zero risk.
-- **Exit.** Reviewer QA records + replacement triggers; go-live false.
+- **Files.** `app/verify/reviewer_qa.py`, `app/repositories/reviewer_quality.py`, reviewer-quality models, and the Slice-45/46 selection overlays.
+- **Migration.** `0047` — controlled fixture catalogs + tenant-owned, RLS ENABLE+FORCE, append-only reviewer-quality records/results; generated metrics/status/decision; reversible current-QA eligibility guards.
+- **Tenant/RLS/FK/audit/immutability.** RLS; immutable records; exact reviewer lineage; decision-only replacement prescription, never automatic instance suspension.
+- **Tests.** Blind-packet label exclusion; exact challenge arithmetic; generated-truth/direct-SQL backstops; permanent-breach eligibility; audit sentinel; findings-guard MD5 pin.
+- **A5 gate(s) advanced.** None: A5 stays `slice47.v1`; current QA gates only new Slice-45/46 evidence production.
+- **Must NOT claim.** That planted-fixture metrics are live-work miss rates, general competence, universal recall, or zero risk.
+- **Exit.** SATISFIED by PR #86 (`da91068`): challenge-only reviewer QA records, decision-only prescriptions, and the reversible current-QA eligibility overlay; readiness remains `slice20.v1`; go-live false.
 
-#### Slice 49 — Evidence-pack generator + auditor + export (§15/§27.11/§28.1)
+#### Slice 49 — Evidence-pack generator + auditor + export (§15/§27.11/§28.1) — **NEXT PLANNED (NOT STARTED)**
 - **Goal.** Assemble the release-scoped evidence pack from all sources (traceability, test_results, review_reports, reviewer_quality_records, risk_acceptances, provenance_chains, audit_log_hash, verdict, signatures), validate against `evidence_pack_schema.json`, and export (JSON + human-readable + signed manifest + read-only auditor access). **Fail the evidence gate on missing required fields** (§28.1 l.2912).
 - **Why now.** §26.5 "evidence pack auditor"; "the artifact of done" (§15.1); prerequisite for the release verdict (Slice 50).
 - **Spec grounding.** §15 (1413–1536); §27.11 (2769–2794); §28.1 (2851–2914); `schemas/evidence_pack_schema.json`; §15.3 definition-of-done (1476–1490).
 - **Files.** `app/release/evidence_pack.py` + `app/models/evidence_pack.py` + repo + exporter + JSON-Schema validator.
-- **Migration.** `0047` — `evidence_packs` (tenant-owned, RLS, immutable once verdict attached); additive.
+- **Migration.** Expected `0048` — `evidence_packs` (tenant-owned, RLS, immutable once verdict attached); additive; exact shape/number remains subject to the reviewed Slice-49 plan.
 - **Tenant/RLS/FK/audit/immutability.** RLS; pack immutable post-verdict (cf. audit/cost); `audit_log_hash` from Slice-2 `audit_verify`; provenance_chains from Sanad; signing via Slice 27/60.
 - **Tests.** Schema validation; missing required field ⇒ gate fails (§28.1 l.2912); traceability links resolve; tamper-evident hash.
 - **A5 gate(s) advanced.** Enables the verdict (Slice 50) consuming gate states; supports #7/#8.
@@ -485,7 +485,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** §26.6 "release manager"; gate #7 completeness needs a verdict over the release's bound issues.
 - **Spec grounding.** §24.1 (2251–2285), §24.3 (2332–2341); App. B #7 (2991); evidence_pack `verdict` enum.
 - **Files.** `app/release/release_manager.py` + `release_verdicts` store; gate-#7 completion logic.
-- **Migration.** `0048` — `release_verdicts`; tenant-owned, RLS, append-only.
+- **Migration.** Expected `0049` — `release_verdicts`; tenant-owned, RLS, append-only; exact shape/number remains subject to the reviewed Slice-50 plan.
 - **Tenant/RLS/FK/audit/immutability.** RLS; verdict immutable; consumes Slice-25 frozen candidate + Slice-47 verified issues; audited.
 - **Tests.** Verdict reflects gate states; open unaccepted blocking issue ⇒ `failed_blocking_issue`; missing evidence ⇒ `failed_missing_evidence`; gate #7 passes only when all bound open issues are non-blocking or risk-accepted.
 - **A5 gate(s) advanced.** **#7 → PASS-capable** (over a frozen release with verified issue provenance + verdict).
@@ -497,7 +497,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after the release/evidence foundation (S49–S50): A5 gate #9 cannot pass without forward cost-forecast evidence, which is distinct from the cost ledger's incurred-spend stop-decision (§19; `app/cost.py`).
 - **Spec grounding.** §19 (1830–1933); App. B #9 (2993); tmpl `21_*`; §19.7 stop conditions.
 - **Files.** `app/cost_forecast.py` + repo; reuse cost ledger (Slice 7).
-- **Migration.** possibly `0049` — forecast snapshots; additive.
+- **Migration.** possibly `0050` — forecast snapshots; additive.
 - **Tenant/RLS/FK/audit/immutability.** RLS; forecast snapshots append-only; audited.
 - **Tests.** Forecast vs policy threshold; over-forecast ⇒ approval required; gate #9 passes only when forecast within policy.
 - **A5 gate(s) advanced.** **#9 → PASS-capable**.
@@ -509,7 +509,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed before go-live: A5 gate #10 requires a *verified* rollback, not rollback intent (§24.2 distinguishes a plan from a verified rollback), so it must exist before the control loop (S55) can authorize release.
 - **Spec grounding.** §24.2 (2287–2330 `rollback_verified: required`); §25; App. B #10 (2994); §9.5.1 deployment/SRE archetype.
 - **Files.** `app/release/rollback.py` + `rollback_verifications` store; deploy connector (Slice 30).
-- **Migration.** `0050` — `rollback_verifications`; additive.
+- **Migration.** `0051` — `rollback_verifications`; additive.
 - **Tenant/RLS/FK/audit/immutability.** RLS; immutable verification records; audited.
 - **Tests.** Verified rollback drill; gate #10 passes only on verified rollback; failure ⇒ `insufficient_evidence`.
 - **A5 gate(s) advanced.** **#10 → PASS-capable**.
@@ -521,7 +521,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed once gate evidence exists: A5 gate #12 requires a request-authenticated, verified production pre-approval under stated conditions, so its prerequisites (S27 verified identity, S33 approval channel) must already be in place.
 - **Spec grounding.** §18.2 (1769); §24.1; App. B #12 (2996); tmpl `20_*`, `23_go_live_checklist.yaml`; §5.2 "Deploy production — A4/A5".
 - **Files.** `app/release/production_approval.py` + `production_approvals` store; approval engine (Slice 4) + verified identity (Slice 27).
-- **Migration.** `0051` — `production_approvals`; additive.
+- **Migration.** `0052` — `production_approvals`; additive.
 - **Tenant/RLS/FK/audit/immutability.** RLS; verified-approver provenance; mandatory-approval non-bypassable (`app/policy/matrix.py`); audited.
 - **Tests.** Gate #12 passes only with a verified pre-approval under stated conditions; unverified approval ⇒ `insufficient_evidence`.
 - **A5 gate(s) advanced.** **#12 → PASS-capable** + removes the second go-live blocker.
@@ -533,7 +533,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed before the control loop (S55) can authorize go-live: A5 gate #13 requires an emergency stop / rollback authority to exist (App. C l.3016), reusing the rollback path (S52) and verified identity (S27).
 - **Spec grounding.** App. C (l.3016); §25.2 (2381–2389); App. B #13 (2997).
 - **Files.** `app/release/emergency_stop.py` + authority binding + `emergency_stop_authorities` store.
-- **Migration.** `0052` — `emergency_stop_authorities`; additive.
+- **Migration.** `0053` — `emergency_stop_authorities`; additive.
 - **Tenant/RLS/FK/audit/immutability.** RLS; authority binding immutable + audited; verified identity (Slice 27).
 - **Tests.** Emergency stop halts a run; authority required to invoke; gate #13 passes only with bound authority.
 - **A5 gate(s) advanced.** **#13 → PASS-capable**.
@@ -561,7 +561,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after go-live execution (S55): §25.1 requires *live* operational signals, not just the pre-release "alerts active" evidence of gate #11 (S31); without it the launched system is unobservable.
 - **Spec grounding.** §25.1 (2363–2375); §26.6 "post-launch monitoring"; `stabilization_window_policy.yaml` (`monitored_journeys`, `error_budget_threshold`).
 - **Files.** `app/ops/monitoring.py` + per-signal collectors (reuse Slice-31 connector) + `ops_signals` store.
-- **Migration.** `0053` — `ops_signal_snapshots`; tenant-owned, RLS, append-only.
+- **Migration.** `0054` — `ops_signal_snapshots`; tenant-owned, RLS, append-only.
 - **Tenant/RLS/FK/audit/immutability.** RLS; append-only signal history; audited.
 - **Tests.** Each signal class recorded; thresholds drive alerts; model-drift + data-quality + cost-anomaly detection fire on fixtures.
 - **A5 gate(s) advanced.** Deepens #11 beyond "active" to "observed" (operational, not a new gate).
@@ -573,7 +573,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after monitoring (S56): detected post-launch issues need an incident / ticket / support-handover workflow (§25.2/§25.4) to become actionable rather than just observed signals.
 - **Spec grounding.** §25.2 (2377–2389), §25.4 (2417 `support_handover_complete`); §26.6 "incident workflow"; §23.4 `incidents`.
 - **Files.** `app/ops/incidents.py` + `incidents` store + ticket integration (Slice 34 PM connector).
-- **Migration.** `0054` — `incidents`; tenant-owned, RLS, append-only.
+- **Migration.** `0055` — `incidents`; tenant-owned, RLS, append-only.
 - **Tenant/RLS/FK/audit/immutability.** RLS; incident lifecycle audited; autonomy-gated actions (§25.2 table).
 - **Tests.** Incident creation; autonomous vs approval-gated actions per autonomy level; support-handover record.
 - **A5 gate(s) advanced.** None (operational).
@@ -597,7 +597,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after operational signals/incidents exist (S56–S58): stabilization closure depends on *measured* exit criteria and a closure authority (§25.4), which can only be evaluated once the live signals and incident history are available.
 - **Spec grounding.** §25.3 (2391–2402), §25.4 (2404–2424); §26.6 "continuous-improvement engine"; `stabilization_window_policy.yaml` (`exit_criteria`, `closure_approver`).
 - **Files.** `app/ops/stabilization.py` + `stabilization_windows` store + improvement-feedback writer.
-- **Migration.** `0055` — `stabilization_windows`; tenant-owned, RLS, append-only.
+- **Migration.** `0056` — `stabilization_windows`; tenant-owned, RLS, append-only.
 - **Tenant/RLS/FK/audit/immutability.** RLS; closure sign-off verified-identity + audited; report immutable.
 - **Tests.** Exit criteria enforced (zero open critical incidents N days, error budget, backup/restore validated, support handover, rollback valid); closure requires authority; failed exit ⇒ incident/improvement tickets + window extension (§25.4).
 - **A5 gate(s) advanced.** None (operational closure).
@@ -611,7 +611,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after the evidence-pack/release flow exists (S49–S50): external assurance *hardens* export for third-party auditors — it is not core go-live, so it follows the working release flow rather than preceding it (§28).
 - **Spec grounding.** §28 (2832–2914); §15.4; `evidence_pack_schema.json`.
 - **Files.** `app/release/evidence_export.py` (extends Slice 49); signing + auditor-access.
-- **Migration.** possibly `0056` — export/signature metadata; additive.
+- **Migration.** possibly `0057` — export/signature metadata; additive.
 - **Tenant/RLS/FK/audit/immutability.** RLS; signed + immutable manifest; redaction enforced; no secret/tenant-private leakage (§28.1).
 - **Tests.** Schema-valid export; signature verifies; auditor access read-only + expiring; redaction applied.
 - **A5 gate(s) advanced.** None (externalization).
@@ -623,7 +623,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after real connectors/agents exist (Phase 3/4): a marketplace/connector/reference library must *generalize proven implementations*, so it follows them rather than preceding them (§26.7).
 - **Spec grounding.** §26.7; §20.3 (2039–2044); App. C (l.3012 connectors tested/permission-scoped, l.3010 blueprints security-reviewed).
 - **Files.** `app/ecosystem/*`; reuse connector + agent-registry subsystems.
-- **Migration.** additive catalog tables; `0057`.
+- **Migration.** additive catalog tables; `0058`.
 - **Tenant/RLS/FK/audit/immutability.** Global catalogs (immutable versions, cf. blueprints); tenant usage RLS; audited.
 - **Tests.** Connector contract tests (§9.5.1 integration archetype); blueprint listing requires security review.
 - **A5 gate(s) advanced.** None.
@@ -635,7 +635,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after cost/ops/eval signals exist (S51/S56/S40): optimization and tenant-safe cross-project learning require real aggregate data to learn from (§17.5/§19), which only accrues once the system runs.
 - **Spec grounding.** §26.7; §17.5 (1724+); App. C (l.3009); §19 model routing.
 - **Files.** `app/ecosystem/cost_optimizer.py`, `app/ecosystem/learning.py`.
-- **Migration.** additive; `0058`.
+- **Migration.** additive; `0059`.
 - **Tenant/RLS/FK/audit/immutability.** **Never reuse tenant content** (App. C l.3009) — only anonymized aggregate signals; audited.
 - **Tests.** Learning uses only allowed aggregate signals; no tenant-content crossover; cost routing improves on fixtures.
 - **A5 gate(s) advanced.** None.
@@ -647,7 +647,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after the core runtime/go-live system exists (S55+): enterprise administration *scales* an already-working system and adds no new go-live capability, so it is intentionally last (§26.7).
 - **Spec grounding.** §26.7; §17 multi-tenancy.
 - **Files.** `app/admin/*`.
-- **Migration.** additive admin tables; `0059`.
+- **Migration.** additive admin tables; `0060`.
 - **Tenant/RLS/FK/audit/immutability.** RLS preserved; admin actions audited; no RLS bypass for runtime role.
 - **Tests.** RBAC; tenant-boundary preserved; admin actions audited.
 - **A5 gate(s) advanced.** None.
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-12): Slice 47 is MERGED.** PR #84 landed as squash commit `5f3e693`. Migration `0046_issue_provenance` is the Alembic head; trusted Slice-44/45 findings can bridge one-to-one into release issues, new risk acceptances are exact-release/subject bound while legacy release refs remain visibly unvalidated, and Appendix-B gate #7 has a refined evidence-backed ladder but no PASS path under A5 ruleset `slice47.v1`. Readiness remains `slice20.v1`, and go-live remains hard-false (`CLAUDE.md` “Current status”; `migrations/versions/0046_issue_provenance.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
+> **Current state (2026-07-13): Slice 48 is MERGED.** PR #86 landed as squash commit `da91068`. Migration `0047_reviewer_quality_assurance` is the Alembic head; UAID now executes blind reviewer challenges over controlled fixtures, persists challenge-only generated metrics and decision-only replacement prescriptions, and requires current challenge-qualified evidence for new Slice-45 reviewer panels and Slice-46 independent-agent approvals. The A5 evaluator remains unchanged at ruleset `slice47.v1`, readiness remains `slice20.v1`, and go-live remains hard-false (`CLAUDE.md` “Current status”; `app/verify/reviewer_qa.py`; `app/repositories/reviewer_quality.py`; `migrations/versions/0047_reviewer_quality_assurance.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
 
-**Next planned (not started): Slice 48 — Reviewer QA harness (planted defects, miss-rate, replacement triggers).** This is the next unsatisfied item in the §5 sequence after merged Slice 47. Its eventual reviewed plan must ground any implementation in spec §13.5, `reviewer_quality_assurance.yaml`, the Slice-42 reviewer-registration/report boundary, and the verified-evidence patterns from Slices 43–47; this sequencing marker does not authorize implementation.
+**Next planned (not started): Slice 49 — Evidence-pack generator + auditor + export.** This is the next unsatisfied item in the §5 sequence after merged Slice 48. Its eventual reviewed plan must ground any implementation in spec §15, §27.11, §28.1, `schemas/evidence_pack_schema.json`, the Slice-25 frozen release candidate, and the verified-evidence sources through Slice 48; this sequencing marker does not authorize implementation.
 
-**Boundary:** no Slice-48 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-48 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** no Slice-49 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-49 plan for review; implementation remains blocked until that plan is approved.
 
 ---
 
@@ -895,8 +895,8 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–47 now follow the actual migration chain through `0046`. Future migration numbering from Slice 48 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
-- **No implementation hidden in planning.** This Rev-8 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-47 plan header. Slice-47 implementation was already reviewed and merged via PR #84; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
+- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–48 now follow the actual migration chain through `0047`. Future migration numbering from Slice 49 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **No implementation hidden in planning.** This Rev-9 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-48 plan header. Slice-48 implementation was already reviewed and merged via PR #86; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
 - **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#6/#8/#11 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
 - **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated.
 - **Residual uncertainty.** Far-term table shapes (S45–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
