@@ -48,6 +48,7 @@ from app.verify.reviewer_qa import (
     text_digest,
     validate_fixture_suite,
 )
+from app.release.evidence_pack import EvidenceSourceRef, project_source_record
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,41 @@ class ReviewerQualityError(ValueError):
 class ReviewerQualityRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession, context: TenantContext):
         super().__init__(session, context, ReviewerQualityRecord)
+
+    async def evidence_pack_safe_projection(
+        self, *, project_id: uuid.UUID, as_of: datetime
+    ) -> list[EvidenceSourceRef]:
+        """Latest exact-binding QA rows projected without fixture/prompt/response prose."""
+        rank = func.row_number().over(
+            partition_by=(
+                ReviewerQualityRecord.reviewer_instance_id,
+                ReviewerQualityRecord.reviewer_version_hash,
+                ReviewerQualityRecord.fixture_suite_hash,
+                ReviewerQualityRecord.qa_contract_hash,
+            ),
+            order_by=(
+                ReviewerQualityRecord.created_at.desc(),
+                ReviewerQualityRecord.id.desc(),
+            ),
+        ).label("latest_rank")
+        ranked = (
+            select(ReviewerQualityRecord.id.label("record_id"), rank)
+            .where(
+                ReviewerQualityRecord.tenant_id == self.context.tenant_id,
+                ReviewerQualityRecord.project_id == project_id,
+                ReviewerQualityRecord.created_at <= as_of,
+            )
+            .subquery()
+        )
+        rows = (
+            await self.session.execute(
+                select(ReviewerQualityRecord)
+                .join(ranked, ranked.c.record_id == ReviewerQualityRecord.id)
+                .where(ranked.c.latest_rank == 1)
+                .order_by(ReviewerQualityRecord.created_at, ReviewerQualityRecord.id)
+            )
+        ).scalars().all()
+        return [project_source_record("reviewer_quality_record", row) for row in rows]
 
     async def execute_suite(
         self,

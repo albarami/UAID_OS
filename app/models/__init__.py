@@ -17,6 +17,7 @@ from app.models.acceptance_verification import (
     AcceptanceVerificationRun,
 )
 from app.models.audit_log import AuditLog
+from app.models.audit_chain_verification import AuditChainVerification
 from app.models.autonomy_policy import AutonomyPolicy
 from app.models.base import Base
 from app.models.branch_protection_snapshot import BranchProtectionSnapshot
@@ -74,6 +75,12 @@ from app.models.task_contract import (
 )
 from app.models.test_oracle_run import TestOracleRun
 from app.models.test_result import TestResult
+from app.models.evidence_pack import (
+    EvidencePack,
+    EvidencePackGenerationRun,
+    EvidencePackSectionResult,
+    EvidencePackSourceRef,
+)
 from app.models.release_finding import ReleaseFinding
 from app.models.release_finding_event import ReleaseFindingEvent
 from app.models.release_candidate import ReleaseCandidate
@@ -93,6 +100,7 @@ __all__ = [
     "Project",
     "ProjectRun",
     "AuditLog",
+    "AuditChainVerification",
     "AutonomyPolicy",
     "Approval",
     "ApprovalEvent",
@@ -155,6 +163,10 @@ __all__ = [
     "ReviewerQualityDefectResult",
     "TestOracleRun",
     "TestResult",
+    "EvidencePackGenerationRun",
+    "EvidencePack",
+    "EvidencePackSourceRef",
+    "EvidencePackSectionResult",
     "RiskAcceptanceRecord",
     "RiskAcceptanceEvent",
     "ReleaseFinding",
