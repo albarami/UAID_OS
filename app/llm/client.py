@@ -37,6 +37,7 @@ class FakeLLMClient:
     """Deterministic, offline LLM client for tests. Records every call; optionally raises."""
 
     response_text: str = ""
+    response_texts: list[str] | None = None
     input_tokens: int = 10
     output_tokens: int = 20
     raise_exc: Exception | None = None
@@ -62,8 +63,14 @@ class FakeLLMClient:
         )
         if self.raise_exc is not None:
             raise self.raise_exc
+        response_text = self.response_text
+        if self.response_texts is not None:
+            index = len(self.calls) - 1
+            if index >= len(self.response_texts):
+                raise RuntimeError("FakeLLMClient response sequence exhausted")
+            response_text = self.response_texts[index]
         return LLMResponse(
-            text=self.response_text,
+            text=response_text,
             input_tokens=self.input_tokens,
             output_tokens=self.output_tokens,
             model=model,

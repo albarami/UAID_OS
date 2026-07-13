@@ -29,6 +29,7 @@ from app.models.shortcut_detector_run import ShortcutDetectorRun
 from app.release.project_repo import resolve_declared_repo
 from app.release.scm_connector import SCMConnector, SCMConnectorError
 from app.repositories.release_issues import ReleaseIssueRepository
+from app.repositories.reviewer_quality import ReviewerQualityRepository
 from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.tenancy import TenantContext, TenantScopedRepository
 from app.verify.shortcut_detector import (
@@ -297,7 +298,21 @@ class ShortcutDetectorRepository(TenantScopedRepository):
             or len({item.model_route for item in lineages}) != 2
         ):
             return None
-        return lineages, {ref: by_ref[ref][0].id for ref in reviewer_refs}
+        instance_ids = {ref: by_ref[ref][0].id for ref in reviewer_refs}
+        if not await self._qa_panel_current(project_id, tuple(instance_ids.values())):
+            return None
+        return lineages, instance_ids
+
+    async def _qa_panel_current(
+        self, project_id: uuid.UUID, reviewer_instance_ids: Sequence[uuid.UUID]
+    ) -> bool:
+        quality = ReviewerQualityRepository(self.session, self.context)
+        for reviewer_instance_id in reviewer_instance_ids:
+            if not await quality.is_currently_eligible(
+                project_id=project_id, reviewer_instance_id=reviewer_instance_id
+            ):
+                return False
+        return True
 
     @staticmethod
     def _prices(

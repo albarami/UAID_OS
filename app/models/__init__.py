@@ -58,6 +58,14 @@ from app.models.shortcut_detector_run import ShortcutDetectorRun
 from app.models.pull_request_evidence_snapshot import PullRequestEvidenceSnapshot
 from app.models.readiness_report import ReadinessReportRecord
 from app.models.review_report import ReviewReport
+from app.models.reviewer_quality import (
+    ReviewerQAFixtureCase,
+    ReviewerQAFixtureDefect,
+    ReviewerQAFixtureSuite,
+    ReviewerQualityCaseResult,
+    ReviewerQualityDefectResult,
+    ReviewerQualityRecord,
+)
 from app.models.task_contract import (
     TaskContract,
     TaskContractArtifactLink,
@@ -139,6 +147,12 @@ __all__ = [
     "TaskContractReviewer",
     "TaskContractEvent",
     "ReviewReport",
+    "ReviewerQAFixtureSuite",
+    "ReviewerQAFixtureCase",
+    "ReviewerQAFixtureDefect",
+    "ReviewerQualityRecord",
+    "ReviewerQualityCaseResult",
+    "ReviewerQualityDefectResult",
     "TestOracleRun",
     "TestResult",
     "RiskAcceptanceRecord",

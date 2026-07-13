@@ -11,6 +11,7 @@ import pytest_asyncio
 from sqlalchemy import text
 
 from app.llm.client import FakeLLMClient
+from tests.reviewer_quality_support import seed_current_reviewer_quality
 
 
 COMMIT_SHA = "a" * 40
@@ -761,6 +762,12 @@ async def _seed_shortcut_panel(admin_engine, ctx, *, include_builder: bool = Tru
                     "qualified_via_run_id=:q WHERE id=:r"
                 ),
                 {"q": run, "r": realization},
+            )
+            await seed_current_reviewer_quality(
+                conn,
+                tenant_id=ctx["t1"],
+                project_id=ctx["p1"],
+                reviewer_instance_id=instance,
             )
             reviewers.append({"key": key, "instance": instance})
     return reviewers
