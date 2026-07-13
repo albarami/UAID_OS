@@ -17,6 +17,7 @@ from app.models.acceptance_verification import (
     AcceptanceVerificationRun,
 )
 from app.models.intake_artifact import IntakeArtifact
+from app.repositories.reviewer_quality import ReviewerQualityRepository
 from app.tenancy import TenantContext, TenantScopedRepository
 from app.verify.acceptance import (
     AUTHORSHIP_CONTRACT_VERSION,
@@ -74,6 +75,12 @@ class AcceptanceVerificationRepository(TenantScopedRepository):
         actor: str,
     ) -> AcceptanceCriterionAuthorshipRecord:
         self._check_digest(evidence_reference)
+        if not await ReviewerQualityRepository(
+            self.session, self.context
+        ).is_currently_eligible(
+            project_id=project_id, reviewer_instance_id=reviewer_instance_id
+        ):
+            raise ValueError("current reviewer QA evidence is required")
         current = await self._current_record(project_id, acceptance_criterion_id)
         row = AcceptanceCriterionAuthorshipRecord(
             tenant_id=self.context.tenant_id,

@@ -7,6 +7,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
+from tests.reviewer_quality_support import seed_current_reviewer_quality
+
 
 def _evidence(**overrides):
     from app.verify.acceptance import AuthorshipEvidence
@@ -345,6 +347,12 @@ async def _seed_agent_pair_and_approval(admin_engine, ctx):
                 {"t": ctx["tenant"], "p": ctx["project"], "r": run, "ref": f"acceptance-{index}", "c": category},
             )
         await conn.execute(text("UPDATE agent_realizations SET qualification_status='qualified',qualified_via_run_id=:q WHERE id=:r"), {"q": run, "r": realization})
+        await seed_current_reviewer_quality(
+            conn,
+            tenant_id=ctx["tenant"],
+            project_id=ctx["project"],
+            reviewer_instance_id=ids[1],
+        )
         approval = await _scalar(
             conn,
             "INSERT INTO approvals (tenant_id,project_id,action,subject_ref,risk_tier,requires_explicit_approval,"
