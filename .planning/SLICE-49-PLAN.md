@@ -1,6 +1,6 @@
 # Slice 49 — Evidence-pack generator + auditor + export (§15 / §27.11 / §28.1) — PLAN v1
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-49-1…8 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #88 (squash commit `0a04aec`); this v1 plan is retained as the approved design rationale for Slice 49.
 
 ## Coordinator rulings (final)
 

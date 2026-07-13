@@ -1,29 +1,29 @@
 {
   "version": "1.0",
-  "timestamp": "2026-07-13T06:05:02+00:00",
+  "timestamp": "2026-07-13T13:20:49+00:00",
   "source": "post-merge-docs-reconciliation",
   "partial": false,
   "phase": "Phase 5",
   "phase_name": "Review, verification, and evidence",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-48-PLAN.md",
-  "task": "Slice 48",
+  "plan": ".planning/SLICE-49-PLAN.md",
+  "task": "Slice 49",
   "total_tasks": null,
   "status": "merged",
   "completed_tasks": [
-    "Slice 48 merged via PR #86 (squash commit da91068); reviewer QA now produces challenge-only generated metrics, decision-only replacement prescriptions, and a reversible current-QA eligibility overlay"
+    "Slice 49 merged via PR #88 (squash commit 0a04aec); immutable evidence-pack cores now preserve source truth tiers, bind restricted audit checkpoints, and stage exports without fabricating a verdict or signature"
   ],
   "remaining_tasks": [
-    "Slice 49 — Evidence-pack generator, auditor, and export (planned, not started)"
+    "Slice 50 — Release manager + release verdict, completing A5 gate #7 (planned, not started)"
   ],
   "blockers": [],
   "human_actions_pending": [],
   "decisions": [
-    "Slice 49 is the next planned item after merged Slice 48",
-    "Slice 48 changes no A5 gate; the evaluator remains slice47.v1",
-    "Reviewer QA metrics are challenge-only and replacement prescriptions are decision-only; current QA evidence gates only new Slice-45/46 evidence production"
+    "Slice 50 is the next planned item after merged Slice 49",
+    "Slice 49 changes no A5 gate; the evaluator remains slice47.v1",
+    "Canonical evidence_pack.json export remains refused until a real DB-bound Slice-50 verdict attestation exists; signed external assurance remains deferred to Slice 60"
   ],
   "uncommitted_files": [],
-  "next_action": "Draft and submit the Slice 49 plan for review; do not start implementation before approval.",
-  "context_notes": "Post-Slice-48 checkpoint: migration 0047 is the Alembic head, A5 ruleset remains slice47.v1, readiness remains slice20.v1, verified suites are 889 Docker-free and 779 DB-backed, and go-live remains false. Reviewer QA measures only the controlled challenge corpus, records decision-only prescriptions, and gates new Slice-45/46 evidence production on current QA. No Slice-49 plan, code, test, or migration has been started."
+  "next_action": "Draft and submit the Slice 50 plan for review; do not start implementation before approval.",
+  "context_notes": "Post-Slice-49 checkpoint: migration 0048 is the Alembic head, A5 ruleset remains slice47.v1, readiness remains slice20.v1, verified suites are 902 Docker-free and 788 DB-backed, and go-live remains false. Evidence-pack cores are immutable audited assemblies with preserved truth tiers; canonical export stays blocked pending the Slice-50 verdict and signing stays deferred to Slice 60. No Slice-50 plan, branch, code, test, or migration has been started."
 }

@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 9 (current-state reconciliation after Slice 48 merged; immediate-next marker advanced to Slice 49).
-**Baseline state:** Post–Slice 48 (`main` at `da91068`; Slice 48 merged via PR #86 at `da91068`; Alembic head `0047_reviewer_quality_assurance`; A5 evaluator `ruleset_version = "slice47.v1"`; readiness `ruleset_version = "slice20.v1"`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-48 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 48 are merged; Slice 49 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 10 (current-state reconciliation after Slice 49 merged; immediate-next marker advanced to Slice 50).
+**Baseline state:** Post–Slice 49 (`main` at `0a04aec`; Slice 49 merged via PR #88 at `0a04aec`; Alembic head `0048_evidence_packs`; A5 evaluator `ruleset_version = "slice47.v1"`; readiness `ruleset_version = "slice20.v1"`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-49 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 49 are merged; Slice 50 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -466,21 +466,21 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That planted-fixture metrics are live-work miss rates, general competence, universal recall, or zero risk.
 - **Exit.** SATISFIED by PR #86 (`da91068`): challenge-only reviewer QA records, decision-only prescriptions, and the reversible current-QA eligibility overlay; readiness remains `slice20.v1`; go-live false.
 
-#### Slice 49 — Evidence-pack generator + auditor + export (§15/§27.11/§28.1) — **NEXT PLANNED (NOT STARTED)**
-- **Goal.** Assemble the release-scoped evidence pack from all sources (traceability, test_results, review_reports, reviewer_quality_records, risk_acceptances, provenance_chains, audit_log_hash, verdict, signatures), validate against `evidence_pack_schema.json`, and export (JSON + human-readable + signed manifest + read-only auditor access). **Fail the evidence gate on missing required fields** (§28.1 l.2912).
+#### Slice 49 — Evidence-pack generator + auditor + export (§15/§27.11/§28.1) — **MERGED (PR #88, `0a04aec`)**
+- **Goal.** Assemble one exact frozen release candidate into an immutable evidence-pack core with safe source refs, all twelve explicit inventory sections, traceability, exact canonical bytes/digests, and a real admin-verified audit checkpoint; stage internal preview/Markdown/unsigned-manifest export without fabricating the deferred verdict or signature.
 - **Why now.** §26.5 "evidence pack auditor"; "the artifact of done" (§15.1); prerequisite for the release verdict (Slice 50).
 - **Spec grounding.** §15 (1413–1536); §27.11 (2769–2794); §28.1 (2851–2914); `schemas/evidence_pack_schema.json`; §15.3 definition-of-done (1476–1490).
-- **Files.** `app/release/evidence_pack.py` + `app/models/evidence_pack.py` + repo + exporter + JSON-Schema validator.
-- **Migration.** Expected `0048` — `evidence_packs` (tenant-owned, RLS, immutable once verdict attached); additive; exact shape/number remains subject to the reviewed Slice-49 plan.
-- **Tenant/RLS/FK/audit/immutability.** RLS; pack immutable post-verdict (cf. audit/cost); `audit_log_hash` from Slice-2 `audit_verify`; provenance_chains from Sanad; signing via Slice 27/60.
-- **Tests.** Schema validation; missing required field ⇒ gate fails (§28.1 l.2912); traceability links resolve; tamper-evident hash.
-- **A5 gate(s) advanced.** Enables the verdict (Slice 50) consuming gate states; supports #7/#8.
-- **Must NOT claim.** That a generated pack = a passed verdict (verdict is Slice 50); export is a claim about evidence, not a replacement (§28 l.2914).
-- **Exit.** Schema-valid, signed, exportable evidence pack; missing-field fail-closed; go-live false.
+- **Files.** `app/release/evidence_pack.py`, `app/release/evidence_export.py`, `app/models/evidence_pack.py`, `app/models/audit_chain_verification.py`, `app/repositories/evidence_packs.py`, and the Slice-48 safe projection in `app/repositories/reviewer_quality.py`.
+- **Migration.** `0048` — additive append-only generation attempts, immutable cores, normalized source refs, section results, and restricted global audit-chain checkpoints; tenant-owned tables use RLS ENABLE+FORCE.
+- **Tenant/RLS/FK/audit/immutability.** Exact same-tenant/project/candidate/source resolution; immutable core bytes and children; admin-only checkpoint INSERT after locked `audit_verify()` with runtime safe-reference SELECT only; audit safe metadata only.
+- **Tests.** Canonical-schema + strict semantic-contract validation; explicit missing/inconsistent inventory; traceability/source resolution; export re-audit; RLS/direct-SQL/append-only adversarial cases; shared advisory-lock race closure; audit/prose/secret sentinels; findings-guard MD5 preservation.
+- **A5 gate(s) advanced.** None: the evaluator remains byte-stable at `slice47.v1`; the core enables the future Slice-50 verdict but supplies no verdict itself.
+- **Must NOT claim.** That an assembled core is a passed verdict, complete evidence universe, canonical `evidence_pack.json`, or signed assurance. Canonical export is refused pending the DB-bound Slice-50 verdict; signing/auditor access remains Slice 60 (§28 l.2914).
+- **Exit.** SATISFIED by PR #88 (`0a04aec`): immutable audited core assemblies, preserved truth tiers, staged internal exports, and fail-closed canonical-export refusal; readiness remains `slice20.v1`; go-live false.
 
 ### Track A (cont.) — Phase 6: Production release & operations
 
-#### Slice 50 — Release manager + release verdict (§24.3) — completes gate #7
+#### Slice 50 — Release manager + release verdict (§24.3) — completes gate #7 — **NEXT PLANNED (NOT STARTED)**
 - **Goal.** A release manager consuming all evidence + the bound `release_candidates`/issues to emit a §24.3 verdict (`passed | passed_with_limitations | failed_blocking_issue | failed_missing_evidence | requires_human_decision | not_applicable`); completes gate #7 (open issues either non-blocking or risk-accepted, over the *frozen* release's bound issues).
 - **Why now.** §26.6 "release manager"; gate #7 completeness needs a verdict over the release's bound issues.
 - **Spec grounding.** §24.1 (2251–2285), §24.3 (2332–2341); App. B #7 (2991); evidence_pack `verdict` enum.
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-13): Slice 48 is MERGED.** PR #86 landed as squash commit `da91068`. Migration `0047_reviewer_quality_assurance` is the Alembic head; UAID now executes blind reviewer challenges over controlled fixtures, persists challenge-only generated metrics and decision-only replacement prescriptions, and requires current challenge-qualified evidence for new Slice-45 reviewer panels and Slice-46 independent-agent approvals. The A5 evaluator remains unchanged at ruleset `slice47.v1`, readiness remains `slice20.v1`, and go-live remains hard-false (`CLAUDE.md` “Current status”; `app/verify/reviewer_qa.py`; `app/repositories/reviewer_quality.py`; `migrations/versions/0047_reviewer_quality_assurance.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
+> **Current state (2026-07-13): Slice 49 is MERGED.** PR #88 landed as squash commit `0a04aec`. Migration `0048_evidence_packs` is the Alembic head; UAID now assembles immutable evidence-pack cores for exact frozen candidates, preserves source truth tiers in safe refs, records restricted admin-verified audit checkpoints, and re-audits staged internal previews/Markdown/unsigned manifests. Canonical `evidence_pack.json` remains refused until a DB-bound Slice-50 verdict exists. The A5 evaluator remains unchanged at ruleset `slice47.v1`, readiness remains `slice20.v1`, and go-live remains hard-false (`CLAUDE.md` “Current status”; `app/release/evidence_pack.py`; `app/release/evidence_export.py`; `app/repositories/evidence_packs.py`; `migrations/versions/0048_evidence_packs.py`; `app/release/production_autonomy.py`; `app/intake/readiness.py`; git history).
 
-**Next planned (not started): Slice 49 — Evidence-pack generator + auditor + export.** This is the next unsatisfied item in the §5 sequence after merged Slice 48. Its eventual reviewed plan must ground any implementation in spec §15, §27.11, §28.1, `schemas/evidence_pack_schema.json`, the Slice-25 frozen release candidate, and the verified-evidence sources through Slice 48; this sequencing marker does not authorize implementation.
+**Next planned (not started): Slice 50 — Release manager + release verdict.** This is the next unsatisfied item in the §5 sequence after merged Slice 49. Its eventual reviewed plan must ground any implementation in spec §24.1/§24.3, Appendix-B gate #7, the Slice-25 frozen candidate, Slice-47 verified issue/release binding, and Slice-49 immutable evidence-pack cores; this sequencing marker does not authorize implementation.
 
-**Boundary:** no Slice-49 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-49 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** no Slice-50 plan, feature branch, code, test, or migration exists at this checkpoint. The next action is to draft and submit the Slice-50 plan for review; implementation remains blocked until that plan is approved.
 
 ---
 
@@ -742,7 +742,7 @@ Claimable when: verified source-control/CI evidence (**gate #3**, S26–28); ver
 Claimable when: skill graph + matching (S38); realization + broker wiring (S39); archetype evals gate activation (S40); generated-agent security review + monitoring + replacement (S41). Evidence: `agent_qa_records` within `reviewer_quality_assurance.yaml` thresholds. *No gate flips; foundational for M5.*
 
 ### M5 — Phase 5 verification / evidence-pack foundation (Slices 42–49)
-Claimable when: task contracts + reviews (S42); test oracles (**#4**, S43); security scan (**#5**, S44); shortcut detector (**#6**, S45); acceptance verifier (**#8**, S46); issue provenance + bridge + FK (S47); reviewer QA (S48); schema-valid signed evidence pack failing closed on missing fields (S49, §28.1). Evidence: a generated evidence pack with complete traceability + provenance_chains (§15.2). *Go-live false (gates #2/#3/#9/#10/#11/#12/#13 + verdict still pending).*
+Claimable when: task contracts + reviews (S42); test oracles (**#4**, S43); security scan (**#5**, S44); shortcut detector (**#6**, S45); acceptance verifier (**#8**, S46); issue provenance + bridge + FK (S47); reviewer QA (S48); immutable audited evidence-pack core assembly with explicit missing/inconsistent inventory and staged-finalization refusal (S49, §28.1). Evidence: a generated core with bounded traceability + provenance chains; the release verdict (S50) and signed external assurance (S60) remain separate. *Go-live false (gates #9/#10/#12/#13 + verdict and verified pre-approval still pending).*
 
 ### M6 — Phase 6 release / operations foundation (Slices 50–59)
 Claimable when: release verdict (**#7 complete**, S50); cost forecast (**#9**, S51); rollback verification (**#10**, S52); verified A5 pre-approval (**#12**, S53); emergency authority (**#13**, S54); §23.3 control loop (S55); **and** the operational system — full monitoring (S56), incidents/handover (S57), self-heal/hotfix (S58), backup/restore + stabilization closure + continuous-improvement (S59). **Only here can all 13 gates be green AND a verified pre-approval exist** — the first point `can_go_live_autonomously` is *reachable*, under policy + authority — **and** the system can actually operate and stabilize post-launch (§25). Evidence: `a5_satisfied = true` + verified pre-approval + a `passed`/`passed_with_accepted_risk` verdict + a closed stabilization window.
@@ -758,27 +758,27 @@ The evidence pack is "the artifact of done" (§15.1 l.1417). Grounded in §15.2 
 
 ### 9.1 Generation, storage, scope
 - **Release-scoped** by `release_id` (required, §27.11); the referent is a **frozen `release_candidates` row** (Slice 25); the `risk_acceptance_records.release_id` FK closes at Slice 47.
-- **Stored** as tenant-owned, RLS, append-only `evidence_packs` (§23.4 l.2238), assembled by Slice 49; **immutable once a verdict is attached** (cf. audit/cost immutability).
-- **Validated** against `evidence_pack_schema.json`; **fail the evidence gate on missing required fields** (§28.1 l.2912).
-- **Exported** as JSON (schema-valid) + human-readable + signed hash manifest + read-only auditor access (§15.4 1498–1502; §28.1 2855–2902; Slice 60).
+- **Stored** as tenant-owned, RLS, append-only immutable `evidence_packs` cores plus normalized refs/section results (Slice 49); future verdict/signature attestations are separate append-only layers.
+- **Validated** as an immutable core by the strict `slice49.evidence_pack.v1` semantic contract over the unchanged canonical schema asset. Canonical schema validation/export remains refused until Slice 50 supplies the required real verdict (§28.1 l.2912).
+- **Exported in stages:** Slice 49 provides re-audited non-canonical core preview, safe Markdown, and an unsigned hash manifest; canonical JSON follows the Slice-50 verdict, while signed external assurance + read-only auditor access remain Slice 60 (§15.4 1498–1502; §28.1 2855–2902).
 
 ### 9.2 Section → primitive mapping
 | Evidence-pack field | Source primitive | Status | Slice |
 |---|---|---|---|
-| `traceability` | `intake_artifacts` chain (11) + Sanad `intake_provenance` + PR/test links | partial | S29/S43/S49 |
-| `test_results` | test-oracle execution | future | S43 |
-| `review_reports` | maker-checker-verifier | future | S42 |
-| `reviewer_quality_records` | reviewer-QA harness | future | S48 |
+| `traceability` | `intake_artifacts` chain (11) + Sanad `intake_provenance` + bound issue/finding links | **present (bounded snapshot; not completeness proof)** | S29/S43/S49 |
+| `test_results` | test-oracle execution | **present + assembled** | S43/S49 |
+| `review_reports` | maker-checker-verifier | **present + assembled (reported content)** | S42/S49 |
+| `reviewer_quality_records` | reviewer-QA harness | **present + assembled (challenge-only metrics)** | S48/S49 |
 | `risk_acceptances` | `risk_acceptance_records` (22) | **present** | — |
-| `provenance_chains` | Sanad `intake_provenance` + `app/core/provenance.py` | **present (intake)** | S49 (assemble) |
-| `audit_log_hash` | Slice-2 hash-chained `audit_logs` + `audit_verify()` | **present** | S49 |
+| `provenance_chains` | Sanad `intake_provenance` + `app/core/provenance.py` | **present + assembled (intake)** | S49 |
+| `audit_log_hash` | Slice-2 hash-chained `audit_logs` + locked `audit_verify()` checkpoint | **present + assembled** | S49 |
 | `verdict` | release verdict (§24.3) | future | S50 |
 | `signatures` | verified pre-approval + signing | future | S27/S53/S60 |
 | `scope` (incl/excl requirements, limited-scope) | `release_candidates` + bindings (25) | **present** | — |
 | `open_issues`/`accepted_risks`/`exceptions` | `release_issues` (24) + `risk_acceptance_records` (22) | **present** | — |
 | integrity manifest/signature/key/log-ref | signing + audit-log ref (§28.1 2892–2897) | future | S60 |
 
-**Insight (inference):** risk acceptances (22), open issues (24), release scoping (25), Sanad chains (11), and the tamper-evident audit hash (2) **already exist**; the missing inputs are the Phase-3/5/6 *evidence sources*. The evidence-pack generator (S49) is an **assembler** over present + future primitives.
+**Current boundary:** Slice 49 now assembles the available Phase-3/5 evidence sources without upgrading their truth tiers or claiming source-universe completeness. The remaining canonical-finalization inputs are the release verdict (S50) and signer/external-assurance tier (S60).
 
 ---
 
@@ -833,7 +833,7 @@ Go-live is not the end state; spec §29 item 16 requires "Monitor and stabilize 
 - **D-2 — Two-tier provenance vs separate verified tables.** **Default: one store + `provenance ∈ {caller_supplied_unverified, connector_verified}` column** — minimal churn, matches `findings.py`/`issues.py` convention.
 - **D-3 — `risk_acceptance_records.release_id` retro-FK timing.** **Default: Slice 47** (bundle with issue-provenance that needs it). (`.planning/SLICE-25-RELEASE-BINDING-DISCUSSION.md` deferred it.)
 - **D-4 — Connector platform priority.** Repo uses GitHub (`.github/workflows/ci.yml`, `gh`). **Default: GitHub-first** behind a thin adapter (generalized in S61). (inference.)
-- **D-5 — Evidence-pack schema variant.** Spec ships two shapes: §27.11 (canonical asset `schemas/evidence_pack_schema.json`) and the longer §15.4 list. **Default: §27.11 canonical**, §15.4 fields as optional expanded sections. Coordinator to confirm.
+- **D-5 — Evidence-pack schema variant — RESOLVED (Slice 49 ruling OD-49-1).** The checked-in `uaid.evidence_pack.v1.2` asset is canonical and unchanged; `slice49.evidence_pack.v1` adds a strict code-owned semantic contract and allowlisted expanded sections on top. Unknown caller fields fail closed even where the shallow schema permits them (`.planning/SLICE-49-PLAN.md`; `app/release/evidence_pack.py`).
 - **D-6 — Track-B scheduling.** Phase-2 closure (S35–37) is off the A5 critical path. **Default: run in parallel after S26 ships**, builder's discretion; not the gate-path next step. (assumption.)
 - **D-7 — Temporal revisit.** Deferred until a `.planning/PHASE-1-PLAN.md` trigger (distributed multi-worker, hard event-sourced replay, multi-region/compliance) is met — likely surfaced by S55 (§23.3 loop) or Phase 7. Flagged so it is not forgotten.
 
@@ -857,7 +857,7 @@ Hold for every slice (spec §2, §15, App. C; reaffirmed across Slices 21–25):
 
 ## 14. Source Reconciliation / Stale Status Notes
 
-Some `.planning/` files retain **pre-implementation status text** conflicting with the merged reality. **Authoritative current source of truth:** CLAUDE.md "Current status" + README.md + git log + Alembic head + actual code/migrations — these agree Slices 17–42 are merged. Slice-41 and Slice-42 plan headers were reconciled after their merges; older stale headers below remain historical artifacts.
+Some `.planning/` files retain **pre-implementation status text** conflicting with the merged reality. **Authoritative current source of truth:** CLAUDE.md "Current status" + README.md + git log + Alembic head + actual code/migrations — these agree Slices 17–49 are merged. Slice-41, Slice-42, and Slice-43–49 plan headers were reconciled after their merges; older stale headers below remain historical artifacts.
 
 | Conflict | Stale text (verbatim) | Verdict | Evidence |
 |---|---|---|---|
@@ -895,10 +895,10 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–48 now follow the actual migration chain through `0047`. Future migration numbering from Slice 49 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
-- **No implementation hidden in planning.** This Rev-9 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-48 plan header. Slice-48 implementation was already reviewed and merged via PR #86; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
+- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–49 now follow the actual migration chain through `0048`. Future migration numbering from Slice 50 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **No implementation hidden in planning.** This Rev-10 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-49 plan header. Slice-49 implementation was already reviewed and merged via PR #88; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
 - **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#6/#8/#11 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
 - **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated.
-- **Residual uncertainty.** Far-term table shapes (S45–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
+- **Residual uncertainty.** Far-term table shapes (S50–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
 
 — End of roadmap —
