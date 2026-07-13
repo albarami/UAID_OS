@@ -88,6 +88,11 @@ from app.models.release_candidate_event import ReleaseCandidateEvent
 from app.models.release_candidate_issue_binding import ReleaseCandidateIssueBinding
 from app.models.release_issue import ReleaseIssue
 from app.models.release_issue_event import ReleaseIssueEvent
+from app.models.release_verdict import (
+    ReleaseVerdict,
+    ReleaseVerdictIssueResult,
+    ReleaseVerdictRun,
+)
 from app.models.risk_acceptance_event import RiskAcceptanceEvent
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.models.tenant import Tenant
@@ -176,5 +181,8 @@ __all__ = [
     "ReleaseCandidate",
     "ReleaseCandidateEvent",
     "ReleaseCandidateIssueBinding",
+    "ReleaseVerdictRun",
+    "ReleaseVerdict",
+    "ReleaseVerdictIssueResult",
     "TenantApiKey",
 ]

@@ -44,6 +44,7 @@ from app.release.evidence_pack import (
     validate_semantic_payload,
     project_source_record,
 )
+from app.release.release_manager import VERDICT_CONTRACT_HASH
 
 
 SHA_A = "sha256:" + "a" * 64
@@ -151,16 +152,46 @@ def test_semantic_contract_rejects_unknown_and_caller_truth_fields() -> None:
 
 
 def test_schema_format_checking_rejects_malformed_generated_at() -> None:
-    core = _core().payload
-    final = dict(core)
+    core = _core()
+    final = dict(core.payload)
+    final["assurance_limitations"] = [
+        "assembled_evidence_does_not_prove_release_readiness",
+        "candidate_has_no_direct_commit_foreign_key",
+        "issue_bindings_do_not_prove_issue_completeness",
+        "release_verdict_bounded_known_issue_disposition_not_go_live_authorization",
+        "signer_tier_deferred_to_slice_60",
+    ]
     final.update(
         {
             "verdict": "blocked",
+            "verdict_attestation": {
+                "id": str(uuid.uuid4()),
+                "evidence_pack_id": str(uuid.uuid4()),
+                "spec_verdict": "requires_human_decision",
+                "canonical_verdict": "blocked",
+                "reason_code": "risk_acceptance_authority_unverified",
+                "decision_scope": "known_bound_issue_disposition",
+                "attestation_provenance": "system_derived_release_verdict",
+                "verdict_contract_version": "slice50.release_verdict.v1",
+                "projection_contract_version": "slice50.verdict_projection.v1",
+                "verdict_contract_hash": VERDICT_CONTRACT_HASH,
+                "input_digest": SHA_B,
+                "core_content_hash": core.content_hash,
+                "created_at": "2026-07-13T12:00:00Z",
+            },
             "signatures": [],
             "signature_status": "unsigned_signer_tier_not_implemented",
         }
     )
     validate_canonical_payload(final)
+    mismatched_projection = dict(final)
+    mismatched_projection["verdict"] = "failed"
+    mismatched_projection["verdict_attestation"] = {
+        **final["verdict_attestation"],
+        "canonical_verdict": "failed",
+    }
+    with pytest.raises(EvidencePackContractError, match="verdict_projection_invalid"):
+        validate_canonical_payload(mismatched_projection)
     final["generated_at"] = "not-a-date"
     with pytest.raises(EvidencePackContractError, match="canonical_schema_invalid"):
         validate_canonical_payload(final)
@@ -267,7 +298,7 @@ def test_markdown_and_unsigned_manifest_are_deterministic_and_safe() -> None:
 def test_frozen_a5_readiness_and_schema_assets_remain_byte_stable() -> None:
     expected = {
         "app/release/production_autonomy.py": (
-            "c2e28277e429b701f952a44f66a512477dee4a6c0fa4608a27a1a735ca49f1da"
+            "7074856949510923bfd0742ed8819f1caf797d1eea0333deac7d1ec1bf616cf6"
         ),
         "app/intake/readiness.py": (
             "7671979fa7d4f700436439965a85df22052a384b1245bc9a1bfacc261ac63b26"
@@ -286,7 +317,7 @@ def test_frozen_a5_readiness_and_schema_assets_remain_byte_stable() -> None:
     before.pop("project_id")
     after.pop("project_id")
     assert before == after
-    assert before["ruleset_version"] == "slice47.v1"
+    assert before["ruleset_version"] == "slice50.v1"
     assert before["can_go_live_autonomously"] is False
 
 

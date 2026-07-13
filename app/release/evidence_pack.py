@@ -1038,22 +1038,87 @@ def validate_semantic_payload(payload: Mapping[str, Any], *, canonical_export: b
         raise EvidencePackContractError("audit_checkpoint_shape_invalid") from exc
     if payload.get("audit_log_hash") != checkpoint["verified_through_entry_hash"]:
         raise EvidencePackContractError("audit_log_hash_mismatch")
-    if payload.get("assurance_limitations") != [
+    expected_limitations = [
         "assembled_evidence_does_not_prove_release_readiness",
         "candidate_has_no_direct_commit_foreign_key",
         "issue_bindings_do_not_prove_issue_completeness",
-        "verdict_deferred_to_slice_50",
+        (
+            "release_verdict_bounded_known_issue_disposition_not_go_live_authorization"
+            if canonical_export
+            else "verdict_deferred_to_slice_50"
+        ),
         "signer_tier_deferred_to_slice_60",
-    ]:
+    ]
+    if payload.get("assurance_limitations") != expected_limitations:
         raise EvidencePackContractError("assurance_limitations_invalid")
     if canonical_export:
         if payload.get("verdict") not in {"passed", "passed_with_accepted_risk", "failed", "blocked"}:
             raise EvidencePackContractError("real_verdict_attestation_required")
+        attestation = payload.get("verdict_attestation")
+        required_attestation_fields = {
+            "id",
+            "evidence_pack_id",
+            "spec_verdict",
+            "canonical_verdict",
+            "reason_code",
+            "decision_scope",
+            "attestation_provenance",
+            "verdict_contract_version",
+            "projection_contract_version",
+            "verdict_contract_hash",
+            "input_digest",
+            "core_content_hash",
+            "created_at",
+        }
+        if not isinstance(attestation, Mapping) or set(attestation) != required_attestation_fields:
+            raise EvidencePackContractError("verdict_attestation_shape_invalid")
+        try:
+            uuid.UUID(attestation["id"])
+            uuid.UUID(attestation["evidence_pack_id"])
+            datetime.fromisoformat(attestation["created_at"].replace("Z", "+00:00"))
+        except (TypeError, ValueError) as exc:
+            raise EvidencePackContractError("verdict_attestation_shape_invalid") from exc
+        if (
+            attestation["canonical_verdict"] != payload.get("verdict")
+            or attestation["spec_verdict"]
+            not in {
+                "passed",
+                "passed_with_limitations",
+                "failed_blocking_issue",
+                "failed_missing_evidence",
+                "requires_human_decision",
+                "not_applicable",
+            }
+            or attestation["decision_scope"] != "known_bound_issue_disposition"
+            or attestation["attestation_provenance"] != "system_derived_release_verdict"
+            or attestation["verdict_contract_version"] != "slice50.release_verdict.v1"
+            or attestation["projection_contract_version"] != "slice50.verdict_projection.v1"
+            or attestation["verdict_contract_hash"]
+            != "sha256:793fd7d8aa26908192912a80ec39a6a0d6dddb397027fe3784996ae3b1d928e2"
+            or any(
+                not isinstance(attestation[key], str) or not _HASH_RE.fullmatch(attestation[key])
+                for key in ("verdict_contract_hash", "input_digest", "core_content_hash")
+            )
+            or not isinstance(attestation["reason_code"], str)
+            or not attestation["reason_code"].strip()
+            or len(attestation["reason_code"]) > MAX_CODE_CHARS
+        ):
+            raise EvidencePackContractError("verdict_attestation_invalid")
+        expected_projection = {
+            "passed": "passed",
+            "passed_with_limitations": "passed_with_accepted_risk",
+            "failed_blocking_issue": "failed",
+            "failed_missing_evidence": "failed",
+            "requires_human_decision": "blocked",
+            "not_applicable": "blocked",
+        }[attestation["spec_verdict"]]
+        if attestation["canonical_verdict"] != expected_projection:
+            raise EvidencePackContractError("verdict_projection_invalid")
         if payload.get("signatures") != []:
             raise EvidencePackContractError("signature_attestation_not_supported")
         if payload.get("signature_status") != "unsigned_signer_tier_not_implemented":
             raise EvidencePackContractError("signature_status_invalid")
-    elif "verdict" in payload or "signatures" in payload:
+    elif "verdict" in payload or "verdict_attestation" in payload or "signatures" in payload:
         raise EvidencePackContractError("core_must_not_contain_attestations")
 
 

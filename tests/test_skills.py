@@ -549,7 +549,7 @@ async def test_squad_does_not_change_a5_or_readiness(sk_ctx):
         after = (await pa.evaluate(sk_ctx["p1"])).to_dict()
         readiness_after = await ReadinessRepository(session, ctx).latest(sk_ctx["p1"])
     assert before == after  # bit-stable
-    assert after["ruleset_version"] == "slice47.v1"  # current A5 ruleset; unchanged by this feature
+    assert after["ruleset_version"] == "slice50.v1"  # current A5 ruleset; unchanged by this feature
     assert readiness_before is None and readiness_after is None
 
 

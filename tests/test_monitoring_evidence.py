@@ -1117,7 +1117,7 @@ def test_gate11_unreadable_is_not_inactive():
 
 def test_gate11_only_no_other_gate_regression():
     # The Slice-31 deliverable guard: passing gate #11 changes ONLY gate #11; every other gate is
-    # byte-identical, go-live + a5 stay false, ruleset is slice43.v1.
+    # byte-identical, go-live + a5 stay false, ruleset is the current Slice-50 version.
     before = _mon_eval()  # no monitoring evidence
     after = _mon_eval(**_VERIFIED_ACTIVE)  # gate #11 passes
     bg = {g["number"]: g for g in before["gates"]}
@@ -1127,7 +1127,7 @@ def test_gate11_only_no_other_gate_regression():
             assert bg[n]["status"] == "insufficient_evidence" and ag[n]["status"] == "passed"
         else:
             assert bg[n] == ag[n], n  # byte-identical — no other gate moved
-    assert before["ruleset_version"] == after["ruleset_version"] == "slice47.v1"
+    assert before["ruleset_version"] == after["ruleset_version"] == "slice50.v1"
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
 
 

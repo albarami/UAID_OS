@@ -138,14 +138,19 @@ def test_bridge_rejects_untrusted_terminal_mixed_or_malformed_security_finding(m
         ),
     ],
 )
-def test_gate7_five_rung_ladder_never_passes(overrides, reason):
+def test_slice47_evidence_alone_never_passes_slice50_gate7(overrides, reason):
     report = evaluate_production_autonomy("p", readiness_level="R5", **overrides).to_dict()
     gate = next(item for item in report["gates"] if item["number"] == 7)
 
     assert gate["gate"] == "approved_risk_acceptance_records"
     assert gate["status"] == "insufficient_evidence"
-    assert gate["reason"] == reason
-    assert report["ruleset_version"] == "slice47.v1"
+    expected = (
+        reason
+        if overrides.get("frozen_release_candidate_count", 0) == 0
+        else "insufficient_evidence:no_audited_release_evidence_core"
+    )
+    assert gate["reason"] == expected
+    assert report["ruleset_version"] == "slice50.v1"
     assert report["a5_satisfied"] is False
     assert report["can_go_live_autonomously"] is False
 
@@ -158,11 +163,23 @@ def test_gate7_evidence_counts_fail_closed_when_inconsistent():
         bound_issue_count=2,
         bound_trusted_issue_count=2,
         bound_untrusted_issue_count=1,
+        release_evidence_core_present=True,
+        release_evidence_core_audited=True,
+        release_verdict_run_present=True,
+        release_verdict_binding_current=True,
+        release_verdict_evidence_consistent=True,
+        release_verdict_spec_verdict="passed",
+        release_verdict_gate_eligible=True,
+        release_verdict_reason_code="bound_release_issue_disposition_clean",
+        release_verdict_decision_scope="known_bound_issue_disposition",
+        release_verdict_execution_provenance="system_derived_release_verdict",
     ).to_dict()
     gate = next(item for item in report["gates"] if item["number"] == 7)
 
     assert gate["status"] == "insufficient_evidence"
-    assert gate["reason"] == "insufficient_evidence:bound_issue_provenance_incomplete"
+    assert gate["reason"] == (
+        "insufficient_evidence:release_verdict_evidence_incomplete_or_stale"
+    )
 
 
 def test_slice47_inputs_change_only_gate7():
