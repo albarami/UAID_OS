@@ -1,6 +1,6 @@
 # Slice 53 Plan — Production-approval workflow → request-authenticated A5 pre-approval (gate #12)
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-53-1…11 ruled and bound (see Rulings section).
+**Status:** MERGED — historical record. Implemented via PR #96 (squash commit `5fd8b18`); this v1 plan is retained as the approved design rationale for Slice 53.
 
 **Plan type:** Highest-stakes gate-path authority slice; plan-only submission. This document authorizes exactly one planning file and does **not** authorize a branch, code, migration, tests, a commit, a PR, production access, or deployment.
 

@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 13 (current-state reconciliation after Slice 52 merged; immediate-next marker advanced to Slice 53).
-**Baseline state:** Post–Slice 52 (`main` at `598c70b`; Slice 52 merged via PR #94 at `598c70b`; Alembic head `0051_rollback_verifications`; A5 evaluator `ruleset_version = "slice52.v1"`; readiness `ruleset_version = "slice20.v1"`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-52 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 52 are merged; Slice 53 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 14 (current-state reconciliation after Slice 53 merged; immediate-next marker advanced to Slice 54).
+**Baseline state:** Post–Slice 53 (`main` at `5fd8b18`; Slice 53 merged via PR #96 at `5fd8b18`; Alembic head `0052_production_preapprovals`; A5 evaluator `ruleset_version = "slice53.v1"`; readiness `ruleset_version = "slice20.v1"`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects the current post–Slice-53 next action; the detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. Slices through 53 are merged; Slice 54 is next planned and has not started. This document does **not** authorize implementation and does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -516,19 +516,19 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That UAID executed the remote rollback, that a staging drill proves future production rollback success, that target availability proves the served version, or that a passing gate #10 satisfies A5 or grants production authority.
 - **Exit.** SATISFIED by PR #94 (`598c70b`): gate #10 can pass from current connector-observed staging-drill evidence; readiness stays `slice20.v1`, and go-live remains hard-false with both no-go reasons intact.
 
-#### Slice 53 — Production-approval workflow → verified A5 pre-approval (gate #12) — **NEXT PLANNED (NOT STARTED)**
-- **Goal.** A formal release-approval workflow (§18.2 production pattern) producing a **request-authenticated, verified A5 pre-approval under stated conditions** (Slice 27 identity + Slice 33 channel). Gate #12 PASS-capable AND removes the second `NO_GO_LIVE_REASON` (`production_autonomy.py:38-41`).
-- **Why now.** Needed once gate evidence exists: A5 gate #12 requires a request-authenticated, verified production pre-approval under stated conditions, so its prerequisites (S27 verified identity, S33 approval channel) must already be in place.
+#### Slice 53 — Production-approval workflow → verified A5 pre-approval (gate #12) — **MERGED (PR #96, `5fd8b18`)**
+- **Goal.** Record a narrowly truthful request-authenticated production pre-approval under fixed, recorded conditions, bound to one exact current frozen candidate, re-audited evidence core, gate-eligible verdict, autonomy policy, and canonical policy/checklist; make gate #12 PASS-capable without inventing a human-signature tier or production authority.
+- **Why now.** Gate #12 was the last pre-control-loop approval gate and its Slice-27 identity and Slice-33 channel prerequisites already existed; the implementation removes only the named unimplemented-subsystem blocker while retaining the literal hard-false until Slice 55.
 - **Spec grounding.** §18.2 (1769); §24.1; App. B #12 (2996); tmpl `20_*`, `23_go_live_checklist.yaml`; §5.2 "Deploy production — A4/A5".
-- **Files.** `app/release/production_approval.py` + `production_approvals` store; approval engine (Slice 4) + verified identity (Slice 27).
-- **Migration.** `0052` — `production_approvals`; additive.
-- **Tenant/RLS/FK/audit/immutability.** RLS; verified-approver provenance; mandatory-approval non-bypassable (`app/policy/matrix.py`); audited.
-- **Tests.** Gate #12 passes only with a verified pre-approval under stated conditions; unverified approval ⇒ `insufficient_evidence`.
-- **A5 gate(s) advanced.** **#12 → PASS-capable** + removes the second go-live blocker.
-- **Must NOT claim.** That a pre-approval = go-live (still needs all 13 gates passed AND `a5_satisfied`).
-- **Exit.** Verified A5 pre-approval; gate #12 passes; go-live still false unless all 13 + `a5_satisfied`.
+- **Files.** `app/release/production_approval.py`, `app/release/production_approval_service.py`, `app/models/production_preapproval.py`, `app/repositories/production_preapprovals.py`, `app/api/production_preapprovals.py`, the approval/channel extensions, and the gate-#12 ladder in `app/release/production_autonomy.py`.
+- **Migration.** `0052_production_preapprovals` — five additive tenant-owned, RLS ENABLE+FORCE, append-only policy/request/attestation/lifecycle tables and two additive composite identity targets on intake categories and autonomy policies.
+- **Tenant/RLS/FK/audit/immutability.** Same-tenant/project/candidate/core/verdict/policy bindings; immutable requests and attestations plus append-only linear lifecycle; deferred DB guards re-derive policy membership, requester/approver separation, complete graph shape, digests, currentness, and eligibility; only principal digests persist and audit is safe metadata only.
+- **Tests.** Strict template projection; bodyless mutation API/OpenAPI contract; ≤24-hour expiry boundaries; latest-negative supersession; direct-SQL self-approval/forged-graph rejection; cross-tenant/RLS/audit sentinels; all-gate golden matrix including a synthetic all-thirteen-pass report. Verified suites: 1060 Docker-free / 819 DB-backed.
+- **A5 gate(s) advanced.** **#12 → PASS-capable** under `slice53.v1`, the twelfth pass-capable gate; the second no-go reason is removed because the subsystem exists, while the literal `False` and `a5_gates_not_all_satisfied` remain.
+- **Must NOT claim.** That request authentication is a human signature or human-presence proof, that caller-supplied policy is verified organizational authority, that a passing gate #12 satisfies A5, or that pre-approval authorizes production.
+- **Exit.** SATISFIED by PR #96 (`5fd8b18`): gate #12 can pass from a current request-authenticated pre-approval under recorded conditions; readiness stays `slice20.v1`, gate #13 remains sourceless, and go-live remains literal hard-false.
 
-#### Slice 54 — Emergency stop / rollback authority (gate #13)
+#### Slice 54 — Emergency stop / rollback authority (gate #13) — **NEXT PLANNED (NOT STARTED)**
 - **Goal.** An emergency-stop mechanism + bound authority (who may halt/rollback) per App. C l.3016 + §25.2 (rollback "Approval or pre-approved emergency rollback policy"). Gate #13 PASS-capable.
 - **Why now.** Needed before the control loop (S55) can authorize go-live: A5 gate #13 requires an emergency stop / rollback authority to exist (App. C l.3016), reusing the rollback path (S52) and verified identity (S27).
 - **Spec grounding.** App. C (l.3016); §25.2 (2381–2389); App. B #13 (2997).
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-14): Slice 52 is MERGED.** PR #94 landed as squash commit `598c70b`. Migration `0051_rollback_verifications` is the Alembic head; UAID now records immutable, latest-wins `connector_observed_ci` evidence for an exact-commit staging A→B→A rollback drill plus an independently refreshed same-target staging-availability snapshot. Gate #10 is PASS-capable under A5 ruleset `slice52.v1`, making eleven gates PASS-capable; production targets are structurally ineligible, later negative/refused attempts supersede older passes, and the drill has no wall-clock TTL. Readiness remains `slice20.v1`, and go-live remains hard-false with both `NO_GO_LIVE_REASONS` intact (`CLAUDE.md` “Current status”; `app/release/rollback.py`; `app/repositories/rollback_verifications.py`; `app/release/production_autonomy.py`; `migrations/versions/0051_rollback_verifications.py`; git history).
+> **Current state (2026-07-14): Slice 53 is MERGED.** PR #96 landed as squash commit `5fd8b18`. Migration `0052_production_preapprovals` is the Alembic head; UAID now records immutable, latest-wins request-authenticated production pre-approvals bound to one exact current release/evidence/policy graph under fixed recorded conditions. Gate #12 is PASS-capable under A5 ruleset `slice53.v1`, making twelve gates PASS-capable; attestations expire within 24 hours, newest negative or pending requests supersede older passes, and the evidence tier remains key custody rather than a human signature or production authorization. The implemented pre-approval no-go reason is removed, but `a5_gates_not_all_satisfied` and the literal `can_go_live_autonomously=False` remain; gate #13 is still sourceless. Readiness remains `slice20.v1` (`CLAUDE.md` “Current status”; `app/release/production_approval.py`; `app/repositories/production_preapprovals.py`; `app/release/production_autonomy.py`; `migrations/versions/0052_production_preapprovals.py`; git history).
 
-**Next planned (not started): Slice 53 — Production-approval workflow → verified A5 pre-approval (gate #12).** This is the next unsatisfied item in the §5 sequence after merged Slice 52. Its eventual reviewed plan must ground any implementation in spec §18.2/§24.1, Appendix-B gate #12, template `20_human_approval_policy.yaml`, template `23_go_live_checklist.yaml`, and the existing Slice-27 identity/Slice-33 approval-channel evidence, preserving the distinction between key custody, verified authority, and go-live authorization; this sequencing marker does not authorize implementation.
+**Next planned (not started): Slice 54 — Emergency stop / rollback authority (gate #13).** This is the sole remaining not-yet-PASS-capable Appendix-B gate after merged Slice 53. Its eventual reviewed plan must ground any implementation in spec §25.2, Appendix-B gate #13, Appendix C, the existing Slice-52 rollback evidence, and the Slice-27/Slice-53 identity and authority boundaries; this sequencing marker does not authorize implementation.
 
-**Boundary:** repository and ref inspection at this checkpoint found no Slice-53 plan, feature branch, code, test, or migration. The next action is to draft and submit the Slice-53 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** repository and ref inspection at this checkpoint found no Slice-54 plan, feature branch, code, test, or migration. The next action is to draft and submit the Slice-54 plan for review; implementation remains blocked until that plan is approved.
 
 ---
 
@@ -857,7 +857,7 @@ Hold for every slice (spec §2, §15, App. C; reaffirmed across Slices 21–25):
 
 ## 14. Source Reconciliation / Stale Status Notes
 
-Some `.planning/` files retain **pre-implementation status text** conflicting with the merged reality. **Authoritative current source of truth:** CLAUDE.md "Current status" + git log + Alembic head + actual code/migrations — these agree Slices 17–52 are merged. Slice-41, Slice-42, and Slice-43–52 plan headers were reconciled after their merges; older stale headers below remain historical artifacts.
+Some `.planning/` files retain **pre-implementation status text** conflicting with the merged reality. **Authoritative current source of truth:** CLAUDE.md "Current status" + git log + Alembic head + actual code/migrations — these agree Slices 17–53 are merged. Slice-41, Slice-42, and Slice-43–53 plan headers were reconciled after their merges; older stale headers below remain historical artifacts.
 
 | Conflict | Stale text (verbatim) | Verdict | Evidence |
 |---|---|---|---|
@@ -895,10 +895,10 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–52 now follow the actual migration chain through `0051`. Future migration numbering from Slice 53 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
-- **No implementation hidden in planning.** This Rev-13 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-52 plan header. Slice-52 implementation was already reviewed and merged via PR #94; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
-- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a verified pre-approval** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#6/#7/#8/#9/#10/#11 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
+- **Assumptions labelled.** The original Slice-26+ sequence was a proposal (§1.2, §5); merged Slices 26–53 now follow the actual migration chain through `0052`. Future migration numbering from Slice 54 onward remains directional until each plan is reviewed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **No implementation hidden in planning.** This Rev-14 follow-up changes only `CLAUDE.md`, `.planning/GO-LIVE-END-TO-END-ROADMAP.md`, `.planning/HANDOFF.json`, and the Slice-53 plan header. Slice-53 implementation was already reviewed and merged via PR #96; this docs branch changes no code, test, or migration. `.env` and `.planning/.pending-auth-captures.jsonl` remain ignored and unstaged.
+- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` are stated false today; go-live is reachable only after **all 13 gates have verified evidence AND a current request-authenticated pre-approval under recorded conditions** (S55), under policy + authority. Gates #1/#2/#3/#4/#5/#6/#7/#8/#9/#10/#11/#12 are PASS-capable only from their named evidence, and no gate is marked PASS on a store/declaration alone.
 - **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated.
-- **Residual uncertainty.** Far-term table shapes (S53–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
+- **Residual uncertainty.** Far-term table shapes (S54–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
 
 — End of roadmap —
