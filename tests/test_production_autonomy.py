@@ -5,10 +5,10 @@ target, Slice 30), #3 (branch protection, Slice 28), and #11 (monitoring/alerts,
 PASS-capable (each a binding-bound latest-wins ladder; passes on connector_verified + fresh +
 sufficient evidence). Gates #4/#5/#6/#7/#8 are fail-closed and PASS-capable from their respective
 verified-evidence paths; the baseline has no such evidence, so they return ``insufficient_evidence``.
-Gates #9/#12 remain partial-context only;
-the remaining sourceless gates (#10/#13) return ``no_evidence_source:<subsystem>``.
+Gates #9/#10/#12 remain fail-closed without their bound evidence;
+the remaining sourceless gate (#13) returns ``no_evidence_source:<subsystem>``.
 Gate #7 uses the Slice-50 generated-verdict ladder over exact Slice-47/49 evidence;
-``ruleset_version`` is ``slice51.v1``. ``a5_satisfied`` and
+``ruleset_version`` is ``slice52.v1``. ``a5_satisfied`` and
 ``can_go_live_autonomously`` remain false. Docker-free for the pure engine; ``db``
 for the repository (compute-on-read, no persistence).
 """
@@ -39,8 +39,8 @@ from app.release.production_autonomy import (
 # became PASS-capable. Both still appear in PARTIAL_GATES because this baseline passes no
 # deployment/monitoring evidence, so the no-evidence default is insufficient_evidence
 # (no_environment_declaration / no_monitoring_declaration).
-PARTIAL_GATES = {2, 3, 4, 5, 6, 7, 8, 9, 11, 12}
-SOURCELESS_GATES = {10, 13}
+PARTIAL_GATES = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
+SOURCELESS_GATES = {13}
 
 
 def _eval(readiness_level="R5", **ctx):
@@ -115,7 +115,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice51.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice52.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",

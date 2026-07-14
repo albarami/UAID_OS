@@ -338,7 +338,7 @@ def test_gate9_pass_is_bounded_safe_context_and_non_authorizing():
         "execution_provenance": "system_derived_cost_forecast",
     }
     result = report.to_dict()
-    assert result["ruleset_version"] == "slice51.v1"
+    assert result["ruleset_version"] == "slice52.v1"
     assert result["a5_satisfied"] is False
     assert result["can_go_live_autonomously"] is False
     assert tuple(result["can_go_live_reasons"]) == NO_GO_LIVE_REASONS
@@ -575,13 +575,14 @@ async def test_production_autonomy_repository_uses_current_forecast_coverage(cos
     from app.tenancy import TenantContext
 
     ctx = cost_forecast_ctx
+    current_utc = datetime.now(timezone.utc)
     await ctx["repo"].generate_forecast(
         project_id=ctx["project"],
         assumptions=_repo_assumptions(),
         model_plans=(ReportedModelPlan("model-a", 1000, 1000, 1000, 1000),),
         price_card={"model-a": ModelPrice(Decimal("2"), Decimal("3"))},
         forecast_ci_minutes_today=10,
-        as_of=_AS_OF,
+        as_of=current_utc,
         actor="slice51-test",
     )
     await ctx["session"].execute(text("SET CONSTRAINTS ALL IMMEDIATE"))

@@ -880,7 +880,7 @@ async def test_no_other_gate_regression_and_ruleset(dt_ctx):
     assert before_others == after_others  # every non-#2 gate byte-identical
     assert _gate2(before)["status"] == "insufficient_evidence"
     assert _gate2(after)["status"] == "passed"
-    assert after["ruleset_version"] == "slice51.v1"
+    assert after["ruleset_version"] == "slice52.v1"
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
 
 

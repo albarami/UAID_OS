@@ -3,7 +3,7 @@
 ``evaluate`` reads current RLS-scoped state and runs the pure ``app.release.production_autonomy``
 engine. It is **read-only**: no rows are written (no ``production_autonomy_reports`` table, no
 migration — D-21-A). The verdict is deterministic from current state and always "A5 not satisfied" with
-``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#6/#7/#8/#11 are PASS-capable,
+``can_go_live_autonomously`` hard-false — even though gates #2/#3/#4/#5/#6/#7/#8/#9/#10/#11 are PASS-capable,
 remaining gates stay unmet. Run inside ``tenant_scope`` (GUC set).
 
 Inputs read for the gates (all partial-context signals are recorded, never gate-passing):
@@ -16,6 +16,8 @@ Inputs read for the gates (all partial-context signals are recorded, never gate-
 - gate #8 (Slice 46): non-vacuous canonical-AC scope plus current DB-bound authorship evidence;
 - gate #7 (Slices 47 + 50): latest-frozen candidate membership and a latest-wins, DB-bound generated
   release verdict over the re-audited Slice-49 core; legacy issue/risk counts remain context only;
+- gate #10 (Slice 52): latest exact candidate/core/repo/commit/declared-staging-target-bound rollback
+  observation plus a connector-verified, available, fresh staging snapshot and five exact phase rows;
 - gate #3 (Slice 26 + 28): the latest ``branch_protection_snapshots`` row **for the project's currently
   declared repo/branch** (``resolve_declared_repo`` + ``latest_branch_protection_for_repo``) plus
   freshness (``CI_EVIDENCE_MAX_AGE_HOURS``). Gate #3 **PASSes** on repo-bound + ``connector_verified`` +
@@ -66,6 +68,7 @@ from app.repositories.release_findings import ReleaseFindingRepository
 from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.release_verdicts import ReleaseVerdictRepository
 from app.repositories.risk_acceptance import RiskAcceptanceRepository
+from app.repositories.rollback_verifications import RollbackVerificationRepository
 from app.repositories.security_scans import SecurityScanRepository
 from app.repositories.shortcut_detectors import ShortcutDetectorRepository
 from app.repositories.test_oracles import TestOracleRepository
@@ -212,12 +215,16 @@ class ProductionAutonomyRepository:
         cost_forecast_coverage = await CostForecastRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        rollback_coverage = await RollbackVerificationRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
             autonomy_policy_present=autonomy is not None,
             cost_policy_present=budget is not None,
             **cost_forecast_coverage.gate_kwargs(),
+            **rollback_coverage.gate_kwargs(),
             environments_declared=environments_declared,
             active_risk_acceptance_count=active_risk_acceptance_count,
             open_issue_count=await issues.count_open(project_id),

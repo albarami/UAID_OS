@@ -298,7 +298,7 @@ def test_markdown_and_unsigned_manifest_are_deterministic_and_safe() -> None:
 def test_frozen_a5_readiness_and_schema_assets_remain_byte_stable() -> None:
     expected = {
         "app/release/production_autonomy.py": (
-            "7e0b7dd9abe1c055833db5d2d4baae8c27741523cceebb7bbbf3d6875a8921d3"
+            "2fec1338a35ab30d2a2c87f289a56873e09040865e17f5c17b3318abd9fadf8c"
         ),
         "app/intake/readiness.py": (
             "7671979fa7d4f700436439965a85df22052a384b1245bc9a1bfacc261ac63b26"
@@ -317,7 +317,7 @@ def test_frozen_a5_readiness_and_schema_assets_remain_byte_stable() -> None:
     before.pop("project_id")
     after.pop("project_id")
     assert before == after
-    assert before["ruleset_version"] == "slice51.v1"
+    assert before["ruleset_version"] == "slice52.v1"
     assert before["can_go_live_autonomously"] is False
 
 

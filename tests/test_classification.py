@@ -746,7 +746,7 @@ async def test_no_a5_or_readiness_impact_before_equals_after(cls_ctx):
         after_gates[9]["context"]["ledger_event_count"]
         == before_gates[9]["context"]["ledger_event_count"] + 1
     )
-    assert after_pa["ruleset_version"] == "slice51.v1"
+    assert after_pa["ruleset_version"] == "slice52.v1"
     assert before_level == after_level
 
 
