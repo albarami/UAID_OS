@@ -8,7 +8,7 @@ verified-evidence paths; the baseline has no such evidence, so they return ``ins
 Gates #9/#10/#12 remain fail-closed without their bound evidence;
 the remaining sourceless gate (#13) returns ``no_evidence_source:<subsystem>``.
 Gate #7 uses the Slice-50 generated-verdict ladder over exact Slice-47/49 evidence;
-``ruleset_version`` is ``slice52.v1``. ``a5_satisfied`` and
+``ruleset_version`` is ``slice53.v1``. ``a5_satisfied`` and
 ``can_go_live_autonomously`` remain false. Docker-free for the pure engine; ``db``
 for the repository (compute-on-read, no persistence).
 """
@@ -96,8 +96,7 @@ def test_a5_never_satisfied_and_go_live_always_false():
     d = _eval(readiness_level="R5").to_dict()
     assert d["a5_satisfied"] is False
     assert d["can_go_live_autonomously"] is False
-    reasons = " ".join(d["can_go_live_reasons"]).lower()
-    assert "preapproval" in reasons or "pre-approval" in reasons or "preapproved" in reasons
+    assert d["can_go_live_reasons"] == ["a5_gates_not_all_satisfied"]
 
 
 def test_report_keys_and_ruleset():
@@ -115,7 +114,7 @@ def test_report_keys_and_ruleset():
         assert key in d, key
     assert len(d["gates"]) == 13
     assert len(d["unmet_gates"]) == 12  # all but gate #1 at R5
-    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice52.v1"
+    assert d["ruleset_version"] == A5_RULESET_VERSION == "slice53.v1"
     # status vocabulary is exactly the three allowed values
     assert {g["status"] for g in d["gates"]} <= {
         "passed",

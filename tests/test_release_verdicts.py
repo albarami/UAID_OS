@@ -316,7 +316,7 @@ def test_current_gate_eligible_verdict_is_gate7_pass_capable_only(spec_verdict):
     assert gate["status"] == "passed"
     assert gate["reason"] == "passed:bound_release_issue_disposition_verdict_current"
     assert gate["context"]["decision_scope"] == "known_bound_issue_disposition"
-    assert report["ruleset_version"] == "slice52.v1"
+    assert report["ruleset_version"] == "slice53.v1"
     assert report["a5_satisfied"] is False
     assert report["can_go_live_autonomously"] is False
     assert (
@@ -324,7 +324,6 @@ def test_current_gate_eligible_verdict_is_gate7_pass_capable_only(spec_verdict):
         == NO_GO_LIVE_REASONS
         == (
             "a5_gates_not_all_satisfied",
-            "request_authenticated_a5_preapproval_not_implemented",
         )
     )
 

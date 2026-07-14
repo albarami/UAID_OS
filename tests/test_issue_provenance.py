@@ -150,7 +150,7 @@ def test_slice47_evidence_alone_never_passes_slice50_gate7(overrides, reason):
         else "insufficient_evidence:no_audited_release_evidence_core"
     )
     assert gate["reason"] == expected
-    assert report["ruleset_version"] == "slice52.v1"
+    assert report["ruleset_version"] == "slice53.v1"
     assert report["a5_satisfied"] is False
     assert report["can_go_live_autonomously"] is False
 

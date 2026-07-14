@@ -104,6 +104,13 @@ from app.models.rollback_verification import (
     RollbackVerificationPhaseResult,
     RollbackVerificationRun,
 )
+from app.models.production_preapproval import (
+    ProductionApprovalPolicyApprover,
+    ProductionApprovalPolicyVersion,
+    ProductionPreapprovalAttestation,
+    ProductionPreapprovalLifecycleEvent,
+    ProductionPreapprovalRequest,
+)
 from app.models.risk_acceptance_event import RiskAcceptanceEvent
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.models.tenant import Tenant
@@ -202,5 +209,10 @@ __all__ = [
     "ReleaseVerdictIssueResult",
     "RollbackVerificationRun",
     "RollbackVerificationPhaseResult",
+    "ProductionApprovalPolicyVersion",
+    "ProductionApprovalPolicyApprover",
+    "ProductionPreapprovalRequest",
+    "ProductionPreapprovalAttestation",
+    "ProductionPreapprovalLifecycleEvent",
     "TenantApiKey",
 ]

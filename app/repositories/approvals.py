@@ -10,6 +10,7 @@ are NOT verified human approvals.
 """
 
 import uuid
+import re
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -38,6 +39,25 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_PSEUDONYMOUS_ACTOR = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _storage_actor(
+    value: str | None, *, derived_provenance: str, fallback: str
+) -> str:
+    """Internal-only pseudonymous identity storage for a request-authenticated workflow.
+
+    The caller-facing API cannot supply this value.  Existing approval behavior is unchanged when it
+    is omitted.  It prevents the Slice-53 production path from copying a principal into approval
+    events/audit while retaining the app-derived provenance tier.
+    """
+    if value is None:
+        return fallback
+    if derived_provenance != REQUEST_AUTHENTICATED or not _PSEUDONYMOUS_ACTOR.fullmatch(value):
+        raise InvalidApprovalRequest("pseudonymous actor storage requires request authentication")
+    return value
+
+
 class ApprovalRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession, context: TenantContext):
         super().__init__(session, context, Approval)
@@ -52,6 +72,8 @@ class ApprovalRepository(TenantScopedRepository):
         requires_explicit_approval: bool | None = None,
         subject_ref: str | None = None,
         payload: Mapping[str, Any] | None = None,
+        identity_storage_subject: str | None = None,
+        audit_actor: str | None = None,
     ) -> Approval:
         tier = RiskTier(risk_tier)  # rejects unknown tiers
         mandatory = is_mandatory_action(action)
@@ -63,6 +85,9 @@ class ApprovalRepository(TenantScopedRepository):
 
         # Slice 27: a request-authenticated principal replaces the caller-typed requester label.
         req_by, req_prov = actor_fields(self.context.actor, requested_by)
+        req_by = _storage_actor(
+            identity_storage_subject, derived_provenance=req_prov, fallback=req_by
+        )
         requested_at = _now()
         approval = Approval(
             project_id=project_id,
@@ -79,23 +104,64 @@ class ApprovalRepository(TenantScopedRepository):
         )
         await self.add(approval)  # stamps tenant_id from context
         await self.session.flush()
-        await self._record(approval, event="requested", actor=req_by, from_status=None)
+        await self._record(
+            approval, event="requested", actor=audit_actor or req_by, from_status=None
+        )
         return approval
 
     async def approve(
-        self, *, approval_id: uuid.UUID, actor: str, note: str | None = None
+        self,
+        *,
+        approval_id: uuid.UUID,
+        actor: str,
+        note: str | None = None,
+        identity_storage_subject: str | None = None,
+        audit_actor: str | None = None,
     ) -> Approval:
-        return await self._resolve_by_human(approval_id, Status.APPROVED, actor, note)
+        return await self._resolve_by_human(
+            approval_id,
+            Status.APPROVED,
+            actor,
+            note,
+            identity_storage_subject=identity_storage_subject,
+            audit_actor=audit_actor,
+        )
 
     async def reject(
-        self, *, approval_id: uuid.UUID, actor: str, note: str | None = None
+        self,
+        *,
+        approval_id: uuid.UUID,
+        actor: str,
+        note: str | None = None,
+        identity_storage_subject: str | None = None,
+        audit_actor: str | None = None,
     ) -> Approval:
-        return await self._resolve_by_human(approval_id, Status.REJECTED, actor, note)
+        return await self._resolve_by_human(
+            approval_id,
+            Status.REJECTED,
+            actor,
+            note,
+            identity_storage_subject=identity_storage_subject,
+            audit_actor=audit_actor,
+        )
 
     async def cancel(
-        self, *, approval_id: uuid.UUID, actor: str, note: str | None = None
+        self,
+        *,
+        approval_id: uuid.UUID,
+        actor: str,
+        note: str | None = None,
+        identity_storage_subject: str | None = None,
+        audit_actor: str | None = None,
     ) -> Approval:
-        return await self._resolve_by_human(approval_id, Status.CANCELLED, actor, note)
+        return await self._resolve_by_human(
+            approval_id,
+            Status.CANCELLED,
+            actor,
+            note,
+            identity_storage_subject=identity_storage_subject,
+            audit_actor=audit_actor,
+        )
 
     async def expire_if_overdue(
         self, *, approval_id: uuid.UUID, now: datetime | None = None
@@ -170,10 +236,20 @@ class ApprovalRepository(TenantScopedRepository):
     # --- internals ------------------------------------------------------------
 
     async def _resolve_by_human(
-        self, approval_id: uuid.UUID, target: Status, actor: str, note: str | None
+        self,
+        approval_id: uuid.UUID,
+        target: Status,
+        actor: str,
+        note: str | None,
+        *,
+        identity_storage_subject: str | None = None,
+        audit_actor: str | None = None,
     ) -> Approval:
         # Slice 27: a verified resolver replaces the caller-typed actor label.
         resolver, prov = actor_fields(self.context.actor, actor)
+        resolver = _storage_actor(
+            identity_storage_subject, derived_provenance=prov, fallback=resolver
+        )
         # §2.2: a verified actor cannot APPROVE its own verified request (separation of duties).
         if target is Status.APPROVED:
             existing = await self.get(approval_id)
@@ -191,7 +267,11 @@ class ApprovalRepository(TenantScopedRepository):
         )
         approval = await self.get(approval_id)
         await self._record(
-            approval, event=target.value, actor=resolver, from_status=Status.PENDING, note=note
+            approval,
+            event=target.value,
+            actor=audit_actor or resolver,
+            from_status=Status.PENDING,
+            note=note,
         )
         return approval
 

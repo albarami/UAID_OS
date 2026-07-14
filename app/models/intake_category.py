@@ -61,6 +61,7 @@ class IntakeCategory(Base, TimestampMixin):
         ),
         CheckConstraint(_SOURCE_XOR, name="source_xor"),
         UniqueConstraint("tenant_id", "project_id", "category", name="uq_intake_categories_cat"),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_intake_categories_id_proj_tenant"),
         Index("ix_intake_categories_tenant_project", "tenant_id", "project_id"),
     )
 

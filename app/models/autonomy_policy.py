@@ -35,6 +35,7 @@ class AutonomyPolicy(Base, TimestampMixin):
         ),
         CheckConstraint("autonomy_level BETWEEN 0 AND 5", name="autonomy_level_valid"),
         UniqueConstraint("tenant_id", "project_id"),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_autonomy_policies_id_proj_tenant"),
         Index(None, "tenant_id"),
     )
 
