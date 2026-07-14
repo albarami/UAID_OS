@@ -197,6 +197,15 @@ class RunRepository(TenantScopedRepository):
         )
         return run
 
+    async def mark_blocked_control_loop(self, *, run_id, actor, payload=None) -> ProjectRun:
+        return await self.transition(
+            run_id=run_id,
+            to_status="blocked",
+            event_type="control_loop_waiting",
+            actor=actor,
+            payload=payload,
+        )
+
     async def latest_step(self, run_id: uuid.UUID) -> RunStep:
         row = (
             await self.session.execute(

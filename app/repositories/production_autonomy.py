@@ -79,30 +79,33 @@ from app.tenancy import TenantContext
 _ENV_CATEGORY = "environments_and_deployment_targets"
 
 
-def _is_fresh(row) -> bool:
+def _is_fresh(row, *, as_of: datetime | None = None) -> bool:
     """Slice 28: branch-protection evidence is fresh iff observed within CI_EVIDENCE_MAX_AGE_HOURS."""
     if row is None or row.observed_at is None:
         return False
     max_age = timedelta(hours=settings.ci_evidence_max_age_hours)
-    return (datetime.now(timezone.utc) - row.observed_at) <= max_age
+    now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (now - row.observed_at) <= max_age
 
 
-def _is_fresh_deploy(row) -> bool:
+def _is_fresh_deploy(row, *, as_of: datetime | None = None) -> bool:
     """Slice 30: deployment-target evidence is fresh iff observed within
     DEPLOYMENT_EVIDENCE_MAX_AGE_HOURS (its own domain — not CI_EVIDENCE_MAX_AGE_HOURS)."""
     if row is None or row.observed_at is None:
         return False
     max_age = timedelta(hours=settings.deployment_evidence_max_age_hours)
-    return (datetime.now(timezone.utc) - row.observed_at) <= max_age
+    now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (now - row.observed_at) <= max_age
 
 
-def _is_fresh_monitoring(row) -> bool:
+def _is_fresh_monitoring(row, *, as_of: datetime | None = None) -> bool:
     """Slice 31: monitoring evidence is fresh iff observed within MONITORING_EVIDENCE_MAX_AGE_HOURS
     (its own domain)."""
     if row is None or row.observed_at is None:
         return False
     max_age = timedelta(hours=settings.monitoring_evidence_max_age_hours)
-    return (datetime.now(timezone.utc) - row.observed_at) <= max_age
+    now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    return (now - row.observed_at) <= max_age
 
 
 class ProductionAutonomyRepository:
@@ -114,8 +117,11 @@ class ProductionAutonomyRepository:
         self.session = session
         self.context = context
 
-    async def evaluate(self, project_id: uuid.UUID) -> ProductionAutonomyReport:
+    async def evaluate(
+        self, project_id: uuid.UUID, *, as_of: datetime | None = None
+    ) -> ProductionAutonomyReport:
         """Compute the §Appendix-B A5 report from current state. Read-only — writes nothing."""
+        now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
         readiness = await ReadinessRepository(self.session, self.context).evaluate(project_id)
         autonomy = await AutonomyPolicyRepository(self.session, self.context).get_for_project(
             project_id
@@ -143,7 +149,7 @@ class ProductionAutonomyRepository:
             )
         else:
             latest_bp = None
-        bp_fresh = _is_fresh(latest_bp)
+        bp_fresh = _is_fresh(latest_bp, as_of=now)
         # Slice 30: gate #2 binds to the project's CURRENTLY declared production target (B-30-3) — the
         # latest snapshot for that exact target, NOT the project-only latest.
         deploy_host = await resolve_declared_production_target(
@@ -216,13 +222,13 @@ class ProductionAutonomyRepository:
         ).coverage_for_project(project_id)
         cost_forecast_coverage = await CostForecastRepository(
             self.session, self.context
-        ).coverage_for_project(project_id)
+        ).coverage_for_project(project_id, as_of=now)
         rollback_coverage = await RollbackVerificationRepository(
             self.session, self.context
-        ).coverage_for_project(project_id)
+        ).coverage_for_project(project_id, as_of=now)
         preapproval_coverage = await ProductionPreapprovalRepository(
             self.session, self.context
-        ).coverage_for_project(project_id)
+        ).coverage_for_project(project_id, as_of=now)
         emergency_coverage = await EmergencyControlRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
@@ -303,7 +309,7 @@ class ProductionAutonomyRepository:
             latest_deployment_target_available=(
                 latest_dt.target_available if latest_dt is not None else None
             ),
-            latest_deployment_target_fresh=_is_fresh_deploy(latest_dt),
+            latest_deployment_target_fresh=_is_fresh_deploy(latest_dt, as_of=now),
             monitoring_bound=monitoring is not None,
             latest_monitoring_provenance=(
                 latest_mon.provenance if latest_mon is not None else None
@@ -314,7 +320,7 @@ class ProductionAutonomyRepository:
             latest_monitoring_overall_active=(
                 latest_mon.overall_active if latest_mon is not None else None
             ),
-            latest_monitoring_fresh=_is_fresh_monitoring(latest_mon),
+            latest_monitoring_fresh=_is_fresh_monitoring(latest_mon, as_of=now),
             latest_monitoring_failure_kind=(
                 latest_mon.failure_kind if latest_mon is not None else None
             ),
