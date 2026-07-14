@@ -39,6 +39,8 @@ _EVENT_TYPES = (
     "blocked_on_approval",
     "retried",
     "cost_paused",
+    # Slice 54 — local-runtime emergency-stop transition (running -> paused).
+    "emergency_paused",
 )
 
 

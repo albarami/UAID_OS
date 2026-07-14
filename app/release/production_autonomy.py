@@ -45,13 +45,15 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
   exact-commit corpus, then blocks on every open critical shortcut finding regardless of provenance.
 - **Slice 52 (#10 rollback verification — PASS-capable):** evaluates one connector-observed staging
   A→B→A drill under exact release/core/target binding; it never predicts production rollback success.
-- The remaining sourceless gate (#13) returns ``no_evidence_source:emergency_stop``.
+- **Slice 54 (#13 emergency stop / rollback authority — PASS-capable):** evaluates a real local-UAID
+  runtime stop latch together with an exact release/core/rollback-run authority binding.  Its fixed
+  scope limitations make explicit that no production incident action is executed or guaranteed.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates).
 ``can_go_live_autonomously`` is **hard-false always** — Slice 55 alone may replace the literal after
 gate #13 and the control-loop policy exist. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice53.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
+``slice54.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
 """
 
 from __future__ import annotations
@@ -59,8 +61,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
+from app.release.emergency_stop import (
+    EMERGENCY_CONTROL_CONTRACT_VERSION,
+    EMERGENCY_STOP_CONTRACT_VERSION,
+    ROLLBACK_AUTHORITY_CONTRACT_VERSION,
+    SCOPE_LIMITATION_CODES,
+)
 
-A5_RULESET_VERSION = "slice53.v1"
+A5_RULESET_VERSION = "slice54.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -260,6 +268,24 @@ def evaluate_production_autonomy(
     preapproval_policy_contract_version: str | None = None,
     preapproval_condition_contract_version: str | None = None,
     preapproval_contract_version: str | None = None,
+    # Slice 54 — standing local-runtime stop plus exact release-bound rollback authority.
+    emergency_policy_present: bool = False,
+    emergency_policy_valid: bool = False,
+    emergency_binding_present: bool = False,
+    emergency_latest_binding_failed_or_refused: bool = False,
+    emergency_contracts_current: bool = False,
+    emergency_authority_membership_complete: bool = False,
+    emergency_authority_member_count: int = 0,
+    emergency_mechanism_initialized: bool = False,
+    emergency_stop_state_consistent: bool = False,
+    emergency_stop_active: bool = False,
+    emergency_rollback_authority_bound: bool = False,
+    emergency_rollback_binding_current: bool = False,
+    emergency_rollback_verification_current: bool = False,
+    emergency_evidence_consistent: bool = False,
+    emergency_control_contract_version: str | None = None,
+    emergency_stop_contract_version: str | None = None,
+    emergency_rollback_authority_contract_version: str | None = None,
     # Slice 31 — gate #11 monitoring/alerts evidence (binding-bound, latest-wins).
     monitoring_bound: bool = False,
     latest_monitoring_provenance: str | None = None,
@@ -1266,7 +1292,105 @@ def evaluate_production_autonomy(
             gate10_context,
         )
 
-    # Gates with no evidence source at all (await Phase 5/6 subsystems).
+    # Gate #13 — a real stop over the current UAID runtime plus a non-executing, exact release-bound
+    # rollback authority.  The context is deliberately code-only/scalar and permanently discloses
+    # that neither production preemption nor production rollback execution is claimed.
+    gate13_context = {
+        "recorded_policy_present": emergency_policy_present,
+        "recorded_policy_valid": emergency_policy_valid,
+        "binding_present": emergency_binding_present,
+        "latest_binding_failed_or_refused": emergency_latest_binding_failed_or_refused,
+        "contracts_current": emergency_contracts_current,
+        "authority_membership_complete": emergency_authority_membership_complete,
+        "authority_member_count": emergency_authority_member_count,
+        "mechanism_initialized": emergency_mechanism_initialized,
+        "stop_state_consistent": emergency_stop_state_consistent,
+        "stop_active": emergency_stop_active,
+        "rollback_authority_bound": emergency_rollback_authority_bound,
+        "rollback_binding_current": emergency_rollback_binding_current,
+        "rollback_verification_current": emergency_rollback_verification_current,
+        "evidence_consistent": emergency_evidence_consistent,
+        "scope_limitation_codes": list(SCOPE_LIMITATION_CODES),
+        "identity_claim": "request_authenticated_key_custody_under_recorded_policy",
+    }
+    _gate13_name = "emergency_stop_rollback_authority"
+    _gate13_contracts_ok = (
+        emergency_contracts_current
+        and emergency_control_contract_version == EMERGENCY_CONTROL_CONTRACT_VERSION
+        and emergency_stop_contract_version == EMERGENCY_STOP_CONTRACT_VERSION
+        and emergency_rollback_authority_contract_version
+        == ROLLBACK_AUTHORITY_CONTRACT_VERSION
+    )
+    if not emergency_policy_present:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:no_recorded_emergency_authority_policy", gate13_context
+        )
+    elif not emergency_policy_valid:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:emergency_authority_policy_invalid", gate13_context
+        )
+    elif not emergency_binding_present:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:no_emergency_control_binding", gate13_context
+        )
+    elif emergency_latest_binding_failed_or_refused:
+        gate13 = _insufficient(
+            13,
+            _gate13_name,
+            "insufficient_evidence:latest_emergency_control_binding_failed_or_refused",
+            gate13_context,
+        )
+    elif not _gate13_contracts_ok:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:emergency_control_contract_mismatch", gate13_context
+        )
+    elif not emergency_authority_membership_complete or emergency_authority_member_count < 2:
+        gate13 = _insufficient(
+            13,
+            _gate13_name,
+            "insufficient_evidence:emergency_authority_membership_incomplete",
+            gate13_context,
+        )
+    elif not emergency_mechanism_initialized:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:emergency_stop_mechanism_uninitialized", gate13_context
+        )
+    elif not emergency_stop_state_consistent:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:emergency_stop_state_inconsistent", gate13_context
+        )
+    elif not emergency_rollback_authority_bound:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:rollback_authority_not_release_bound", gate13_context
+        )
+    elif not emergency_rollback_binding_current:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:rollback_authority_binding_stale", gate13_context
+        )
+    elif not emergency_rollback_verification_current:
+        gate13 = _insufficient(
+            13,
+            _gate13_name,
+            "insufficient_evidence:rollback_verification_not_current_or_gate_eligible",
+            gate13_context,
+        )
+    elif not emergency_evidence_consistent:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:emergency_control_evidence_inconsistent", gate13_context
+        )
+    elif emergency_stop_active:
+        gate13 = _insufficient(
+            13, _gate13_name, "insufficient_evidence:emergency_stop_active", gate13_context
+        )
+    else:
+        gate13 = GateResult(
+            13,
+            _gate13_name,
+            STATUS_PASSED,
+            "passed:request_authenticated_runtime_stop_and_release_bound_rollback_authority",
+            gate13_context,
+        )
+
     gates = [
         gate1,
         gate2,
@@ -1280,7 +1404,7 @@ def evaluate_production_autonomy(
         gate10,
         gate11,
         gate12,
-        _no_source(13, "emergency_stop_rollback_authority", "emergency_stop"),
+        gate13,
     ]
     gates.sort(key=lambda g: g.number)
     return ProductionAutonomyReport(project_id=str(project_id), gates=gates)

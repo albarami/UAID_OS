@@ -382,7 +382,7 @@ def test_gate10_passes_only_on_the_exact_connector_observed_state():
 
     assert gate["status"] == "passed"
     assert gate["reason"] == "passed:connector_observed_staging_rollback_drill_verified"
-    assert report["ruleset_version"] == "slice53.v1"
+    assert report["ruleset_version"] == "slice54.v1"
     assert report["can_go_live_autonomously"] is False
 
 

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.dashboard import router as dashboard_router
+from app.api.emergency_controls import router as emergency_controls_router
 from app.api.production_preapprovals import router as production_preapprovals_router
 from app.config import settings  # noqa: F401  (imported so .env loads at startup)
 from app.core.provenance import Fact, Source
@@ -22,6 +23,7 @@ app = FastAPI(title="uaid-os", lifespan=lifespan)
 
 app.include_router(health_router)
 app.include_router(dashboard_router)
+app.include_router(emergency_controls_router)
 app.include_router(production_preapprovals_router)
 
 

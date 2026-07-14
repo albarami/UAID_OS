@@ -249,7 +249,7 @@ def test_gate12_passes_only_for_the_exact_ruled_evidence_state():
 
     assert gate["status"] == "passed"
     assert gate["reason"] == "passed:request_authenticated_preapproval_under_recorded_conditions"
-    assert report.to_dict()["ruleset_version"] == A5_RULESET_VERSION == "slice53.v1"
+    assert report.to_dict()["ruleset_version"] == A5_RULESET_VERSION == "slice54.v1"
     assert report.to_dict()["a5_satisfied"] is False
     assert report.to_dict()["can_go_live_autonomously"] is False
     assert NO_GO_LIVE_REASONS == ("a5_gates_not_all_satisfied",)
@@ -305,7 +305,9 @@ def test_slice53_golden_matrix_changes_only_gate12_and_no_go_tuple():
         number: gate for number, gate in after_gates.items() if number != 12
     }
     assert before_gates[12] != after_gates[12]
-    assert after_gates[13]["reason"] == "no_evidence_source:emergency_stop"
+    assert after_gates[13]["reason"] == (
+        "insufficient_evidence:no_recorded_emergency_authority_policy"
+    )
     assert after["can_go_live_reasons"] == ["a5_gates_not_all_satisfied"]
 
 
@@ -565,7 +567,7 @@ async def test_request_authenticated_workflow_passes_gate12_but_remains_hard_fal
     assert report["can_go_live_autonomously"] is False
     assert report["can_go_live_reasons"] == ["a5_gates_not_all_satisfied"]
     assert next(gate for gate in report["gates"] if gate["number"] == 13)["reason"] == (
-        "no_evidence_source:emergency_stop"
+        "insufficient_evidence:no_recorded_emergency_authority_policy"
     )
 
     attestation = await repo.get_attestation(ctx["project"], approved.attestation_id)

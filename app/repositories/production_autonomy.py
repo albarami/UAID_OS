@@ -58,6 +58,7 @@ from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.acceptance_verification import AcceptanceVerificationRepository
 from app.repositories.ci_evidence import CIEvidenceRepository
 from app.repositories.deployments import DeploymentTargetRepository
+from app.repositories.emergency_controls import EmergencyControlRepository
 from app.repositories.monitoring_evidence import MonitoringEvidenceRepository
 from app.repositories.production_preapprovals import ProductionPreapprovalRepository
 from app.repositories.cost import BudgetRepository
@@ -222,6 +223,9 @@ class ProductionAutonomyRepository:
         preapproval_coverage = await ProductionPreapprovalRepository(
             self.session, self.context
         ).coverage_for_project(project_id)
+        emergency_coverage = await EmergencyControlRepository(
+            self.session, self.context
+        ).coverage_for_project(project_id)
         return evaluate_production_autonomy(
             project_id,
             readiness_level=readiness.readiness_level,
@@ -230,6 +234,7 @@ class ProductionAutonomyRepository:
             **cost_forecast_coverage.gate_kwargs(),
             **rollback_coverage.gate_kwargs(),
             **preapproval_coverage.gate_kwargs(),
+            **emergency_coverage.gate_kwargs(),
             environments_declared=environments_declared,
             active_risk_acceptance_count=active_risk_acceptance_count,
             open_issue_count=await issues.count_open(project_id),
