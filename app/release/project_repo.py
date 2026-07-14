@@ -20,6 +20,11 @@ from app.release.monitoring_evidence import (
     InvalidMonitoringSnapshot,
     parse_and_validate_status_url,
 )
+from app.release.rollback import (
+    InvalidStagingTarget,
+    StagingTargetProjection,
+    validate_staging_target_projection,
+)
 from app.release.pm_issues import is_valid_instance_key, is_valid_project_key
 from app.release.secrets_verification import is_valid_manager, is_valid_reference_name
 from app.repositories.intake_categories import IntakeCategoryRepository
@@ -143,6 +148,28 @@ async def resolve_declared_production_target(
     except DeploySSRFRejected:
         return None
     return host
+
+
+async def resolve_declared_staging_target(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> StagingTargetProjection | None:
+    """Return the strict Slice-52 staging projection from canonical template-16 data.
+
+    The declaration is structured caller input; only the subsequent connector probe is verified.
+    Production data is never used as a staging fallback.
+    """
+    cat = await IntakeCategoryRepository(session, context).get_category(project_id, _ENV_CATEGORY)
+    if cat is None or cat.status != "declared" or not isinstance(cat.data, dict):
+        return None
+    environments = cat.data.get("environments")
+    if not isinstance(environments, dict) or not isinstance(environments.get("staging"), dict):
+        return None
+    try:
+        return validate_staging_target_projection(
+            {"environments": {"staging": environments["staging"]}}
+        )
+    except InvalidStagingTarget:
+        return None
 
 
 async def resolve_declared_monitoring_target(

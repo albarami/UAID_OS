@@ -100,6 +100,10 @@ from app.models.release_verdict import (
     ReleaseVerdictIssueResult,
     ReleaseVerdictRun,
 )
+from app.models.rollback_verification import (
+    RollbackVerificationPhaseResult,
+    RollbackVerificationRun,
+)
 from app.models.risk_acceptance_event import RiskAcceptanceEvent
 from app.models.risk_acceptance_record import RiskAcceptanceRecord
 from app.models.tenant import Tenant
@@ -196,5 +200,7 @@ __all__ = [
     "ReleaseVerdictRun",
     "ReleaseVerdict",
     "ReleaseVerdictIssueResult",
+    "RollbackVerificationRun",
+    "RollbackVerificationPhaseResult",
     "TenantApiKey",
 ]

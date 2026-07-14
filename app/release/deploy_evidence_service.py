@@ -6,8 +6,10 @@ SSRF-safe probe via the injected connector (Fake in tests) → **write a ``conne
 for every safely-attempted outcome** (positive when serving, verified-negative when unavailable — B-30-9),
 so latest-wins gate #2 can't keep a stale passing snapshot active. **NO write** only for: target unbound/
 malformed (resolver ``None``), broker deny, or SSRF reject (``DeploySSRFRejected``) — these are failures to
-*attempt*, not observations. Admin/internal — **no HTTP endpoint**. Verification-only — never deploys,
-never authorizes production, never enables go-live. ``actor`` is an untrusted caller label.
+*attempt*, not observations. Slice 52 adds a separate, fixed staging-only resolver/probe path with the
+same broker and SSRF boundary; it never falls back to production or verifies a served version.
+Admin/internal — **no HTTP endpoint**. Verification-only — never deploys, never authorizes production,
+never enables go-live. ``actor`` is an untrusted caller label.
 """
 
 from __future__ import annotations
@@ -21,7 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import record as audit_record
 from app.release.deploy_connector import DeployTargetConnector
 from app.release.deploy_evidence import DeploySSRFRejected
-from app.release.project_repo import resolve_declared_production_target
+from app.release.project_repo import (
+    resolve_declared_production_target,
+    resolve_declared_staging_target,
+)
 from app.repositories.deployments import DeploymentTargetRepository
 from app.tenancy import TenantContext
 from app.tools.broker import BrokerDecision, broker_call_service
@@ -94,6 +99,60 @@ async def refresh_deployment_target_evidence(
         "provider": "generic_https",
         "environment": "production",
         "target_ref": host,
+        "observed_at": datetime.now(timezone.utc),
+    }
+    row = await DeploymentTargetRepository(
+        session, context
+    ).record_connector_verified_deployment_target(
+        project_id=project_id, payload=payload, actor=actor
+    )
+    return RefreshResult(True, "observed", decision=decision, snapshot_id=row.id)
+
+
+async def refresh_staging_target_evidence(
+    session: AsyncSession,
+    context: TenantContext,
+    *,
+    project_id: uuid.UUID,
+    agent_id: str,
+    actor: str,
+    connector: DeployTargetConnector,
+) -> RefreshResult:
+    """Slice 52 fixed staging-only extension of the Slice-30 status probe.
+
+    It proves generic HTTPS availability only. It never verifies a served version and never resolves
+    or probes the production declaration.
+    """
+    staging = await resolve_declared_staging_target(session, context, project_id)
+    if staging is None:
+        await _audit_failure(session, actor, project_id, "staging_target_unbound")
+        return RefreshResult(False, "staging_target_unbound")
+    decision = await broker_call_service(
+        session,
+        context,
+        project_id=project_id,
+        service_id=agent_id,
+        tool_name=_TOOL,
+        params={"provider": "generic_https", "environment": "staging", "target_present": True},
+    )
+    if decision not in _ALLOWED:
+        await _audit_failure(session, actor, project_id, "staging_broker_denied")
+        return RefreshResult(False, "staging_broker_denied", decision=decision)
+    try:
+        observation = await connector.probe_target(host=staging.domain)
+    except DeploySSRFRejected:
+        await _audit_failure(session, actor, project_id, "staging_ssrf_reject")
+        return RefreshResult(False, "staging_ssrf_reject", decision=decision)
+    except Exception:
+        # Expected negative outcomes are returned as bounded observations. Unexpected adapter
+        # exceptions are infrastructure failures; never expose their potentially sensitive text.
+        await _audit_failure(session, actor, project_id, "staging_connector_failure")
+        return RefreshResult(False, "staging_connector_failure", decision=decision)
+    payload = {
+        **observation,
+        "provider": "generic_https",
+        "environment": "staging",
+        "target_ref": staging.domain,
         "observed_at": datetime.now(timezone.utc),
     }
     row = await DeploymentTargetRepository(

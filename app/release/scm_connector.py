@@ -13,13 +13,21 @@ HTTP call exists only in ``GitHubSCMConnector`` and is not run in CI.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import re
+import stat
 import zipfile
+from dataclasses import replace
 from typing import Any, Protocol
 
 from app.release.pr_evidence import normalize_approvals, parse_iso_timestamp
+from app.release.rollback import (
+    MAX_ARTIFACT_BYTES as MAX_ROLLBACK_ARTIFACT_BYTES,
+    RollbackDrillArtifact,
+    validate_rollback_drill_artifact,
+)
 from app.verify.oracle_source import MAX_RESULT_ARTIFACT_BYTES, validate_result_artifact
 from app.verify.security_scan import (
     MAX_ARTIFACT_BYTES as MAX_SECURITY_SCAN_ARTIFACT_BYTES,
@@ -38,7 +46,10 @@ _SECURITY_SCAN_ARTIFACT_NAME = "uaid-security-scan-results"
 _SECURITY_SCAN_RESULT_FILE = "security-scan-results.json"
 _SHORTCUT_CORPUS_ARTIFACT_NAME = "uaid-shortcut-review-corpus"
 _SHORTCUT_CORPUS_FILE = "shortcut-review-corpus.json"
+_ROLLBACK_DRILL_ARTIFACT_NAME = "uaid-rollback-drill-results"
+_ROLLBACK_DRILL_RESULT_FILE = "rollback-drill-results.json"
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_MAX_ROLLBACK_COMPRESSION_RATIO = 100
 
 
 class SCMConnectorError(Exception):
@@ -47,6 +58,25 @@ class SCMConnectorError(Exception):
 
 class MissingConnectorCredential(SCMConnectorError):
     """No connector credential is configured (fail-closed)."""
+
+
+def _strict_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if not key or len(key) > 128:
+            raise ValueError("JSON key is blank or oversized")
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"non-finite JSON number is forbidden: {value}")
+
+
+def _provider_run_ref_hash(provider: str, run_ref: str) -> str:
+    return hashlib.sha256(f"{provider}\x1f{run_ref}".encode("utf-8")).hexdigest()
 
 
 class SCMConnector(Protocol):
@@ -60,9 +90,7 @@ class SCMConnector(Protocol):
         ``SCMConnectorError`` on a PR/reviews provider/transport failure (fail-closed, B-29-7)."""
         ...
 
-    async def fetch_test_oracle_artifact(
-        self, *, repo_ref: str, commit_sha: str
-    ) -> dict | None:
+    async def fetch_test_oracle_artifact(self, *, repo_ref: str, commit_sha: str) -> dict | None:
         """Return a validated ``slice43.results.v1`` Actions artifact for the exact commit."""
         ...
 
@@ -76,6 +104,12 @@ class SCMConnector(Protocol):
         self, *, repo_ref: str, commit_sha: str
     ) -> ShortcutCorpus | None:
         """Return a validated ``slice45.shortcut_review.v1`` corpus for the exact commit."""
+        ...
+
+    async def fetch_rollback_drill_artifact(
+        self, *, repo_ref: str, commit_sha: str
+    ) -> RollbackDrillArtifact | None:
+        """Return a validated ``slice52.rollback_drill.v1`` artifact for the exact commit."""
         ...
 
 
@@ -111,7 +145,10 @@ def parse_github_security_scan_artifact_archive(
     archive_bytes: bytes, *, expected_commit_sha: str
 ) -> SecurityScanArtifact:
     """Parse one bounded security-scan ZIP without paths, extras, encryption, or zip bombs."""
-    if not isinstance(archive_bytes, bytes) or len(archive_bytes) > MAX_SECURITY_SCAN_ARTIFACT_BYTES:
+    if (
+        not isinstance(archive_bytes, bytes)
+        or len(archive_bytes) > MAX_SECURITY_SCAN_ARTIFACT_BYTES
+    ):
         raise SCMConnectorError("github security-scan artifact archive is oversized")
     try:
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
@@ -134,9 +171,7 @@ def parse_github_security_scan_artifact_archive(
         raise SCMConnectorError("github security-scan artifact archive was malformed") from exc
     try:
         payload = json.loads(raw)
-        return validate_security_scan_artifact(
-            payload, expected_commit_sha=expected_commit_sha
-        )
+        return validate_security_scan_artifact(payload, expected_commit_sha=expected_commit_sha)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
         raise SCMConnectorError("github security-scan artifact payload was malformed") from exc
 
@@ -167,6 +202,47 @@ def parse_github_shortcut_corpus_archive(
         return validate_shortcut_corpus(payload, expected_commit_sha=expected_commit_sha)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
         raise SCMConnectorError("github shortcut corpus payload was malformed") from exc
+
+
+def parse_github_rollback_drill_artifact_archive(
+    archive_bytes: bytes, *, expected_commit_sha: str
+) -> RollbackDrillArtifact:
+    """Parse one bounded exact-name rollback result ZIP and reject unsafe members."""
+    if not isinstance(archive_bytes, bytes) or len(archive_bytes) > MAX_ROLLBACK_ARTIFACT_BYTES:
+        raise SCMConnectorError("github rollback artifact archive is oversized")
+    try:
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            infos = archive.infolist()
+            if len(infos) != 1 or infos[0].filename != _ROLLBACK_DRILL_RESULT_FILE:
+                raise SCMConnectorError(
+                    "github artifact must contain exactly one rollback result file"
+                )
+            info = infos[0]
+            mode = info.external_attr >> 16
+            if (
+                info.flag_bits & 0x1
+                or info.is_dir()
+                or stat.S_ISLNK(mode)
+                or info.file_size > MAX_ROLLBACK_ARTIFACT_BYTES
+                or info.file_size > max(4096, info.compress_size * _MAX_ROLLBACK_COMPRESSION_RATIO)
+            ):
+                raise SCMConnectorError("github rollback artifact member is unsafe")
+            raw = archive.read(info)
+            if len(raw) > MAX_ROLLBACK_ARTIFACT_BYTES:
+                raise SCMConnectorError("github rollback artifact member is oversized")
+    except SCMConnectorError:
+        raise
+    except (zipfile.BadZipFile, KeyError, RuntimeError) as exc:
+        raise SCMConnectorError("github rollback artifact archive was malformed") from exc
+    try:
+        payload = json.loads(
+            raw,
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_nonfinite_json,
+        )
+        return validate_rollback_drill_artifact(payload, expected_commit_sha=expected_commit_sha)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise SCMConnectorError("github rollback artifact payload was malformed") from exc
 
 
 # GitHub check-run conclusion -> our observed CHECK_STATES (B-29-1).
@@ -331,6 +407,37 @@ def map_github_branch_protection(payload: Any) -> dict:
     }
 
 
+def select_latest_completed_rollback_run(runs: Any, *, commit_sha: str) -> dict:
+    """Select the latest completed exact-commit run regardless of conclusion.
+
+    This is intentionally different from the older success-only artifact consumers: a newer failed
+    rollback drill must supersede an older pass instead of being filtered out.
+    """
+    if _COMMIT_SHA_RE.fullmatch(commit_sha) is None or not isinstance(runs, list):
+        raise SCMConnectorError("rollback workflow runs are malformed")
+    candidates: list[tuple[object, int, dict]] = []
+    for run in runs:
+        if (
+            not isinstance(run, dict)
+            or run.get("head_sha") != commit_sha
+            or run.get("status") != "completed"
+            or not isinstance(run.get("id"), int)
+            or not isinstance(run.get("conclusion"), str)
+            or not isinstance(run.get("updated_at"), str)
+        ):
+            continue
+        try:
+            completed_at = parse_iso_timestamp(run["updated_at"])
+        except ValueError:
+            continue
+        if completed_at is None or completed_at.utcoffset() is None:
+            continue
+        candidates.append((completed_at, run["id"], run))
+    if not candidates:
+        raise SCMConnectorError("no completed rollback workflow run for requested commit")
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
 class FakeSCMConnector:
     """Test/CI connector — no network, no token. Returns a canned mapped result, ``None``, or raises."""
 
@@ -342,12 +449,14 @@ class FakeSCMConnector:
         test_oracle_artifact: dict | None = None,
         security_scan_artifact: dict | None = None,
         shortcut_corpus: dict | None = None,
+        rollback_drill_artifact: dict | None = None,
     ):
         self._result = result
         self._error = error
         self._test_oracle_artifact = test_oracle_artifact
         self._security_scan_artifact = security_scan_artifact
         self._shortcut_corpus = shortcut_corpus
+        self._rollback_drill_artifact = rollback_drill_artifact
 
     async def fetch_branch_protection(self, *, repo_ref: str, branch: str) -> dict | None:
         if self._error is not None:
@@ -359,16 +468,12 @@ class FakeSCMConnector:
             raise self._error
         return self._result
 
-    async def fetch_test_oracle_artifact(
-        self, *, repo_ref: str, commit_sha: str
-    ) -> dict | None:
+    async def fetch_test_oracle_artifact(self, *, repo_ref: str, commit_sha: str) -> dict | None:
         if self._error is not None:
             raise self._error
         if self._test_oracle_artifact is None:
             return None
-        return validate_result_artifact(
-            self._test_oracle_artifact, expected_commit_sha=commit_sha
-        )
+        return validate_result_artifact(self._test_oracle_artifact, expected_commit_sha=commit_sha)
 
     async def fetch_security_scan_artifact(
         self, *, repo_ref: str, commit_sha: str
@@ -388,8 +493,20 @@ class FakeSCMConnector:
             raise self._error
         if self._shortcut_corpus is None:
             return None
-        return validate_shortcut_corpus(
-            self._shortcut_corpus, expected_commit_sha=commit_sha
+        return validate_shortcut_corpus(self._shortcut_corpus, expected_commit_sha=commit_sha)
+
+    async def fetch_rollback_drill_artifact(
+        self, *, repo_ref: str, commit_sha: str
+    ) -> RollbackDrillArtifact | None:
+        if self._error is not None:
+            raise self._error
+        if self._rollback_drill_artifact is None:
+            return None
+        return replace(
+            validate_rollback_drill_artifact(
+                self._rollback_drill_artifact, expected_commit_sha=commit_sha
+            ),
+            provider_run_ref_hash=_provider_run_ref_hash("fake_scm", commit_sha),
         )
 
 
@@ -510,9 +627,7 @@ class GitHubSCMConnector:
         except Exception as exc:  # unexpected mapping failure ⇒ fail-closed
             raise SCMConnectorError("github pull-request response was malformed") from exc
 
-    async def fetch_test_oracle_artifact(
-        self, *, repo_ref: str, commit_sha: str
-    ) -> dict | None:
+    async def fetch_test_oracle_artifact(self, *, repo_ref: str, commit_sha: str) -> dict | None:
         """Fetch the latest successful exact-commit Actions result artifact.
 
         The GitHub adapter is shipped but never exercised in CI. Redirect targets and
@@ -683,7 +798,9 @@ class GitHubSCMConnector:
                     and artifact["size_in_bytes"] <= MAX_SECURITY_SCAN_ARTIFACT_BYTES
                 ]
                 if not matches:
-                    raise SCMConnectorError("no bounded security-scan artifact for requested commit")
+                    raise SCMConnectorError(
+                        "no bounded security-scan artifact for requested commit"
+                    )
                 artifact = max(matches, key=lambda item: item["id"])
                 chunks: list[bytes] = []
                 total = 0
@@ -739,8 +856,7 @@ class GitHubSCMConnector:
                 )
                 if runs_response.status_code != 200:
                     raise SCMConnectorError(
-                        "github workflow runs not available "
-                        f"(status {runs_response.status_code})"
+                        f"github workflow runs not available (status {runs_response.status_code})"
                     )
                 runs_payload = runs_response.json()
                 runs = runs_payload.get("workflow_runs") if isinstance(runs_payload, dict) else None
@@ -808,4 +924,98 @@ class GitHubSCMConnector:
             raise SCMConnectorError("github shortcut corpus request failed") from exc
         return parse_github_shortcut_corpus_archive(
             b"".join(chunks), expected_commit_sha=commit_sha
+        )
+
+    async def fetch_rollback_drill_artifact(
+        self, *, repo_ref: str, commit_sha: str
+    ) -> RollbackDrillArtifact | None:
+        """Fetch the latest completed exact-commit rollback artifact, including negative runs.
+
+        The adapter observes a bounded CI artifact; it does not claim UAID executed the drill.
+        """
+        if _COMMIT_SHA_RE.fullmatch(commit_sha) is None:
+            raise SCMConnectorError("commit_sha must be 40 lowercase hexadecimal characters")
+        import httpx
+
+        base_url = f"https://api.github.com/repos/{repo_ref}"
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                runs_response = await client.get(
+                    f"{base_url}/actions/runs",
+                    headers=headers,
+                    params={"head_sha": commit_sha, "status": "completed", "per_page": 100},
+                )
+                if runs_response.status_code != 200:
+                    raise SCMConnectorError(
+                        "github rollback workflow runs not available "
+                        f"(status {runs_response.status_code})"
+                    )
+                runs_payload = runs_response.json()
+                runs = runs_payload.get("workflow_runs") if isinstance(runs_payload, dict) else None
+                run = select_latest_completed_rollback_run(runs, commit_sha=commit_sha)
+                artifacts_response = await client.get(
+                    f"{base_url}/actions/runs/{run['id']}/artifacts",
+                    headers=headers,
+                    params={"per_page": 100},
+                )
+                if artifacts_response.status_code != 200:
+                    raise SCMConnectorError(
+                        "github rollback workflow artifacts not available "
+                        f"(status {artifacts_response.status_code})"
+                    )
+                artifacts_payload = artifacts_response.json()
+                artifacts = (
+                    artifacts_payload.get("artifacts")
+                    if isinstance(artifacts_payload, dict)
+                    else None
+                )
+                matches = [
+                    artifact
+                    for artifact in artifacts or []
+                    if isinstance(artifact, dict)
+                    and artifact.get("name") == _ROLLBACK_DRILL_ARTIFACT_NAME
+                    and artifact.get("expired") is False
+                    and isinstance(artifact.get("id"), int)
+                    and isinstance(artifact.get("size_in_bytes"), int)
+                    and 0 < artifact["size_in_bytes"] <= MAX_ROLLBACK_ARTIFACT_BYTES
+                ]
+                if not matches:
+                    raise SCMConnectorError(
+                        "no bounded rollback artifact for latest completed requested-commit run"
+                    )
+                artifact = max(matches, key=lambda item: item["id"])
+                chunks: list[bytes] = []
+                total = 0
+                async with client.stream(
+                    "GET",
+                    f"{base_url}/actions/artifacts/{artifact['id']}/zip",
+                    headers=headers,
+                ) as archive_response:
+                    if archive_response.status_code != 200:
+                        raise SCMConnectorError(
+                            "github rollback artifact not available "
+                            f"(status {archive_response.status_code})"
+                        )
+                    async for chunk in archive_response.aiter_bytes():
+                        total += len(chunk)
+                        if total > MAX_ROLLBACK_ARTIFACT_BYTES:
+                            raise SCMConnectorError("github rollback artifact archive is oversized")
+                        chunks.append(chunk)
+        except SCMConnectorError:
+            raise
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise SCMConnectorError("github rollback artifact request failed") from exc
+        parsed = parse_github_rollback_drill_artifact_archive(
+            b"".join(chunks), expected_commit_sha=commit_sha
+        )
+        if parsed.workflow_conclusion != run["conclusion"]:
+            raise SCMConnectorError("rollback artifact conclusion does not match provider run")
+        return replace(
+            parsed,
+            provider_run_ref_hash=_provider_run_ref_hash("github_actions", str(run["id"])),
         )

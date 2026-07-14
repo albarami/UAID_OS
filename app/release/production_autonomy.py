@@ -46,7 +46,7 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 ``can_go_live_autonomously`` is **hard-false always** — go-live
 additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice51.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
+``slice52.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice51.v1"
+A5_RULESET_VERSION = "slice52.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -209,6 +209,25 @@ def evaluate_production_autonomy(
     latest_deployment_target_provenance: str | None = None,
     latest_deployment_target_available: bool | None = None,
     latest_deployment_target_fresh: bool = False,
+    # Slice 52 — exact candidate/core/commit/target-bound connector-observed staging rollback drill.
+    rollback_scope_resolved: bool = False,
+    rollback_core_present: bool = False,
+    rollback_core_reaudited: bool = False,
+    rollback_repo_binding_agreed: bool = False,
+    rollback_staging_target_valid: bool = False,
+    rollback_staging_snapshot_present: bool = False,
+    rollback_staging_snapshot_available: bool = False,
+    rollback_staging_snapshot_fresh: bool = False,
+    rollback_run_present: bool = False,
+    rollback_attempt_failed: bool = False,
+    rollback_artifact_trusted: bool = False,
+    rollback_binding_current: bool = False,
+    rollback_phase_coverage_complete: bool = False,
+    rollback_evidence_consistent: bool = False,
+    rollback_drill_passed: bool = False,
+    rollback_gate_eligible: bool = False,
+    rollback_phase_count: int = 0,
+    rollback_execution_observation: str | None = None,
     # Slice 31 — gate #11 monitoring/alerts evidence (binding-bound, latest-wins).
     monitoring_bound: bool = False,
     latest_monitoring_provenance: str | None = None,
@@ -962,6 +981,134 @@ def evaluate_production_autonomy(
             _gate4_ctx,
         )
 
+    # Gate #10 — Slice 52 exact release/core/target-bound connector-observed staging rollback drill.
+    gate10_context = {
+        "scope_resolved": rollback_scope_resolved,
+        "core_present": rollback_core_present,
+        "core_reaudited": rollback_core_reaudited,
+        "repo_binding_agreed": rollback_repo_binding_agreed,
+        "staging_target_valid": rollback_staging_target_valid,
+        "staging_snapshot_present": rollback_staging_snapshot_present,
+        "staging_snapshot_available": rollback_staging_snapshot_available,
+        "staging_snapshot_fresh": rollback_staging_snapshot_fresh,
+        "run_present": rollback_run_present,
+        "attempt_failed": rollback_attempt_failed,
+        "artifact_trusted": rollback_artifact_trusted,
+        "binding_current": rollback_binding_current,
+        "phase_coverage_complete": rollback_phase_coverage_complete,
+        "evidence_consistent": rollback_evidence_consistent,
+        "drill_passed": rollback_drill_passed,
+        "gate_eligible": rollback_gate_eligible,
+        "phase_count": rollback_phase_count,
+        "execution_observation": rollback_execution_observation,
+    }
+    if not rollback_scope_resolved:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:no_current_frozen_release_candidate",
+            gate10_context,
+        )
+    elif not rollback_core_present:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:no_complete_reauditable_evidence_core",
+            gate10_context,
+        )
+    elif not rollback_core_reaudited:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:release_core_reaudit_failed",
+            gate10_context,
+        )
+    elif not rollback_repo_binding_agreed:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:release_repo_commit_binding_missing_or_disagreed",
+            gate10_context,
+        )
+    elif not rollback_staging_target_valid:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:staging_target_declaration_missing_or_invalid",
+            gate10_context,
+        )
+    elif not rollback_staging_snapshot_present:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:no_current_connector_verified_staging_target",
+            gate10_context,
+        )
+    elif not rollback_staging_snapshot_available or not rollback_staging_snapshot_fresh:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:staging_target_unavailable_or_stale",
+            gate10_context,
+        )
+    elif not rollback_run_present:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:rollback_verification_not_run_for_current_binding",
+            gate10_context,
+        )
+    elif rollback_attempt_failed:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:latest_rollback_attempt_failed_or_refused",
+            gate10_context,
+        )
+    elif not rollback_artifact_trusted or rollback_execution_observation != "connector_observed_ci":
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:rollback_artifact_provenance_untrusted",
+            gate10_context,
+        )
+    elif not rollback_binding_current:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:rollback_binding_stale_or_inconsistent",
+            gate10_context,
+        )
+    elif not rollback_phase_coverage_complete or rollback_phase_count != 5:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:rollback_phase_coverage_incomplete",
+            gate10_context,
+        )
+    elif not rollback_evidence_consistent:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:rollback_phase_evidence_inconsistent",
+            gate10_context,
+        )
+    elif not rollback_drill_passed or not rollback_gate_eligible:
+        gate10 = _insufficient(
+            10,
+            "rollback_verified",
+            "insufficient_evidence:rollback_drill_failed",
+            gate10_context,
+        )
+    else:
+        gate10 = GateResult(
+            10,
+            "rollback_verified",
+            STATUS_PASSED,
+            "passed:connector_observed_staging_rollback_drill_verified",
+            gate10_context,
+        )
+
     # Gates with no evidence source at all (await Phase 5/6 subsystems).
     gates = [
         gate1,
@@ -973,7 +1120,7 @@ def evaluate_production_autonomy(
         gate7,
         gate8,
         gate9,
-        _no_source(10, "rollback_verified", "rollback_verification"),
+        gate10,
         gate11,
         gate12,
         _no_source(13, "emergency_stop_rollback_authority", "emergency_stop"),

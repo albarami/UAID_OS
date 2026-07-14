@@ -23,6 +23,7 @@ from sqlalchemy import (
     Index,
     SmallInteger,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -63,6 +64,7 @@ class DeploymentTargetSnapshot(Base):
         CheckConstraint(
             "target_available = (provisioned AND reachable)", name="ck_dts_available_invariant"
         ),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_dts_id_project_tenant"),
         Index(
             "ix_dts_tenant_project_target_created",
             "tenant_id",
