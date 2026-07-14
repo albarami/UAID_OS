@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-07-13)
+## Current status (2026-07-14)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -665,6 +665,25 @@ honestly recorded but non-gate-eligible. Readiness remains `slice20.v1`; go-live
 both exact no-go reasons `a5_gates_not_all_satisfied` and
 `request_authenticated_a5_preapproval_not_implemented`. Verified suites: `make test` 963 passing / 807
 deselected and `make test-db` 807 passing / 963 deselected. Merged via PR #92 (squash commit `0dbacb3`).**
+**Slice 52 adds the CONNECTOR-OBSERVED STAGING ROLLBACK-VERIFICATION + A5-GATE-#10 COMPLETION
+layer — `app/release/rollback.py` validates one bounded exact-commit A→B→A drill artifact with the
+five required phases, while `app/repositories/rollback_verifications.py` binds immutable latest-wins
+evidence to one current frozen candidate, one re-audited Slice-49 core with an agreed repository binding,
+and one independently refreshed same-target staging snapshot. **Honesty crux:**
+`connector_observed_ci` proves that UAID observed a ruled CI artifact and a connector-verified staging
+availability probe; it does not claim UAID executed the remote actions or that a future production
+rollback will succeed. Migration `0051` adds two tenant-owned, RLS ENABLE+FORCE, append-only rollback
+run/phase-result tables plus the additive composite identity target on deployment-target snapshots.
+Production targets are structurally impossible on this path: the projection is staging-only, and
+gate-bearing runs must reference a same-project `environment='staging'` snapshot. Gate #10 is now
+**PASS-capable** under A5
+ruleset `slice52.v1`, making it the eleventh PASS-capable gate
+(#1/#2/#3/#4/#5/#6/#7/#8/#9/#10/#11). Rollback drills have no wall-clock TTL; exact binding changes and
+later failed/refused or negative attempts supersede older passes, while staging-snapshot freshness remains
+independently enforced. Readiness remains `slice20.v1`; go-live remains hard-false with both exact no-go
+reasons `a5_gates_not_all_satisfied` and `request_authenticated_a5_preapproval_not_implemented`. Verified
+suites: `make test` 1014 passing / 815 deselected and `make test-db` 815 passing / 1014 deselected. Merged
+via PR #94 (squash commit `598c70b`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1307,11 +1326,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 963 passing (Docker-free); `make test-db` → 807 passing (DB-backed: tenancy,
+  **`make test` → 1014 passing (Docker-free); `make test-db` → 815 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1414,8 +1433,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 963 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 807 passing
+make test                                  # Docker-free tests (no services) — 1014 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 815 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

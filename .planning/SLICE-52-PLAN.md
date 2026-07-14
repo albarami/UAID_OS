@@ -1,6 +1,6 @@
 # Slice 52 Plan — Rollback Verification (A5 Gate #10)
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-52-1…9 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #94 (squash commit `598c70b`); this v1 plan is retained as the approved design rationale for Slice 52.
 
 **Plan type:** Gate-path evidence slice; plan-only submission. This document does not authorize a branch, code, migration, tests, a commit, or a PR.
 
