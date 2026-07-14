@@ -1,6 +1,6 @@
 # Slice 54 Plan — Emergency stop / rollback authority (A5 gate #13)
 
-**Status:** APPROVED FOR EXECUTION — v1 approved; OD-54-1…10 ruled and bound (see Rulings section)
+**Status:** MERGED — historical record. Implemented via PR #98 (squash commit `84e955a`); this v1 plan is retained as the approved design rationale for Slice 54.
 
 **Task boundary:** This file is the only deliverable. No branch, code, migration, test, commit, or PR is part of this task.
 
