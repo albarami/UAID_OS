@@ -38,6 +38,7 @@ from langgraph.types import RetryPolicy
 from app.approvals.states import Status
 from app.repositories.approvals import ApprovalRepository
 from app.repositories.cost import evaluate as cost_evaluate
+from app.repositories.emergency_controls import EmergencyControlRepository
 from app.repositories.runs import RunRepository
 from app.runtime.checkpointer import UAIDCheckpointer
 from app.tenancy import TenantContext
@@ -72,8 +73,16 @@ def _config(run_id: uuid.UUID) -> RunnableConfig:
     return {"configurable": {"thread_id": str(run_id), "checkpoint_ns": ""}}
 
 
+async def _emergency_boundary(repo: RunRepository, project_id, run_id) -> None:
+    """Post-commit step boundary: no future node begins while the latch is active."""
+    await EmergencyControlRepository(repo.session, repo.context).enforce_boundary(
+        project_id, run_id
+    )
+
+
 def _build_demo_graph(repo: RunRepository, project_id, run_id, checkpointer):
     async def _record(node: str) -> None:
+        await _emergency_boundary(repo, project_id, run_id)
         await repo.record_step(
             run_id=run_id, project_id=project_id, event_type="step_completed", node=node
         )
@@ -107,6 +116,7 @@ async def start_demo_run(
 ) -> dict:
     """Start a run: created→running, then execute until the post-node_a checkpoint."""
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     await repo.mark_running(run_id=run_id, actor=actor)
     checkpointer = UAIDCheckpointer(session, context, project_id=project_id, run_id=run_id)
     graph = _build_demo_graph(repo, project_id, run_id, checkpointer)
@@ -123,6 +133,7 @@ async def resume_demo_run(
 ) -> dict:
     """Resume from the last checkpoint (fresh checkpointer/session) → continue to END."""
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     await repo.record_step(run_id=run_id, project_id=project_id, event_type="run_resumed")
     checkpointer = UAIDCheckpointer(session, context, project_id=project_id, run_id=run_id)
     graph = _build_demo_graph(repo, project_id, run_id, checkpointer)
@@ -145,11 +156,13 @@ class ApprovalState(TypedDict, total=False):
 
 def _build_approval_graph(repo: RunRepository, project_id, run_id, checkpointer):
     async def approval_gate(state: ApprovalState) -> dict:
+        await _emergency_boundary(repo, project_id, run_id)
         # Sentinel: NO protected work, NO state mutation. Just a checkpoint boundary
         # before the protected node so nothing protected runs pre-approval.
         return {}
 
     async def protected_node(state: ApprovalState) -> dict:
+        await _emergency_boundary(repo, project_id, run_id)
         await repo.record_step(
             run_id=run_id, project_id=project_id, event_type="step_completed", node=PROTECTED_NODE
         )
@@ -172,6 +185,7 @@ async def start_approval_run(
     Returns the run's resulting status.
     """
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     await repo.mark_running(run_id=run_id, actor=actor)
     checkpointer = UAIDCheckpointer(session, context, project_id=project_id, run_id=run_id)
     graph = _build_approval_graph(repo, project_id, run_id, checkpointer)
@@ -208,6 +222,7 @@ async def resume_approval_run(
     """Resume a blocked run: APPROVED ⇒ run protected node→complete; terminal denial ⇒ fail;
     PENDING ⇒ stay blocked. Returns the resulting status."""
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     approvals = ApprovalRepository(session, context)
     subject = workflow_subject(run_id, PROTECTED_NODE)
     if await approvals.is_blocked(project_id, WORKFLOW_RESUME_ACTION, subject_ref=subject):
@@ -248,6 +263,7 @@ def _build_retry_graph(repo, project_id, run_id, checkpointer, *, fail_times, ma
     attempts = {"n": 0}
 
     async def flaky(state: RetryState) -> dict:
+        await _emergency_boundary(repo, project_id, run_id)
         attempts["n"] += 1
         n = attempts["n"]
         if n > 1:  # a retry is an attempt AFTER an earlier failure
@@ -284,6 +300,7 @@ def _build_retry_graph(repo, project_id, run_id, checkpointer, *, fail_times, ma
 
 def _build_failing_graph(repo, project_id, run_id, checkpointer):
     async def broken(state: RetryState) -> dict:
+        await _emergency_boundary(repo, project_id, run_id)
         raise PermanentNodeError("non-retryable failure")
 
     g = StateGraph(RetryState)
@@ -307,6 +324,7 @@ async def run_retry_demo(
 ) -> str:
     """Run a flaky node under RetryPolicy. Returns 'completed' or 'failed'."""
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     await repo.mark_running(run_id=run_id, actor=actor)
     checkpointer = UAIDCheckpointer(session, context, project_id=project_id, run_id=run_id)
     graph = _build_retry_graph(
@@ -329,6 +347,7 @@ async def run_failing_demo(
 ) -> str:
     """Run a node that raises a non-retryable error ⇒ the run fails (not retried)."""
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     await repo.mark_running(run_id=run_id, actor=actor)
     checkpointer = UAIDCheckpointer(session, context, project_id=project_id, run_id=run_id)
     graph = _build_failing_graph(repo, project_id, run_id, checkpointer)
@@ -351,6 +370,7 @@ async def run_failing_demo(
 
 def _build_cost_graph(repo, project_id, run_id, checkpointer):
     async def work(state: RetryState) -> dict:
+        await _emergency_boundary(repo, project_id, run_id)
         await repo.record_step(
             run_id=run_id, project_id=project_id, event_type="step_completed", node="work"
         )
@@ -371,6 +391,7 @@ async def start_costguard_run(
     STOP ⇒ pause before the node executes (no work performed). Returns the status.
     """
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     await repo.mark_running(run_id=run_id, actor=actor)
     decision = await cost_evaluate(session, context, project_id=project_id)
     if decision.stop:
@@ -390,6 +411,7 @@ async def resume_costguard_run(
 ) -> str:
     """Resume a cost-paused run: re-evaluate; still STOP ⇒ stay paused; else resume→complete."""
     repo = RunRepository(session, context)
+    await _emergency_boundary(repo, project_id, run_id)
     decision = await cost_evaluate(session, context, project_id=project_id)
     if decision.stop:
         return "paused"  # still over budget — no transition

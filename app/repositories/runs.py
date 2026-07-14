@@ -97,6 +97,14 @@ class RunRepository(TenantScopedRepository):
         payload: dict[str, Any] | None = None,
     ) -> ProjectRun:
         run = await self._require(run_id)
+        if to_status == "running":
+            # Slice 54: serialize every start/resume with the project emergency latch.
+            # Lazy import avoids coupling the pure transition table to release modules.
+            from app.repositories.emergency_controls import assert_project_not_stopped
+
+            await assert_project_not_stopped(
+                self.session, self.context, run.project_id
+            )
         from_status = run.status
         if not is_valid_transition(from_status, to_status):
             raise InvalidRunTransition(f"{from_status} -> {to_status} is not allowed")
@@ -159,6 +167,49 @@ class RunRepository(TenantScopedRepository):
             actor=actor,
             payload=payload,
         )
+
+    async def mark_paused_for_emergency(self, *, run_id) -> ProjectRun:
+        """Safe-direction local-runtime stop; audit actor is a fixed role code."""
+        run = await self._require(run_id)
+        if not is_valid_transition(run.status, "paused"):
+            raise InvalidRunTransition(f"{run.status} -> paused is not allowed")
+        run.status = "paused"
+        await self.session.flush()
+        await self.record_step(
+            run_id=run.id,
+            project_id=run.project_id,
+            event_type="emergency_paused",
+            status_from="running",
+            status_to="paused",
+            payload={"reason_code": "project_emergency_stop_active"},
+        )
+        await audit_record(
+            self.session,
+            action="run.emergency_paused",
+            actor="emergency_control_authority",
+            target="emergency_runtime_run",
+            payload={
+                "project_id": str(run.project_id),
+                "from": "running",
+                "to": "paused",
+                "reason_code": "project_emergency_stop_active",
+            },
+        )
+        return run
+
+    async def latest_step(self, run_id: uuid.UUID) -> RunStep:
+        row = (
+            await self.session.execute(
+                select(RunStep)
+                .where(
+                    RunStep.tenant_id == self.context.tenant_id,
+                    RunStep.run_id == run_id,
+                )
+                .order_by(RunStep.seq.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        return row
 
     async def mark_resumed(self, *, run_id, actor, payload=None) -> ProjectRun:
         # blocked/paused -> running, recorded as run_resumed.

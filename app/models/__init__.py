@@ -31,6 +31,13 @@ from app.models.cost_forecast import (
     CostForecastRun,
 )
 from app.models.deployment_target_snapshot import DeploymentTargetSnapshot
+from app.models.emergency_control import (
+    EmergencyControlAuthorityMember,
+    EmergencyControlBinding,
+    EmergencyRollbackAuthorization,
+    EmergencyStopEvent,
+    EmergencyStopRunEffect,
+)
 from app.models.document import Document
 from app.models.document_classification import DocumentClassification
 from app.models.generated_artifact import GeneratedArtifact
@@ -146,6 +153,11 @@ __all__ = [
     "BranchProtectionSnapshot",
     "PullRequestEvidenceSnapshot",
     "DeploymentTargetSnapshot",
+    "EmergencyControlBinding",
+    "EmergencyControlAuthorityMember",
+    "EmergencyStopEvent",
+    "EmergencyStopRunEffect",
+    "EmergencyRollbackAuthorization",
     "MonitoringStatusSnapshot",
     "SecretReferenceCheck",
     "SecurityScanRun",

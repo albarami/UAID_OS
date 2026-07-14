@@ -338,7 +338,7 @@ def test_gate9_pass_is_bounded_safe_context_and_non_authorizing():
         "execution_provenance": "system_derived_cost_forecast",
     }
     result = report.to_dict()
-    assert result["ruleset_version"] == "slice53.v1"
+    assert result["ruleset_version"] == "slice54.v1"
     assert result["a5_satisfied"] is False
     assert result["can_go_live_autonomously"] is False
     assert tuple(result["can_go_live_reasons"]) == NO_GO_LIVE_REASONS
