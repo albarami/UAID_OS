@@ -726,7 +726,7 @@ async def test_detect_does_not_change_a5_or_readiness(detect_ctx):
         after_gates[9]["context"]["ledger_event_count"]
         == before_gates[9]["context"]["ledger_event_count"] + 1
     )
-    assert after["ruleset_version"] == "slice52.v1"  # current A5 ruleset; unchanged by this feature
+    assert after["ruleset_version"] == "slice53.v1"  # current A5 ruleset; unchanged by this feature
     assert after["a5_satisfied"] is False and after["can_go_live_autonomously"] is False
     assert readiness_before is None and readiness_after is None  # no readiness side-effect
 

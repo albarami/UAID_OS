@@ -10,7 +10,10 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Slice 51 (#9 cost forecast — PASS-capable):** evaluates the latest current, exact-bound,
   system-derived projection over recorded spend and declared remaining-work assumptions. All six
   budget/policy dimensions must be strictly within their caps, with no STOP or approval trigger.
-- Gate #12 remains a partial-context ``insufficient_evidence`` gate.
+- **Slice 53 (#12 request-authenticated production pre-approval — PASS-capable):** evaluates one
+  exact current frozen-candidate/core/verdict/policy binding and an immutable two-principal
+  key-custody approval graph.  The pass reason says request-authenticated under recorded conditions;
+  it never claims a human signature or authorizes production.
 - **Slice 50 (#7 release issue disposition — PASS-capable):** evaluates a generated DB-bound verdict
   over one re-audited Slice-49 core and its exact frozen candidate. Only a current, consistent,
   gate-eligible ``passed``/``passed_with_limitations`` attestation can pass; no caller verdict or
@@ -40,13 +43,15 @@ and non-authorizing**. Every gate carries ``status``, ``reason``, and a ``contex
 - **Slice 45 (#6 shortcut detector execution — PASS-capable):** evaluates system-executed deterministic
   and blind independent-review coverage for all twelve mandatory categories over a connector-verified
   exact-commit corpus, then blocks on every open critical shortcut finding regardless of provenance.
-- The **two** remaining sourceless gates (#10, #13) return ``no_evidence_source:<subsystem>``.
+- **Slice 52 (#10 rollback verification — PASS-capable):** evaluates one connector-observed staging
+  A→B→A drill under exact release/core/target binding; it never predicts production rollback success.
+- The remaining sourceless gate (#13) returns ``no_evidence_source:emergency_stop``.
 
 ``a5_satisfied`` is true only if **all 13** gates pass (still impossible with remaining unmet gates).
-``can_go_live_autonomously`` is **hard-false always** — go-live
-additionally requires a request-authenticated, verified A5 pre-approval that does not exist yet. This
+``can_go_live_autonomously`` is **hard-false always** — Slice 55 alone may replace the literal after
+gate #13 and the control-loop policy exist. This
 module never authorizes production: it only reports the gate structure honestly. ``ruleset_version`` is
-``slice52.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
+``slice53.v1``. Gate #8 is PASS-capable only through complete DB-bound acceptance-authorship evidence.
 """
 
 from __future__ import annotations
@@ -55,7 +60,7 @@ from dataclasses import dataclass, field
 
 from app.release.ci_evidence import gate3_protection_sufficient
 
-A5_RULESET_VERSION = "slice52.v1"
+A5_RULESET_VERSION = "slice53.v1"
 
 # The only three permitted gate statuses (subsystem detail goes in ``reason``, never the status).
 STATUS_PASSED = "passed"
@@ -64,7 +69,6 @@ STATUS_NO_SOURCE = "no_evidence_source"
 
 NO_GO_LIVE_REASONS = (
     "a5_gates_not_all_satisfied",
-    "request_authenticated_a5_preapproval_not_implemented",
 )
 
 
@@ -102,8 +106,8 @@ class ProductionAutonomyReport:
         return {
             "project_id": self.project_id,
             "a5_satisfied": self.a5_satisfied,
-            # ALWAYS false: go-live needs A5 satisfied AND a verified, request-authenticated
-            # pre-approval (not implemented). Never derived solely from a5_satisfied.
+            # ALWAYS false: only Slice 55 may replace this literal after gate #13 and the
+            # control-loop policy exist. Never derived solely from a5_satisfied.
             "can_go_live_autonomously": False,
             "can_go_live_reasons": list(NO_GO_LIVE_REASONS),
             "gates": [g.to_dict() for g in self.gates],
@@ -228,6 +232,34 @@ def evaluate_production_autonomy(
     rollback_gate_eligible: bool = False,
     rollback_phase_count: int = 0,
     rollback_execution_observation: str | None = None,
+    # Slice 53 — exact candidate/core/verdict/policy-bound request-authenticated pre-approval.
+    preapproval_candidate_present: bool = False,
+    preapproval_core_present: bool = False,
+    preapproval_core_reaudited: bool = False,
+    preapproval_verdict_present: bool = False,
+    preapproval_verdict_gate_eligible: bool = False,
+    preapproval_policy_present: bool = False,
+    preapproval_policy_valid: bool = False,
+    preapproval_approver_count: int = 0,
+    preapproval_autonomy_policy_eligible: bool = False,
+    preapproval_request_present: bool = False,
+    preapproval_binding_current: bool = False,
+    preapproval_requester_authenticated: bool = False,
+    preapproval_notification_valid: bool = False,
+    preapproval_request_status: str | None = None,
+    preapproval_attestation_present: bool = False,
+    preapproval_approver_authenticated: bool = False,
+    preapproval_approver_in_policy: bool = False,
+    preapproval_separation_ok: bool = False,
+    preapproval_lifecycle_status: str | None = None,
+    preapproval_expired: bool = False,
+    preapproval_evidence_consistent: bool = False,
+    preapproval_gate_eligible: bool = False,
+    preapproval_requester_actor_type: str | None = None,
+    preapproval_approver_actor_type: str | None = None,
+    preapproval_policy_contract_version: str | None = None,
+    preapproval_condition_contract_version: str | None = None,
+    preapproval_contract_version: str | None = None,
     # Slice 31 — gate #11 monitoring/alerts evidence (binding-bound, latest-wins).
     monitoring_bound: bool = False,
     latest_monitoring_provenance: str | None = None,
@@ -431,13 +463,138 @@ def evaluate_production_autonomy(
             "passed:system_derived_cost_forecast_within_recorded_policy",
             _gate9_ctx,
         )
-    gate12 = _insufficient(
-        12,
-        "production_deploy_preapproved_under_conditions",
-        "a5_policy_primitive_but_no_preapproved_release"
-        if autonomy_policy_present
-        else "no_a5_preapproved_release",
+    # Slice 53: a bounded key-custody approval graph over one exact current release binding.  This
+    # gate proves neither a human signature nor permission to deploy; go-live remains literal-false.
+    _gate12_name = "production_deploy_preapproved_under_conditions"
+    _gate12_ctx = {
+        "candidate_present": preapproval_candidate_present,
+        "core_present": preapproval_core_present,
+        "core_reaudited": preapproval_core_reaudited,
+        "verdict_present": preapproval_verdict_present,
+        "verdict_gate_eligible": preapproval_verdict_gate_eligible,
+        "recorded_policy_present": preapproval_policy_present,
+        "recorded_policy_valid": preapproval_policy_valid,
+        "approver_count": preapproval_approver_count,
+        "autonomy_policy_eligible": preapproval_autonomy_policy_eligible,
+        "request_present": preapproval_request_present,
+        "binding_current": preapproval_binding_current,
+        "requester_request_authenticated": preapproval_requester_authenticated,
+        "notification_valid": preapproval_notification_valid,
+        "request_status": preapproval_request_status,
+        "attestation_present": preapproval_attestation_present,
+        "approver_request_authenticated": preapproval_approver_authenticated,
+        "approver_in_recorded_policy": preapproval_approver_in_policy,
+        "separation_ok": preapproval_separation_ok,
+        "lifecycle_status": preapproval_lifecycle_status,
+        "expired": preapproval_expired,
+        "evidence_consistent": preapproval_evidence_consistent,
+        "gate_eligible": preapproval_gate_eligible,
+        "requester_actor_type": preapproval_requester_actor_type,
+        "approver_actor_type": preapproval_approver_actor_type,
+        "policy_contract_version": preapproval_policy_contract_version,
+        "condition_contract_version": preapproval_condition_contract_version,
+        "preapproval_contract_version": preapproval_contract_version,
+        "identity_claim": "request_authenticated_key_custody_under_recorded_policy",
+    }
+    _gate12_contracts_ok = (
+        preapproval_policy_contract_version == "slice53.production_approval_policy.v1"
+        and preapproval_condition_contract_version
+        == "slice53.production_preapproval_conditions.v1"
+        and preapproval_contract_version == "slice53.production_preapproval.v1"
     )
+    if not preapproval_candidate_present:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:no_current_frozen_release_candidate", _gate12_ctx
+        )
+    elif not preapproval_core_present:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:no_complete_reauditable_evidence_core", _gate12_ctx
+        )
+    elif not preapproval_core_reaudited:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:release_core_reaudit_failed", _gate12_ctx
+        )
+    elif not preapproval_verdict_present or not preapproval_verdict_gate_eligible:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:no_current_gate_eligible_release_verdict", _gate12_ctx
+        )
+    elif not preapproval_policy_present or not preapproval_policy_valid:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:release_approval_policy_missing_or_invalid", _gate12_ctx
+        )
+    elif preapproval_approver_count <= 0:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:release_approval_policy_has_no_exact_approver", _gate12_ctx
+        )
+    elif not preapproval_autonomy_policy_eligible:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:a5_autonomy_policy_missing_or_ineligible", _gate12_ctx
+        )
+    elif not preapproval_request_present:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:no_production_preapproval_request_for_current_binding", _gate12_ctx
+        )
+    elif not preapproval_binding_current:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:latest_preapproval_request_binding_stale_or_inconsistent", _gate12_ctx
+        )
+    elif not preapproval_requester_authenticated:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:preapproval_requester_not_request_authenticated", _gate12_ctx
+        )
+    elif not preapproval_notification_valid:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:production_approval_notification_missing_or_invalid", _gate12_ctx
+        )
+    elif preapproval_request_status == "pending":
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:production_preapproval_pending", _gate12_ctx
+        )
+    elif preapproval_request_status in {"rejected", "cancelled"}:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:production_preapproval_rejected_or_cancelled", _gate12_ctx
+        )
+    elif not preapproval_approver_authenticated:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:preapproval_approver_not_request_authenticated", _gate12_ctx
+        )
+    elif not preapproval_approver_in_policy:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:preapproval_approver_not_in_recorded_policy", _gate12_ctx
+        )
+    elif not preapproval_separation_ok:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:preapproval_separation_of_duties_failed", _gate12_ctx
+        )
+    elif preapproval_lifecycle_status in {"revoked", "superseded"}:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:production_preapproval_revoked_or_superseded", _gate12_ctx
+        )
+    elif preapproval_expired:
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:production_preapproval_expired", _gate12_ctx
+        )
+    elif (
+        not preapproval_attestation_present
+        or preapproval_request_status != "approved"
+        or preapproval_lifecycle_status != "approved_anchor"
+        or not preapproval_evidence_consistent
+        or not preapproval_gate_eligible
+        or not _gate12_contracts_ok
+        or preapproval_requester_actor_type not in {"human", "service"}
+        or preapproval_approver_actor_type != "human"
+    ):
+        gate12 = _insufficient(
+            12, _gate12_name, "insufficient_evidence:production_preapproval_evidence_inconsistent", _gate12_ctx
+        )
+    else:
+        gate12 = GateResult(
+            12,
+            _gate12_name,
+            STATUS_PASSED,
+            "passed:request_authenticated_preapproval_under_recorded_conditions",
+            _gate12_ctx,
+        )
     # Slice 50: a verdict is a bounded, system-derived disposition over one exact frozen candidate
     # and re-audited Slice-49 core.  It does not prove issue-set completeness or authorize go-live.
     gate7_counts_consistent = (

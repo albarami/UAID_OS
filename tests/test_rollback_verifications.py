@@ -382,7 +382,7 @@ def test_gate10_passes_only_on_the_exact_connector_observed_state():
 
     assert gate["status"] == "passed"
     assert gate["reason"] == "passed:connector_observed_staging_rollback_drill_verified"
-    assert report["ruleset_version"] == "slice52.v1"
+    assert report["ruleset_version"] == "slice53.v1"
     assert report["can_go_live_autonomously"] is False
 
 
@@ -447,7 +447,6 @@ def test_slice52_golden_matrix_changes_only_gate10_and_preserves_no_go_contracts
     assert before_gates[10] != after_gates[10]
     assert NO_GO_LIVE_REASONS == (
         "a5_gates_not_all_satisfied",
-        "request_authenticated_a5_preapproval_not_implemented",
     )
     assert before["can_go_live_autonomously"] is after["can_go_live_autonomously"] is False
 

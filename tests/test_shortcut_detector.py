@@ -430,7 +430,7 @@ def test_shortcut_coverage_changes_only_gate6_and_never_go_live():
     assert next(gate for gate in after["gates"] if gate["number"] == 6)["status"] == (
         "passed"
     )
-    assert after["ruleset_version"] == "slice52.v1"
+    assert after["ruleset_version"] == "slice53.v1"
     assert after["a5_satisfied"] is False
     assert after["can_go_live_autonomously"] is False
 

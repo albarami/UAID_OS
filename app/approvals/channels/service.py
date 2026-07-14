@@ -61,6 +61,8 @@ async def request_and_notify_approval(
     requires_explicit_approval: bool | None = None,
     subject_ref: str | None = None,
     payload: Mapping[str, Any] | None = None,
+    identity_storage_subject: str | None = None,
+    audit_actor: str | None = None,
 ) -> tuple[Approval, ApprovalNotification]:
     """The authoritative request+notify path (B4): ``ApprovalRepository.request`` (unchanged) **then**
     ``ApprovalNotificationService.notify_for_approval`` — writes **both** an ``approval_events`` and an
@@ -73,8 +75,10 @@ async def request_and_notify_approval(
         requires_explicit_approval=requires_explicit_approval,
         subject_ref=subject_ref,
         payload=payload,
+        identity_storage_subject=identity_storage_subject,
+        audit_actor=audit_actor,
     )
     notification = await ApprovalNotificationService(session, context).notify_for_approval(
-        approval, actor=actor, channel=channel
+        approval, actor=audit_actor or actor, channel=channel
     )
     return approval, notification
