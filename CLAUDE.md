@@ -684,6 +684,26 @@ independently enforced. Readiness remains `slice20.v1`; go-live remains hard-fal
 reasons `a5_gates_not_all_satisfied` and `request_authenticated_a5_preapproval_not_implemented`. Verified
 suites: `make test` 1014 passing / 815 deselected and `make test-db` 815 passing / 1014 deselected. Merged
 via PR #94 (squash commit `598c70b`).**
+**Slice 53 adds the REQUEST-AUTHENTICATED PRODUCTION PRE-APPROVAL + A5-GATE-#12 COMPLETION
+layer — `app/release/production_approval.py` defines the strict recorded-policy and fixed-condition
+contracts, while `app/release/production_approval_service.py` and the narrow bodyless mutation API bind
+distinct request-authenticated requester/approver principals to one exact current frozen candidate,
+re-audited evidence-pack core, gate-eligible verdict, autonomy policy, and canonical policy/checklist.
+**Honesty crux:** `request_authenticated` proves key custody at the bearer boundary under a recorded,
+caller-supplied structured policy; it never proves a human signature, human presence, organizational
+authority, or permission to deploy. Migration `0052` adds five tenant-owned, RLS ENABLE+FORCE,
+append-only policy/request/attestation/lifecycle tables plus the two additive composite identity targets
+on intake categories and autonomy policies. Deferred DB guards re-derive the complete approval graph,
+policy membership, requester/approver separation, current release/evidence bindings, lifecycle, digests,
+and eligibility. Approved attestations are perishable at no more than 24 hours; the newest request for the
+current binding wins even when pending or negative. Gate #12 is now **PASS-capable** under A5 ruleset
+`slice53.v1`, making it the twelfth PASS-capable gate
+(#1/#2/#3/#4/#5/#6/#7/#8/#9/#10/#11/#12). The implemented
+`request_authenticated_a5_preapproval_not_implemented` no-go reason is removed, but
+`a5_gates_not_all_satisfied` remains and `can_go_live_autonomously` stays the literal `False`, including
+for a synthetic all-thirteen-pass report; gate #13 remains sourceless. Readiness remains `slice20.v1`.
+Verified suites: `make test` 1060 passing / 819 deselected and `make test-db` 819 passing / 1060
+deselected. Merged via PR #96 (squash commit `5fd8b18`).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1326,11 +1346,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1014 passing (Docker-free); `make test-db` → 815 passing (DB-backed: tenancy,
+  **`make test` → 1060 passing (Docker-free); `make test-db` → 819 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1433,8 +1453,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1014 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 815 passing
+make test                                  # Docker-free tests (no services) — 1060 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 819 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
