@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import get_sessionmaker
+from app.db import get_engine, get_sessionmaker
 from app.identity import AuthenticatedActor
 
 
@@ -39,7 +39,11 @@ class TenantContext:
 
 
 @asynccontextmanager
-async def tenant_scope(context: TenantContext) -> AsyncIterator[AsyncSession]:
+async def tenant_scope(
+    context: TenantContext,
+    *,
+    isolation_level: str | None = None,
+) -> AsyncIterator[AsyncSession]:
     """Yield a session whose transaction is bound to ``context``'s tenant for RLS.
 
     The runtime transaction invariant (INV-5 enforcement): the Postgres GUC
@@ -49,16 +53,30 @@ async def tenant_scope(context: TenantContext) -> AsyncIterator[AsyncSession]:
     ``set_config(..., true)`` is transaction-scoped, all work MUST happen inside
     this single ``session.begin()`` block — `TenantScopedRepository` is intended
     to be used within ``tenant_scope``.
+
+    ``isolation_level`` is optional. Slice 55 evaluate/finalize requires
+    ``SERIALIZABLE``; other callers keep the engine default.
     """
     if context is None:
         raise CrossTenantError("a TenantContext is required for tenant-owned data")
-    async with get_sessionmaker()() as session:
-        async with session.begin():
-            await session.execute(
-                text("SELECT set_config('app.current_tenant', :tenant, true)"),
-                {"tenant": str(context.tenant_id)},
-            )
-            yield session
+    if isolation_level is None:
+        async with get_sessionmaker()() as session:
+            async with session.begin():
+                await session.execute(
+                    text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                    {"tenant": str(context.tenant_id)},
+                )
+                yield session
+        return
+    async with get_engine().connect() as connection:
+        connection = await connection.execution_options(isolation_level=isolation_level)
+        async with AsyncSession(bind=connection, expire_on_commit=False) as session:
+            async with session.begin():
+                await session.execute(
+                    text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                    {"tenant": str(context.tenant_id)},
+                )
+                yield session
 
 
 class TenantScopedRepository:

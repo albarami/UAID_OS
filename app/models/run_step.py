@@ -41,6 +41,8 @@ _EVENT_TYPES = (
     "cost_paused",
     # Slice 54 — local-runtime emergency-stop transition (running -> paused).
     "emergency_paused",
+    # Slice 55 — bounded control-loop evidence/authority wait.
+    "control_loop_waiting",
 )
 
 

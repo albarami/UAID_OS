@@ -540,17 +540,17 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That the local-runtime latch stops production infrastructure, that request-authenticated key custody is a human signature or on-call proof, that `authorized_not_executed` performed a rollback, or that all gates being PASS-capable makes A5 satisfied for any current project or authorizes go-live.
 - **Exit.** SATISFIED by PR #98 (`84e955a`): gate #13 can pass only from the current standing local-runtime stop capability plus current release-bound rollback authority; readiness remains `slice20.v1`, and the literal hard-false with `a5_gates_not_all_satisfied` remains for Slice 55.
 
-#### Slice 55 — §23.3 main control loop + go-live execution under policy — **NEXT PLANNED (NOT STARTED)**
-- **Goal.** The §23.3 autonomous control loop (read state → build → PR → CI → reviews → shortcut/acceptance → evidence pack → check cost/authority → deploy staging → evaluate go-live gate → deploy production iff gate passed AND autonomy policy allows). This is the first point where `a5_satisfied` (all 13) AND a verified pre-approval can co-occur and `can_go_live_autonomously` becomes *reachable* — under policy + explicit authority.
-- **Why now.** §26.6/§23.3; the loop that turns pass-capable gates into an actual governed release.
+#### Slice 55 — §23.3 control loop through go-live evaluation — **REVIEW-APPROVED (PENDING MERGE)**
+- **Goal.** Run one bounded, resumable §23.3 cycle through `evaluate_go_live_gate()` and persist a DB-proven `decided_not_executed` result only when the exact current thirteen-gate, Slice-53 pre-approval, autonomy-policy, and emergency-latch predicate passes. Production execution remains a separately planned boundary.
+- **Why now.** All thirteen Appendix-B gates have real pass-capable evidence paths; §23.3 still needs a durable coordinator that evaluates them together without inventing missing build/deploy actuators.
 - **Spec grounding.** §23.3 (2188–2212); §24.1; §2.6; §5.1 A5; App. B (all 13).
-- **Files.** `app/runtime/control_loop.py` (extends Slice 8a/8b engine); go-live gate evaluation wiring `production_autonomy` + verdict + verified pre-approval.
-- **Migration.** likely none (reuses runtime tables) or additive run-state.
-- **Tenant/RLS/FK/audit/immutability.** RLS; every step audited + checkpointed (Slice 8a); cost STOP→pause (Slice 8b); production deploy structurally approval-gated.
-- **Tests.** Loop halts at the go-live gate unless all 13 gates pass AND verified pre-approval AND policy permits; deploy-production never auto-ALLOW without these.
-- **A5 gate(s) advanced.** Consumes all; makes `can_go_live_autonomously` *reachable* (not default-true).
-- **Must NOT claim.** Any go-live without all 13 gates + verified pre-approval + policy; the loop never bypasses §2.6.
-- **Exit.** Governed control loop; go-live reachable only under full gate+approval+policy; default still false.
+- **Files.** `app/runtime/control_loop.py`, `app/release/go_live_decision.py`, `app/repositories/go_live_decisions.py`, the cycle-bound `UAIDCheckpointer` extension, five Slice-55 models, and migration `0054_control_loop_decisions`.
+- **Migration.** `0054_control_loop_decisions` — five additive tenant-owned, RLS ENABLE+FORCE, append-only cycle/event/evaluation/gate-result/decision tables; exact event/evaluation graph guards; fixed hard-false, hash-chained decision finalizer.
+- **Tenant/RLS/FK/audit/immutability.** Same-tenant/project/run/evidence/pre-approval/policy/latch composite bindings; immutable ledgers; cycle-specific checkpoint namespaces; safe audit metadata only. Nonretryable failure evidence commits only in a fresh transaction after rollback.
+- **Tests.** Exact four-condition predicate; all thirteen single-gate failures; real concurrent SERIALIZABLE conflict and bounded `40001`/`40P01` retry; approved blocked-resume fresh evaluation with immutable prior history; zero staging evidence ⇒ not observed; Python/DB transition parity; RLS/append-only/direct-SQL/hash-chain/audit sentinels. Verified suites: 1150 Docker-free / 855 DB-backed.
+- **A5 gate(s) advanced.** None. The loop consumes all thirteen gates but keeps `A5_RULESET_VERSION="slice54.v1"` and `can_go_live_autonomously=False`.
+- **Must NOT claim.** Production deployment, staging deployment, production authorization, a human signature, later evidence currentness, or that any current project passes all gates.
+- **Exit.** Independent code review APPROVE; implementation/CI merge still pending. The Slice 55→56 boundary remains owner-gated.
 
 ### Track A (cont.) — Phase 6 operations & stabilization cluster (post-go-live functional system; §25.1–§25.4)
 
@@ -658,11 +658,11 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-07-14): Slice 54 is MERGED.** PR #98 landed as squash commit `84e955a`. Migration `0053_emergency_controls` is the Alembic head; UAID now enforces a real DB-backed project latch over its current local runtime and records exact current release/core/Slice-52-run-bound rollback authority as `authorized_not_executed`. Gate #13 is PASS-capable under A5 ruleset `slice54.v1`, making all thirteen Appendix-B gates PASS-capable. That statement describes available evidence paths, not any project's current gate outcome: an active latch blocks gate #13, the latch is not production incident execution, and the authority tier remains recorded-policy membership plus request-authenticated key custody rather than a human signature. `a5_gates_not_all_satisfied` remains the sole no-go reason and `can_go_live_autonomously=False` remains literal even for a synthetic all-thirteen-pass report; Slice 55 alone owns the control-loop transition. Readiness remains `slice20.v1` (`CLAUDE.md` “Current status”; `app/release/emergency_stop.py`; `app/repositories/emergency_controls.py`; `app/runtime/engine.py`; `app/release/production_autonomy.py`; `migrations/versions/0053_emergency_controls.py`; git history).
+> **Current state (2026-08-22): Slice 54 is MERGED; Slice 55 is REVIEW-APPROVED and pending PR/CI/merge.** The Slice-55 branch adds migration `0054_control_loop_decisions` and a bounded §23.3 coordinator through go-live evaluation only. It retries only `40001`/`40P01` in owned fresh SERIALIZABLE transactions, approval-gates fresh blocked resumes, derives staging observation from A5 gate #10, and persists only immutable non-executing decision evidence. `A5_RULESET_VERSION` remains `slice54.v1`, readiness remains `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-55-PLAN.md`; `app/runtime/control_loop.py`; `app/repositories/go_live_decisions.py`; migration `0054`; independent review verdict).
 
-**Next planned (not started): Slice 55 — §23.3 main control loop + go-live execution under policy.** All thirteen gate implementations are now PASS-capable, but no current control loop may turn that capability into autonomous production execution: the evaluator remains literal hard-false. Slice 55 must receive its own reviewed plan before any implementation and must ground the transition in §23.3, §24.1, §2.6, the current evidence graph, the current request-authenticated pre-approval, the active-stop state, and explicit policy authority; this sequencing marker does not authorize implementation or go-live.
+**Immediate action:** ship Slice 55 through its PR and green CI. Do not start Slice 56.
 
-**Boundary:** repository and ref inspection at this checkpoint found no Slice-55 plan, feature branch, control-loop module, test, or migration. The next action is to draft and submit the Slice-55 plan for review; implementation remains blocked until that plan is approved.
+**Boundary:** after Slice 55 merges, record `AWAITING SALIM GATE` in `.planning/HANDOFF.json`. Slice 56 remains unauthorized until Salim personally reviews the merged Slice-55 PR.
 
 ---
 

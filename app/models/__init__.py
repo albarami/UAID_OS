@@ -38,6 +38,13 @@ from app.models.emergency_control import (
     EmergencyStopEvent,
     EmergencyStopRunEffect,
 )
+from app.models.go_live_decision import (
+    ControlLoopEvent,
+    ControlLoopRun,
+    GoLiveDecision,
+    GoLiveEvaluation,
+    GoLiveEvaluationGateResult,
+)
 from app.models.document import Document
 from app.models.document_classification import DocumentClassification
 from app.models.generated_artifact import GeneratedArtifact
@@ -158,6 +165,11 @@ __all__ = [
     "EmergencyStopEvent",
     "EmergencyStopRunEffect",
     "EmergencyRollbackAuthorization",
+    "ControlLoopRun",
+    "ControlLoopEvent",
+    "GoLiveEvaluation",
+    "GoLiveEvaluationGateResult",
+    "GoLiveDecision",
     "MonitoringStatusSnapshot",
     "SecretReferenceCheck",
     "SecurityScanRun",
