@@ -742,8 +742,29 @@ history. Audit/checkpoints retain safe IDs/status/counts/digests only — never 
 evidence payload. Independent re-review verdict: APPROVE. Verified suites: `make test` 1150 passing /
 855 deselected; `make test-db` 855 passing / 1150 deselected. `pyright` is now installed: the Slice-55
 remediation files report 0 errors, while the full pre-existing repository currently reports 3051
-type errors (not hidden or reclassified). Merged via PR #100 (squash commit `15d0e75`). The Slice
-55→56 boundary is `AWAITING SALIM GATE`; Slice 56 has not started.**
+type errors (not hidden or reclassified). Merged via PR #100 (squash commit `15d0e75`). Salim
+personally reviewed PR #100 and RELEASED the Slice 55→56 transition (2026-08-22): builder Grok /
+reviewer Sol; Slices 56–59 run the full loop with no per-slice Salim gate; HALT again after Slice 59
+before ecosystem slices 60–63; pyright is mandatory every slice.**
+**Slice 56 adds the DETERMINISTIC §25.1 OPS-SIGNAL ASSESSMENT — all eleven named classes
+(`uptime`, `error_rates`, `latency`, `job_failures`, `security_alerts`, `user_journey_failures`,
+`data_quality_issues`, `cost_anomalies`, `model_output_drift`, `support_tickets`, `incident_reports`)
+as one append-only run + exactly eleven children (`app/ops/` + `OpsSignalRepository` + migration
+`0055_ops_signals`, `ruleset_version="slice56.v1"`). Default empty-project counters are
+`observed=2` / `caller_supplied=0` / `not_observed=9` (`job_failures` from distinct `run_steps`
+`run_failed` rows; `cost_anomalies` from the recorded budget + ops-owned spend aggregate + pure
+`evaluate_stop`; the other nine stay `not_observed`). Caller samples may overlay only the five
+sampleable classes; `uptime` / `security_alerts` / `support_tickets` / `incident_reports` cannot be
+sampled. **Honesty crux:** this proves a bounded assessment with source-bound thresholds, not that
+production is live, that monitoring is adequate, that incidents were opened, or that gate #11 equals
+§25.1. Adjacent stores (Slice 31 snapshots, deploy-target availability, findings, PM mappings,
+reviewer-QA rates, cost forecasts) are not those operational classes. A5 stays `slice54.v1`;
+readiness stays `slice20.v1`; `can_go_live_autonomously` remains the literal `False`;
+`production_autonomy.py` / `readiness.py` / `control_loop.py` are byte-stable. Independent plan
+APPROVE (agent `8ca43267-57a2-4ff1-aac5-802f30310b52`); independent code APPROVE (agent
+`160c2a06-f414-4222-876f-0bcc59029525`). Verified suites: `make test` 1160 passing / 861 deselected;
+`make test-db` 861 passing / 1160 deselected. Owned pyright paths report 0 errors. Next: Slice 57
+under the standing cadence.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -940,9 +961,24 @@ the admin `app` role only.
   `ApprovalRepository.is_blocked(..., subject_ref=None)`; node **retry/backoff** via LangGraph
   `RetryPolicy` (`retried` recorded only for attempts > 1; non-retryable ⇒ `failed`); **cost
   STOP→pause** consuming Slice-7 `evaluate` at the step boundary (`running→paused` before the
-  node). **Still skeleton: no tool-result persistence / §23.3 loop / distributed workers; cost
-  guard is opt-in per run (not yet mandatory for every run); LangGraph native `interrupt()` not
-  used (the gate decision lives in the audited approval engine).**
+  node). **Slice 55** adds a bounded §23.3 control loop (`control_loop.py`) through go-live
+  evaluation only (`decided_not_executed`; no production deploy). **Still skeleton: no
+  tool-result persistence / distributed workers; cost guard is opt-in per run (not yet
+  mandatory for every run); LangGraph native `interrupt()` not used (the gate decision lives
+  in the audited approval engine).**
+- `app/ops/` — deterministic §25.1 ops-signal assessment (Slice 56). `signals.py` (pure
+  contract `slice56.ops_signals.v1` / `slice56.threshold_eval.v1`) + `assessment.py` (eleven
+  matrix builders) + `collect.py` (`collect_ops_signals` owns REPEATABLE READ
+  `tenant_scope`; no caller `session`/`as_of`; `as_of` from `transaction_timestamp()`) +
+  `db_checks.py` (shared Postgres CHECKs consumed by the ORM and migration `0055`).
+  `OpsSignalRepository` persist/latest/history over tenant-owned, RLS ENABLE+FORCE,
+  append-only `ops_observation_runs` + `ops_signal_results` (SELECT/INSERT only; dual
+  deferred count-match; exactly eleven children; money CHECKs refuse NaN/±Infinity). Ledger
+  allowlist is `BudgetRepository.get` + one ops-owned cost aggregate + pure
+  `evaluate_stop` + distinct `run_steps.run_failed` run ids — never Slice 31/30/23/34/48/51
+  stores as those classes. Audit action `ops_signals.recorded` is counts/ids/digests only.
+  **Honesty: an eleven-row assessment is not adequate monitoring, incident response, or
+  go-live authority; no HTTP; no broker; A5/readiness/control-loop untouched.**
 - `app/intake/` — document intake sandbox (Slice 9, §16.3). `sandbox.py` (pure): treats
   customer documents as **untrusted data** — `scan(content)` is a **best-effort, deterministic**
   prompt-injection signal returning marker **identifiers** (never raw excerpts; no ML);
@@ -1386,11 +1422,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1150 passing (Docker-free); `make test-db` → 855 passing (DB-backed: tenancy,
+  **`make test` → 1160 passing (Docker-free); `make test-db` → 861 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1477,8 +1513,11 @@ the admin `app` role only.
   The DB admin `psql` is parameterized via `PSQL` (default: `docker exec … uaid_os-postgres-1`;
   CI overrides with `PSQL=psql` to use a service container over TCP).
 - `.github/workflows/ci.yml` — GitHub Actions CI on PRs + pushes to `main`: `uv sync`,
-  `ruff check`, `make test` (Docker-free), and `make test-db` against a `postgres:16`
-  **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real `.env`/secrets.
+  `ruff check`, scoped `pyright` on Slice 55/56 owned paths (mandatory; a slice that cannot
+  run it logs a HANDOFF blocker), `make test` (Docker-free), and `make test-db` against a
+  `postgres:16` **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real
+  `.env`/secrets. Full-repo pyright currently reports 3051 pre-existing errors and is not
+  the CI gate.
 
 ### Source-of-truth docs (preserved in `docs/`)
 - The standalone spec (above).
@@ -1493,8 +1532,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1150 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 855 passing
+make test                                  # Docker-free tests (no services) — 1160 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 861 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
@@ -1523,10 +1562,12 @@ then runs `-m db` with the runtime `uaid_app` connection. Migrations never run a
   `project_runs` state machine; **crash→resume**, **subject-scoped approval wait/resume**
   (terminal denial fails the run), **node retry/backoff**, **cost STOP→pause**. "Deterministic
   replay" = reconstruction from checkpoints + `run_steps` + ledgers, **not** Temporal-style
-  automatic re-execution. **Deferred:** tool-result persistence, the §23.3 business loop,
-  distributed multi-worker execution, durable timers/scheduler for approval deadlines (on-demand
-  expiry only), per-node (vs step-boundary) cost hooks, making the cost guard mandatory for every
-  run, LangGraph native `interrupt()`. Temporal revisit triggers in `.planning/PHASE-1-PLAN.md`.
+  automatic re-execution. **Slice 55** implements a bounded §23.3 loop through go-live
+  evaluation (`decided_not_executed` only). **Deferred:** tool-result persistence,
+  production `deploy_production()` execution, distributed multi-worker execution, durable
+  timers/scheduler for approval deadlines (on-demand expiry only), per-node (vs
+  step-boundary) cost hooks, making the cost guard mandatory for every run, LangGraph
+  native `interrupt()`. Temporal revisit triggers in `.planning/PHASE-1-PLAN.md`.
 - Knowledge-graph store (added when KG features are built).
 - Multi-tenant isolation (§17): **present for the spine** — app-layer scoping + schema FKs
   (Slice 1) **and DB-level RLS** on `projects`/`project_runs` (Slice 1b). Future tenant-owned
