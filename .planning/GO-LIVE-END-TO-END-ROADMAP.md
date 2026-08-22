@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 17 (current-state reconciliation after Slice 56 implemented; Salim released 55→56 on 2026-08-22).
-**Baseline state:** Post–Slice 56 (`main` at `5c4b3e9`; Slice 56 merged via PR #102 at `5c4b3e9`; Alembic head `0055_ops_signals`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 57 complete under the standing 56–59 cadence and Slice 58 as next. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
+**Created:** 2026-06-17. **Revision:** Rev 18 (current-state reconciliation after Slice 58 merged as **non-closing**; Salim released 55→56 on 2026-08-22; Slice 59 Salim gate removed).
+**Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
+**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 58 merged as a hotfix-intent evaluation that does **not** close spec §26.6, with Slice 59 as next. Residual self-healing actuators stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -580,24 +580,24 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** Live IR; Jira writes; log diagnosis; hotfix/deploy/rollback execution; Slice 56 `incident_reports` equals this workflow; production hotfix without approval.
 - **Exit.** Incident ledger + authorized local tickets + handover recorded. Self-healing remains Slice 58.
 
-#### Slice 58 — Self-healing / hotfix + rollback paths
-- **Goal.** §25.2 self-healing/hotfix loop (patch branch → hotfix PR → staging hotfix A3+ → production hotfix approval/emergency-policy) reusing rollback (Slice 52) + emergency authority (Slice 54).
-- **Why now.** Needed after the incident workflow (S57) plus rollback (S52) + emergency authority (S54): remediation must remain autonomy/policy-governed (§25.2), so those governing dependencies must exist before automated healing acts.
-- **Spec grounding.** §25.2 (2381–2389); §26.6 "self-healing/hotfix loop".
-- **Files.** `app/ops/self_healing.py` reusing release/rollback/emergency-stop subsystems.
-- **Migration.** likely none (reuses deploy/rollback tables).
-- **Tenant/RLS/FK/audit/immutability.** RLS; every hotfix audited + evidence-tracked; production hotfix approval-gated.
-- **Tests.** Hotfix flow honors autonomy levels; production hotfix blocked without approval/emergency policy; rollback path valid.
-- **A5 gate(s) advanced.** None (operational).
-- **Must NOT claim.** Unapproved production hotfix.
-- **Exit.** Governed self-healing/hotfix + rollback; go-live operationally resilient.
+#### Slice 58 — Self-healing / hotfix + rollback paths — **MERGED AS NON-CLOSING (PR #106, `787ddd6`)**
+- **Goal (as shipped).** Record a tenant-owned **hotfix-intent evaluation** for an existing non-terminal incident: local A2 branch/PR plans under one locked policy snapshot, fail-closed production non-execution, and **current** Slice 52/54 rollback *context* when the complete gate-#10 conjunction holds. This does **not** close spec §26.6 or satisfy the original roadmap Slice 58 exit.
+- **Why now.** Needed after the incident workflow (S57) plus rollback (S52) + emergency authority (S54): remediation intent must remain autonomy/policy-governed (§25.2).
+- **Spec grounding.** §25.2 (2381–2389); §26.6 "self-healing/hotfix loop"; `.planning/SLICE-58-PLAN.md` v3 (OD-58-1…10 = Option A).
+- **Files.** `app/ops/{hotfix,hotfix_service,hotfix_ddl,hotfix_db_checks}.py`, `app/models/ops_hotfix.py`, `app/repositories/ops_hotfix.py`, additive `snapshot_decisions` / `coverage_with_run` / authorization match helpers, migration `0057_self_healing`.
+- **Migration.** `0057` (`down_revision=0056`) — three tenant-owned RLS ENABLE+FORCE append-only tables + additive `uq_era_id_project_tenant`. SELECT/INSERT only.
+- **Tenant/RLS/FK/audit/immutability.** Same-tenant/project composite bindings; latch `assert_project_not_stopped` before INSERT; child `policy_decision` must match `decision_snapshot`; seq-4 `plan_written` requires a same-run `patch_branch` plan; audit ids/status/counts/decisions only.
+- **Tests.** Policy-first seq 5–7; A2 ALLOW writes branch+PR; DENY/NEEDS_APPROVAL write zero plans; branch-before-PR DB guard; exact gate-10 run from one `coverage_with_run`; latch/stale/old-authorization refusals; no git/broker; scoped pyright 0. Verified suites: `make test` 1189 / 888 deselected; `make test-db` 888 / 1189 deselected.
+- **A5 gate(s) advanced.** None. A5 stays `slice54.v1`; readiness `slice20.v1`; go-live stays literal `False`.
+- **Must NOT claim.** Unapproved production hotfix; §26.6 closed; git/PR/staging/production/rollback execution; Slice 57 `deferred_slice58` rows upgraded into executed hotfixes.
+- **Exit.** **NOT SATISFIED.** Intent evaluation landed; residual §26.6 actuators (diagnosis, patch artifacts, git, GitHub PR, staging/production deploy, production rollback) stay **open**. Slice 59 must **not** treat self-healing as done.
 
 #### Slice 59 — Backup/restore validation + stabilization report + closure authority + continuous-improvement loop
 - **Goal.** §25.4 stabilization exit: backup/restore validated, stabilization report, closure authority sign-off (`stabilization_window_policy.yaml`), plus the §25.3 continuous-improvement loop (lessons, recurring-failure patterns, eval/prompt/domain-pack/oracle-gap updates, cost-forecast refresh).
-- **Why now.** Needed after operational signals/incidents exist (S56–S58): stabilization closure depends on *measured* exit criteria and a closure authority (§25.4), which can only be evaluated once the live signals and incident history are available.
+- **Why now.** Needed after operational signals/incidents exist (S56–S57) and hotfix-*intent* evidence exists (S58 non-closing). Stabilization closure depends on *measured* exit criteria and a closure authority (§25.4). **Do not treat Slice 58 as a closed self-healing loop.**
 - **Spec grounding.** §25.3 (2391–2402), §25.4 (2404–2424); §26.6 "continuous-improvement engine"; `stabilization_window_policy.yaml` (`exit_criteria`, `closure_approver`).
 - **Files.** `app/ops/stabilization.py` + `stabilization_windows` store + improvement-feedback writer.
-- **Migration.** Number from Alembic head at Slice-59 plan time (`0056` is occupied by Slice 57; do not guess). Tentative table: `stabilization_windows`; tenant-owned, RLS, append-only.
+- **Migration.** Number from Alembic head at Slice-59 plan time (`0057` is occupied by Slice 58; do not guess). Tentative table: `stabilization_windows`; tenant-owned, RLS, append-only.
 - **Tenant/RLS/FK/audit/immutability.** RLS; closure sign-off verified-identity + audited; report immutable.
 - **Tests.** Exit criteria enforced (zero open critical incidents N days, error budget, backup/restore validated, support handover, rollback valid); closure requires authority; failed exit ⇒ incident/improvement tickets + window extension (§25.4).
 - **A5 gate(s) advanced.** None (operational closure).
@@ -611,7 +611,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after the evidence-pack/release flow exists (S49–S50): external assurance *hardens* export for third-party auditors — it is not core go-live, so it follows the working release flow rather than preceding it (§28).
 - **Spec grounding.** §28 (2832–2914); §15.4; `evidence_pack_schema.json`.
 - **Files.** `app/release/evidence_export.py` (extends Slice 49); signing + auditor-access.
-- **Migration.** possibly `0057` — export/signature metadata; additive.
+- **Migration.** Number from Alembic head at Slice-60 plan time (`0057` is occupied by Slice 58). Additive export/signature metadata if needed.
 - **Tenant/RLS/FK/audit/immutability.** RLS; signed + immutable manifest; redaction enforced; no secret/tenant-private leakage (§28.1).
 - **Tests.** Schema-valid export; signature verifies; auditor access read-only + expiring; redaction applied.
 - **A5 gate(s) advanced.** None (externalization).
@@ -623,7 +623,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after real connectors/agents exist (Phase 3/4): a marketplace/connector/reference library must *generalize proven implementations*, so it follows them rather than preceding them (§26.7).
 - **Spec grounding.** §26.7; §20.3 (2039–2044); App. C (l.3012 connectors tested/permission-scoped, l.3010 blueprints security-reviewed).
 - **Files.** `app/ecosystem/*`; reuse connector + agent-registry subsystems.
-- **Migration.** additive catalog tables; `0058`.
+- **Migration.** Number from Alembic head at Slice-61 plan time. Additive catalog tables.
 - **Tenant/RLS/FK/audit/immutability.** Global catalogs (immutable versions, cf. blueprints); tenant usage RLS; audited.
 - **Tests.** Connector contract tests (§9.5.1 integration archetype); blueprint listing requires security review.
 - **A5 gate(s) advanced.** None.
@@ -635,7 +635,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after cost/ops/eval signals exist (S51/S56/S40): optimization and tenant-safe cross-project learning require real aggregate data to learn from (§17.5/§19), which only accrues once the system runs.
 - **Spec grounding.** §26.7; §17.5 (1724+); App. C (l.3009); §19 model routing.
 - **Files.** `app/ecosystem/cost_optimizer.py`, `app/ecosystem/learning.py`.
-- **Migration.** additive; `0059`.
+- **Migration.** Number from Alembic head at Slice-62 plan time. Additive.
 - **Tenant/RLS/FK/audit/immutability.** **Never reuse tenant content** (App. C l.3009) — only anonymized aggregate signals; audited.
 - **Tests.** Learning uses only allowed aggregate signals; no tenant-content crossover; cost routing improves on fixtures.
 - **A5 gate(s) advanced.** None.
@@ -647,7 +647,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Why now.** Needed after the core runtime/go-live system exists (S55+): enterprise administration *scales* an already-working system and adds no new go-live capability, so it is intentionally last (§26.7).
 - **Spec grounding.** §26.7; §17 multi-tenancy.
 - **Files.** `app/admin/*`.
-- **Migration.** additive admin tables; `0060`.
+- **Migration.** Number from Alembic head at Slice-63 plan time. Additive admin tables.
 - **Tenant/RLS/FK/audit/immutability.** RLS preserved; admin actions audited; no RLS bypass for runtime role.
 - **Tests.** RBAC; tenant-boundary preserved; admin actions audited.
 - **A5 gate(s) advanced.** None.
@@ -658,9 +658,9 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-22): Slice 57 is MERGED.** PR #104 landed as squash commit `037508c`; migration `0056_ops_incidents` is the Alembic head. UAID records a tenant-owned §25.2 incident ledger, writes a local ticket only when `decision_for(create_project_tasks)` is ALLOW, and records a presence-only §25.4 handover. A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal. A recorded incident is not live IR, Jira, log diagnosis, or a hotfix (`.planning/SLICE-57-PLAN.md`; `app/ops/incidents.py`; migration `0056`; PR #104).
+> **Current state (2026-08-22): Slice 58 is MERGED AS NON-CLOSING.** PR #106 landed as squash commit `787ddd6`; migration `0057_self_healing` is the Alembic head. UAID records a tenant-owned hotfix-intent evaluation (local A2 plans under one policy snapshot; staging/production/rollback not executed). Spec §26.6 “self-healing/hotfix loop” and the original Slice 58 exit remain **open**. A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-58-PLAN.md`; `app/ops/hotfix.py`; migration `0057`; PR #106).
 
-**Next planned: Slice 58 — self-healing / hotfix + rollback paths (§25.2), authorized by the standing 56–59 cadence.** Number the Slice-58 migration from Alembic head at plan time (`0056` is occupied). Owner ruling: no per-slice Salim gate; continue through Slice 63. HALT only on a genuine halt condition.
+**Next planned: Slice 59 — backup/restore validation + stabilization report + closure authority + continuous-improvement loop (§25.3 / §25.4), authorized by the standing 56–59 cadence.** Number the Slice-59 migration from Alembic head at plan time (`0057` is occupied). Slice 59 must **not** claim self-healing closed. Owner ruling: no per-slice Salim gate; continue through Slice 63. HALT only on a genuine halt condition.
 
 ---
 
@@ -816,12 +816,12 @@ Go-live is not the end state; spec §29 item 16 requires "Monitor and stabilize 
 | support tickets, incident reports | assessed as `not_observed` in S56; create/triage/handover in S57 (§25.1/§25.2) | S56 (assessment) + S57 (workflow) |
 | post-launch ticket creation | autonomous bug ticket (§25.2) | S57 |
 | support handover | handover record (§25.4) | S57 |
-| hotfix + rollback paths | self-healing/hotfix (§25.2) + rollback (S52) + emergency authority (S54) | S58 |
+| hotfix + rollback paths | self-healing/hotfix (§25.2) + rollback (S52) + emergency authority (S54) | S58 **intent evaluation only** (non-closing; residual actuators open) |
 | backup/restore validation | exit criterion (§25.4) | S59 |
 | stabilization report + closure authority | exit + closure sign-off (§25.4; `stabilization_window_policy.yaml`) | S59 |
 | continuous-improvement feedback loop | lessons/evals/prompts/oracle-gaps/cost-forecast (§25.3) | S59 |
 
-**Definition of "functional after go-live" (this roadmap's bar):** all eleven §25.1 classes *assessable* with honest `not_observed` where no live source exists (S56 — this is not adequate monitoring or proof production is live); incidents created/triaged/handed over (S57); governed self-healing/hotfix/rollback under autonomy policy (S58); stabilization window with enforced exit criteria, validated backup/restore, and authorized closure, feeding a continuous-improvement loop (S59). Until S57–S59 exist, the system can *pass* A5 gates but cannot *operate* post-launch.
+**Definition of "functional after go-live" (this roadmap's bar):** all eleven §25.1 classes *assessable* with honest `not_observed` where no live source exists (S56 — this is not adequate monitoring or proof production is live); incidents created/triaged/handed over (S57); governed self-healing/hotfix/rollback under autonomy policy (S58 — **intent evaluation merged; actuators still open**); stabilization window with enforced exit criteria, validated backup/restore, and authorized closure, feeding a continuous-improvement loop (S59). Until residual S58 actuators and S59 exist, the system can *pass* A5 gates but cannot *operate* post-launch as specified.
 
 ---
 
@@ -893,10 +893,10 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** Merged Slices 26–57 follow the actual migration chain through `0056`. Slice 58's migration number is taken from Alembic head at plan time — no replacement is assumed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
-- **No implementation hidden in planning.** This Rev-17 follow-up records Slice 57 as implemented under the standing 56–59 cadence. `.env` remains ignored and unstaged.
-- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` remain false; Slice 55 records only `decided_not_executed`; Slice 57 does not diagnose logs, write Jira, or execute a hotfix. Go-live remains unauthorized.
-- **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated.
-- **Residual uncertainty.** Far-term table shapes (S57–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Standing cadence covers Slices 56–59; HALT for Salim after Slice 59 before ecosystem slices 60–63. Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
+- **Assumptions labelled.** Merged Slices 26–58 follow the actual migration chain through `0057`. Slice 59's migration number is taken from Alembic head at plan time — no replacement is assumed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **No implementation hidden in planning.** This Rev-18 follow-up records Slice 58 as a **non-closing** hotfix-intent evaluation under the standing 56–59 cadence. `.env` remains ignored and unstaged.
+- **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` remain false; Slice 55 records only `decided_not_executed`; Slice 58 does not create git branches, open PRs, deploy, or roll back production, and does not close §26.6. Go-live remains unauthorized.
+- **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated. Residual §26.6 self-healing actuators remain open after Slice 58.
+- **Residual uncertainty.** Far-term table shapes (S59–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Owner ruling: no Salim gate at Slice 59; continue through Slice 63. Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
 
 — End of roadmap —

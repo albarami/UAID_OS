@@ -782,7 +782,28 @@ policy ALLOWED `create_project_tasks`. This is not live IR, not Jira, not Slice 
 byte-stable. Independent plan APPROVE (agent `dba3f159-6d5b-4077-b945-617d83e84383`); independent
 code APPROVE (agent `2045edfa-ebc4-4472-8fd2-0ad7a813492b`). Verified suites: `make test` 1172
 passing / 873 deselected; `make test-db` 873 passing / 1172 deselected. Owned pyright paths report
-0 errors. Merged via PR #104 (squash commit `037508c`). Next: Slice 58 under the standing cadence.**
+0 errors. Merged via PR #104 (squash commit `037508c`).**
+**Slice 58 adds the DETERMINISTIC HOTFIX-INTENT EVALUATION (does **not** close §26.6)
+(`app/ops/hotfix.py` + `hotfix_service.py` + `OpsHotfixRepository` + migration
+`0057_self_healing`, `ruleset_version="slice58.v1"`). Three tenant-owned append-only tables
+(`ops_self_healing_runs`, `ops_hotfix_plans`, `ops_self_healing_results`) plus additive
+`UNIQUE (id, project_id, tenant_id)` on `emergency_rollback_authorizations`. One locked
+`snapshot_decisions` policy snapshot; seq 5–7 are policy-first (DENY / NEEDS_APPROVAL outrank
+actuator absence); `deploy_production` stays §2.6 mandatory-approval. Gate-#10 currentness uses
+one `coverage_with_run` operation and the complete conjunction — not the stored
+`RollbackCoverage.gate_eligible` flag. Slice 57 seq 3–5 remain `deferred_slice58`.
+**Honesty crux:** UAID recorded a tenant-owned hotfix-intent evaluation for an existing
+non-terminal incident. Local branch/PR plan rows exist only on A2 ALLOW under that snapshot.
+No git branch, GitHub PR, staging/production deploy, or production rollback is executed. This
+does **not** close spec §26.6 or the roadmap Slice 58 exit; residual actuators stay open.
+Slice 59 must **not** treat self-healing as done. A5 stays `slice54.v1`; readiness stays
+`slice20.v1`; `can_go_live_autonomously` remains the literal `False`;
+`production_autonomy.py` / `readiness.py` / `control_loop.py` / `app/ops/db_checks.py` /
+`app/ops/incidents.py` are byte-stable. Independent plan APPROVE (agent
+`aab9e2d8-141e-4de2-b992-d0d6555cba97`); independent code APPROVE (same agent, after one
+REJECT). Verified suites: `make test` 1189 passing / 888 deselected; `make test-db` 888
+passing / 1189 deselected. Owned pyright paths report 0 errors. Merged via PR #106 (squash
+commit `787ddd6`). Next: Slice 59 under the standing cadence; do not claim self-healing closed.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1009,6 +1030,17 @@ the admin `app` role only.
   signature. Audit is counts/ids/status/decisions only — never summary/detail. **Honesty: a
   recorded incident is not live IR, Jira, log diagnosis, or a hotfix; no HTTP; no broker; A5/
   readiness/control-loop untouched.**
+- `app/ops/hotfix.py` — hotfix-intent evaluation (Slice 58, §25.2; **does not close §26.6**).
+  Pure contracts `slice58.hotfix_intent.v1` / `slice58.hotfix_plan.v1`. `hotfix_service.py`
+  public wrappers own READ COMMITTED `tenant_scope` (no caller `session`). `OpsHotfixRepository`
+  writes the three tenant-owned, RLS ENABLE+FORCE, append-only tables in migration `0057`
+  (SELECT/INSERT only) plus additive `uq_era_id_project_tenant`. One `snapshot_decisions`
+  load (`FOR SHARE`); seq 3–7 share a policy-first ladder; seq 4 `plan_written` requires a
+  same-run `patch_branch` plan. Gate #10 cites the exact run from `coverage_with_run` only
+  when the complete conjunction holds. Audit is ids/status/counts/decisions only — never
+  plan refs. **Honesty: this is recorded intent, not a healed system; no git/PR/deploy/
+  rollback execution; residual §26.6 actuators stay open; no HTTP; no broker; A5/readiness/
+  control-loop untouched.**
 - `app/intake/` — document intake sandbox (Slice 9, §16.3). `sandbox.py` (pure): treats
   customer documents as **untrusted data** — `scan(content)` is a **best-effort, deterministic**
   prompt-injection signal returning marker **identifiers** (never raw excerpts; no ML);
@@ -1452,11 +1484,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1172 passing (Docker-free); `make test-db` → 873 passing (DB-backed: tenancy,
+  **`make test` → 1189 passing (Docker-free); `make test-db` → 888 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1543,7 +1575,7 @@ the admin `app` role only.
   The DB admin `psql` is parameterized via `PSQL` (default: `docker exec … uaid_os-postgres-1`;
   CI overrides with `PSQL=psql` to use a service container over TCP).
 - `.github/workflows/ci.yml` — GitHub Actions CI on PRs + pushes to `main`: `uv sync`,
-  `ruff check`, scoped `pyright` on Slice 55/56 owned paths (mandatory; a slice that cannot
+  `ruff check`, scoped `pyright` on Slice 55/56/57/58 owned paths (mandatory; a slice that cannot
   run it logs a HANDOFF blocker), `make test` (Docker-free), and `make test-db` against a
   `postgres:16` **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real
   `.env`/secrets. Full-repo pyright currently reports 3051 pre-existing errors and is not
@@ -1562,8 +1594,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1172 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 873 passing
+make test                                  # Docker-free tests (no services) — 1189 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 888 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

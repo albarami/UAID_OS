@@ -262,6 +262,27 @@ seven frozen §25.2 prescriptions. It does **not** diagnose logs, write Jira, or
 - **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
   `can_go_live_autonomously=False`. Slice 56 `incident_reports` is not this workflow.
 
+## Hotfix-intent evaluation (Slice 58, §25.2 — does not close §26.6)
+`app/ops/hotfix.py` records a tenant-owned hotfix-intent evaluation for an existing
+non-terminal incident. It does **not** create a git branch, open a GitHub PR, deploy
+staging/production, or roll back production, and it does **not** close the self-healing loop:
+- **Plans:** local `ops_hotfix_plans` rows (`patch_branch` / `hotfix_pr`) are written only
+  when one locked `snapshot_decisions` policy snapshot ALLOWs the matching A2 action and
+  the plan-kind FK proves the pairing. Slice 57 seq 3–5 remain `deferred_slice58`.
+- **Policy-first:** DENY → `plan_denied_by_policy`; NEEDS_APPROVAL → `plan_needs_approval`;
+  only ALLOW reaches actuator-absence reasons. `deploy_production` is §2.6
+  mandatory-approval, so A4/A5 seq 6–7 are `plan_needs_approval`, not executed production.
+- **Rollback context:** current Slice 52/54 rows are cited only when the complete gate-#10
+  conjunction holds (from one `coverage_with_run` operation) and an authorization row
+  matches the selected binding, candidate, pack, run, and digest.
+- **Persistence:** migration `0057` adds three tenant-owned, RLS ENABLE+FORCE, append-only
+  tables plus additive `UNIQUE (id, project_id, tenant_id)` on
+  `emergency_rollback_authorizations`. Public wrappers own READ COMMITTED; audit is
+  ids/status/counts/decisions only.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`. Residual §26.6 actuators stay open. Slice 59 must
+  **not** treat self-healing as done.
+
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
 **instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and
