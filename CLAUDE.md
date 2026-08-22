@@ -725,7 +725,7 @@ Readiness remains `slice20.v1`; `can_go_live_autonomously` remains the literal `
 pass report. Slice 55 alone may change that control-loop boundary. Verified suites: `make test` 1083
 passing / 826 deselected and `make test-db` 826 passing / 1083 deselected. Merged via PR #98 (squash
 commit `84e955a`).**
-**Slice 55 (review-approved implementation on `feat/slice-55-control-loop`, pending merge) adds the
+**Slice 55 adds the
 BOUNDED §23.3 CONTROL LOOP THROUGH GO-LIVE EVALUATION — eight checkpointed stages consume only the
 six coordinator-allowlisted reads, preserve the Slice-54 emergency-before-cost boundary, re-audit
 the current evidence pack, derive staging observation only from A5 gate #10, persist an exact
@@ -742,7 +742,8 @@ history. Audit/checkpoints retain safe IDs/status/counts/digests only — never 
 evidence payload. Independent re-review verdict: APPROVE. Verified suites: `make test` 1150 passing /
 855 deselected; `make test-db` 855 passing / 1150 deselected. `pyright` is now installed: the Slice-55
 remediation files report 0 errors, while the full pre-existing repository currently reports 3051
-type errors (not hidden or reclassified).**
+type errors (not hidden or reclassified). Merged via PR #100 (squash commit `15d0e75`). The Slice
+55→56 boundary is `AWAITING SALIM GATE`; Slice 56 has not started.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1385,11 +1386,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1083 passing (Docker-free); `make test-db` → 826 passing (DB-backed: tenancy,
+  **`make test` → 1150 passing (Docker-free); `make test-db` → 855 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1492,8 +1493,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1083 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 826 passing
+make test                                  # Docker-free tests (no services) — 1150 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 855 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
