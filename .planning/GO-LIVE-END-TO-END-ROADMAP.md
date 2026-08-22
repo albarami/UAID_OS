@@ -568,7 +568,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** Production/staging deployed; gate #11 equals §25.1; adjacent stores are these classes; a threshold breach opened an incident; an eleven-row assessment is adequate monitoring or production readiness.
 - **Exit.** Eleven classes assessable; thresholds fire only from source-bound values. Incident workflow remains Slice 57.
 
-#### Slice 57 — Incident workflow + post-launch ticket creation + support handover — **MERGED (this PR)**
+#### Slice 57 — Incident workflow + post-launch ticket creation + support handover — **MERGED (PR #104, `037508c`)**
 - **Goal.** Record a tenant-owned §25.2 incident ledger, write a local bug ticket only when `decision_for(create_project_tasks)` is ALLOW, and record a presence-only §25.4 support handover.
 - **Why now.** Needed after monitoring (S56): detected post-launch issues need an incident / ticket / support-handover workflow (§25.2/§25.4) to become actionable rather than just observed signals.
 - **Spec grounding.** §25.2 (2377–2389), §25.4 (2417 `support_handover_complete`); §26.6 "incident workflow"; §23.4 `incidents`; `.planning/SLICE-57-PLAN.md` v3 (OD-57-1…10 = Option A).
@@ -658,7 +658,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-22): Slice 57 is implemented on `feat/slice-57-incidents`.** Migration `0056_ops_incidents` is the Alembic head. UAID records a tenant-owned §25.2 incident ledger, writes a local ticket only when `decision_for(create_project_tasks)` is ALLOW, and records a presence-only §25.4 handover. A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal. A recorded incident is not live IR, Jira, log diagnosis, or a hotfix (`.planning/SLICE-57-PLAN.md`; `app/ops/incidents.py`; migration `0056`).
+> **Current state (2026-08-22): Slice 57 is MERGED.** PR #104 landed as squash commit `037508c`; migration `0056_ops_incidents` is the Alembic head. UAID records a tenant-owned §25.2 incident ledger, writes a local ticket only when `decision_for(create_project_tasks)` is ALLOW, and records a presence-only §25.4 handover. A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal. A recorded incident is not live IR, Jira, log diagnosis, or a hotfix (`.planning/SLICE-57-PLAN.md`; `app/ops/incidents.py`; migration `0056`; PR #104).
 
 **Next planned: Slice 58 — self-healing / hotfix + rollback paths (§25.2), authorized by the standing 56–59 cadence.** Number the Slice-58 migration from Alembic head at plan time (`0056` is occupied). Owner ruling: no per-slice Salim gate; continue through Slice 63. HALT only on a genuine halt condition.
 
