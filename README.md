@@ -224,6 +224,27 @@ the cost guard remains opt-in per run.
 This slice proves a bounded decision snapshot, not deployment, production authorization, a human
 signature, or future evidence currentness (spec §§2.6, 23.3, 24.1).
 
+## Post-launch ops-signal assessment (Slice 56, §25.1)
+`app/ops/` assesses all eleven named §25.1 classes for one project and persists one complete run
+with exactly eleven children. It does **not** claim production is live or that monitoring is
+adequate:
+- **Ledger-observed (default):** `job_failures` is a distinct UAID-runtime `run_steps.run_failed`
+  count (no default breach); `cost_anomalies` compares ops-owned spend (`occurred_at < as_of`)
+  against the recorded budget via pure `evaluate_stop`. Missing budget is `not_evaluable`
+  (`cost_no_budget`), not a breach.
+- **Not observed (default):** `uptime`, `error_rates`, `latency`, `security_alerts`,
+  `user_journey_failures`, `data_quality_issues`, `model_output_drift`, `support_tickets`,
+  `incident_reports`. Empty-project counters are exactly `2 / 0 / 9`.
+- **Caller samples:** optional overlays for five sampleable classes only, stamped
+  `caller_supplied_unverified`. Thresholds evaluate only when source-bound.
+- **Persistence:** migration `0055` adds tenant-owned, RLS ENABLE+FORCE, append-only
+  `ops_observation_runs` + `ops_signal_results`. Public `collect_ops_signals` owns REPEATABLE
+  READ and `transaction_timestamp()` `as_of` (no caller session/as_of). Audit records
+  counts/ids/digests only.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`. Slice 31 alerts-active is not this signal set. Incident
+  workflow remains Slice 57.
+
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
 **instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and

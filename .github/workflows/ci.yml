@@ -58,6 +58,9 @@ jobs:
       - name: Lint
         run: uv run ruff check .
 
+      - name: Typecheck owned Slice 55/56 paths
+        run: uv run pyright app/ops app/models/ops_signal.py app/repositories/ops_signals.py tests/test_ops_signals.py tests/test_ops_signals_db.py tests/test_ops_signals_checks.py tests/test_ops_signals_migrate.py tests/ops_signals_support.py app/runtime/control_loop.py app/runtime/checkpointer.py app/repositories/go_live_decisions.py app/release/go_live_decision.py tests/test_control_loop_owner_retry.py tests/test_control_loop_owner_review.py
+
       - name: Docker-free tests
         run: make test
 
