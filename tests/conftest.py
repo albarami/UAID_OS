@@ -120,15 +120,20 @@ def postgres_ready(_schema) -> None:
 
 
 @pytest_asyncio.fixture
-async def db_session(_schema) -> AsyncSession:
+async def db_session(_schema, request) -> AsyncSession:
     """A session joined to an external transaction; rolled back after each test.
 
     Connects with ADMIN creds (`app`). This bypasses RLS by design — it backs the
     Slice 1 app-layer tenancy tests (INV-1..4). RLS (INV-5) is proven separately
     via the `uaid_app` runtime fixtures below.
+
+    Tests marked ``serializable`` open the outer transaction at SERIALIZABLE so
+    Slice 55 evaluate/finalize proofs match OD-55-6.
     """
     engine = create_async_engine(TEST_ADMIN_URL)
     conn = await engine.connect()
+    if request.node.get_closest_marker("serializable"):
+        await conn.execution_options(isolation_level="SERIALIZABLE")
     trans = await conn.begin()
     await conn.begin_nested()
     session = AsyncSession(bind=conn, expire_on_commit=False)

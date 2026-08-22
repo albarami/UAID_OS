@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 import json
 import uuid
@@ -26,6 +27,7 @@ from app.release.go_live_decision import (
     decision_eligible,
     derive_decision,
     reject_caller_truth_fields,
+    validate_event_transition,
     validate_exact_gate_set,
 )
 from app.runtime.control_loop import (
@@ -41,7 +43,7 @@ def _gates(*, failed_gate: int | None = None) -> tuple[GateSnapshot, ...]:
         GateSnapshot(
             gate_number=number,
             gate_name=f"gate_{number}",
-            status="failed" if number == failed_gate else "passed",
+            status="insufficient_evidence" if number == failed_gate else "passed",
             reason="test_reason",
             safe_context_digest="sha256:" + f"{number:064x}",
         )
@@ -148,6 +150,46 @@ def test_digests_are_canonical_and_materially_sensitive() -> None:
     changed = _inputs(binding_ids={"a": "1", "b": "3"})
     assert canonical_binding_digest(first) == canonical_binding_digest(reordered)
     assert canonical_binding_digest(first) != canonical_binding_digest(changed)
+
+
+def test_failed_is_not_an_allowed_a5_gate_status() -> None:
+    with pytest.raises(ValueError, match="gate_status_invalid"):
+        GateSnapshot(1, "gate_1", "failed", "reason", "sha256:" + "0" * 64)
+
+
+def test_event_transitions_are_exact_and_refuse_completed() -> None:
+    validate_event_transition(
+        None, None, "read_project_state", "capability_unavailable_not_executed"
+    )
+    with pytest.raises(ValueError, match="control_loop_event_transition_invalid"):
+        validate_event_transition(None, None, "read_project_state", "completed")
+    with pytest.raises(ValueError, match="control_loop_event_transition_invalid"):
+        validate_event_transition(
+            "read_project_state",
+            "capability_unavailable_not_executed",
+            "evaluate_a5_gate",
+            "a5_evaluation_completed",
+        )
+    with pytest.raises(ValueError, match="control_loop_event_transition_invalid"):
+        validate_event_transition(
+            "finalize_go_live_decision",
+            "decision_recorded",
+            "read_project_state",
+            "capability_unavailable_not_executed",
+        )
+    validate_event_transition(
+        "read_project_state",
+        "paused_cost_stop",
+        "read_project_state",
+        "capability_unavailable_not_executed",
+    )
+    with pytest.raises(ValueError, match="control_loop_event_transition_invalid"):
+        validate_event_transition(
+            "read_project_state",
+            "paused_cost_stop",
+            "inspect_existing_work_evidence",
+            "capability_unavailable_not_executed",
+        )
 
 
 @pytest.mark.parametrize(
@@ -579,7 +621,8 @@ async def test_control_loop_run_and_event_are_immutable_and_linear(db_session) -
                 "INSERT INTO control_loop_events "
                 "(tenant_id,project_id,control_loop_run_id,ordinal,previous_event_id,"
                 "stage_code,outcome_code) "
-                "VALUES (:tenant,:project,:loop,1,NULL,'read_project_state','completed') "
+                "VALUES (:tenant,:project,:loop,1,NULL,'read_project_state',"
+                "'capability_unavailable_not_executed') "
                 "RETURNING id"
             ),
             {"tenant": tenant, "project": project, "loop": loop},
@@ -602,7 +645,8 @@ async def test_control_loop_run_and_event_are_immutable_and_linear(db_session) -
                     "INSERT INTO control_loop_events "
                     "(tenant_id,project_id,control_loop_run_id,ordinal,previous_event_id,"
                     "stage_code,outcome_code) VALUES "
-                    "(:tenant,:project,:loop,3,:root,'evaluate_a5_gate','completed')"
+                    "(:tenant,:project,:loop,3,:root,'evaluate_a5_gate',"
+                    "'a5_evaluation_completed')"
                 ),
                 {"tenant": tenant, "project": project, "loop": loop, "root": root},
             )
@@ -662,6 +706,7 @@ async def loop_ctx(db_session):
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_repository_persists_exact_negative_evaluation_without_a_decision(
     loop_ctx, db_session
 ) -> None:
@@ -680,12 +725,12 @@ async def test_repository_persists_exact_negative_evaluation_without_a_decision(
     first = await repo.append_event(
         control_loop_run_id=cycle.id,
         stage_code="read_project_state",
-        outcome_code="completed",
+        outcome_code="capability_unavailable_not_executed",
     )
     second = await repo.append_event(
         control_loop_run_id=cycle.id,
-        stage_code="evaluate_a5_gate",
-        outcome_code="blocked_evidence_or_authority",
+        stage_code="inspect_existing_work_evidence",
+        outcome_code="capability_unavailable_not_executed",
     )
     assert first.ordinal == 1 and second.ordinal == 2
     assert second.previous_event_id == first.id
@@ -757,6 +802,7 @@ async def test_cycle_start_is_idempotent_but_material_conflicts_fail_closed(
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_real_checkpointed_loop_honors_cost_stop_before_first_stage(
     loop_ctx, db_session
 ) -> None:
@@ -795,6 +841,7 @@ async def test_real_checkpointed_loop_honors_cost_stop_before_first_stage(
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_infrastructure_exception_fails_safely_without_leaking_text(
     loop_ctx, db_session, monkeypatch
 ) -> None:
@@ -816,19 +863,20 @@ async def test_infrastructure_exception_fails_safely_without_leaking_text(
 
     monkeypatch.setattr(ControlLoopCapabilities, "read_preapproval_coverage", fail_coverage)
     with pytest.raises(GoLiveDecisionRepositoryError, match="control_loop_infrastructure_failure"):
-        await start_control_loop(
-            db_session,
-            loop_ctx["context"],
-            project_id=loop_ctx["project"],
-            project_run_id=loop_ctx["run"],
-            idempotency_key="infrastructure-failure-cycle",
-        )
+        async with db_session.begin_nested():
+            await start_control_loop(
+                db_session,
+                loop_ctx["context"],
+                project_id=loop_ctx["project"],
+                project_run_id=loop_ctx["run"],
+                idempotency_key="infrastructure-failure-cycle",
+            )
     assert (
         await db_session.scalar(
             text("SELECT status FROM project_runs WHERE id=:run"),
             {"run": loop_ctx["run"]},
         )
-        == "failed"
+        == "created"
     )
     audit_text = json.dumps(
         (
@@ -847,8 +895,7 @@ async def test_infrastructure_exception_fails_safely_without_leaking_text(
     assert sentinel not in audit_text
 
 
-@pytest_asyncio.fixture
-async def decision_ready_ctx(db_session):
+async def _seed_decision_ready(session):
     from app.release.emergency_control_service import EmergencyControlService
     from app.release.production_approval_service import ProductionApprovalService
     from app.repositories.autonomy_policies import AutonomyPolicyRepository
@@ -857,24 +904,24 @@ async def decision_ready_ctx(db_session):
     from app.repositories.production_preapprovals import ProductionPreapprovalRepository
     from tests.test_production_preapprovals import production_preapproval_ctx
 
-    seeded = await production_preapproval_ctx.__wrapped__(db_session)
+    seeded = await production_preapproval_ctx.__wrapped__(session)
     requested = await ProductionApprovalService(
-        db_session, seeded["requester_context"]
+        session, seeded["requester_context"]
     ).request(project_id=seeded["project"], idempotency_key="slice55-request")
     approved = await ProductionApprovalService(
-        db_session, seeded["approver_context"]
+        session, seeded["approver_context"]
     ).approve(
         project_id=seeded["project"],
         request_id=requested.request_id,
         idempotency_key="slice55-approve",
     )
-    await EmergencyControlService(db_session, seeded["approver_context"]).bind(
+    await EmergencyControlService(session, seeded["approver_context"]).bind(
         project_id=seeded["project"], idempotency_key="slice55-emergency-bind"
     )
-    await db_session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
-    await db_session.execute(text("SET CONSTRAINTS ALL DEFERRED"))
+    await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    await session.execute(text("SET CONSTRAINTS ALL DEFERRED"))
     project_run = (
-        await db_session.execute(
+        await session.execute(
             text(
                 "INSERT INTO project_runs (tenant_id,project_id,status) "
                 "VALUES (:tenant,:project,'created') RETURNING id"
@@ -883,15 +930,15 @@ async def decision_ready_ctx(db_session):
         )
     ).scalar_one()
     preapproval = await ProductionPreapprovalRepository(
-        db_session, seeded["requester_context"]
+        session, seeded["requester_context"]
     ).coverage_for_project(seeded["project"])
     emergency = await EmergencyControlRepository(
-        db_session, seeded["requester_context"]
+        session, seeded["requester_context"]
     ).status(seeded["project"])
     policy = await AutonomyPolicyRepository(
-        db_session, seeded["requester_context"]
+        session, seeded["requester_context"]
     ).decision_for(seeded["project"], "deploy_production")
-    repo = GoLiveDecisionRepository(db_session, seeded["requester_context"])
+    repo = GoLiveDecisionRepository(session, seeded["requester_context"])
     binding_ids, expiry = await repo.load_binding_snapshot(
         project_id=seeded["project"],
         request_id=preapproval.request_id,
@@ -911,7 +958,13 @@ async def decision_ready_ctx(db_session):
     }
 
 
+@pytest_asyncio.fixture
+async def decision_ready_ctx(db_session):
+    return await _seed_decision_ready(db_session)
+
+
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_positive_decisions_are_fixed_hard_false_and_form_one_verified_chain(
     decision_ready_ctx, db_session
 ) -> None:
@@ -920,6 +973,8 @@ async def test_positive_decisions_are_fixed_hard_false_and_form_one_verified_cha
     from app.repositories.go_live_decisions import GoLiveDecisionRepository
 
     ctx = decision_ready_ctx
+    isolation = await db_session.scalar(text("SHOW transaction_isolation"))
+    assert isolation == "serializable"
     sentinel = "SLICE55-SENTINEL-SECRET-DO-NOT-PERSIST"
     assert ctx["preapproval"].gate_eligible is True
     assert ctx["policy"].value == "needs_approval"
@@ -949,11 +1004,6 @@ async def test_positive_decisions_are_fixed_hard_false_and_form_one_verified_cha
             project_id=ctx["project"],
             project_run_id=run,
             idempotency_key=f"positive-cycle-{index}-{sentinel}",
-        )
-        await repo.append_event(
-            control_loop_run_id=cycle.id,
-            stage_code="finalize_go_live_decision",
-            outcome_code="decision_recorded",
         )
         evaluation = await repo.record_evaluation(
             control_loop_run_id=cycle.id,
@@ -994,6 +1044,7 @@ async def test_positive_decisions_are_fixed_hard_false_and_form_one_verified_cha
         default=str,
     )
     assert sentinel not in audit_text
+    assert audit_text.count("control_loop.decision_recorded") == 2
     for forbidden in (
         "principal_subject",
         "policy_json",
@@ -1011,6 +1062,12 @@ async def test_positive_decisions_are_fixed_hard_false_and_form_one_verified_cha
         "go_live_evaluation_gate_results",
         "go_live_decisions",
     ):
+        count = await db_session.scalar(
+            text(f"SELECT count(*) FROM {table} WHERE project_id=:project"),  # noqa: S608
+            {"project": ctx["project"]},
+        )
+        if count == 0:
+            continue
         with pytest.raises(DBAPIError, match="append-only"):
             async with db_session.begin_nested():
                 await db_session.execute(
@@ -1020,6 +1077,7 @@ async def test_positive_decisions_are_fixed_hard_false_and_form_one_verified_cha
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_cost_paused_loop_resumes_from_checkpoint_and_blocks_without_evidence(
     loop_ctx, db_session
 ) -> None:
@@ -1068,6 +1126,29 @@ async def test_cost_paused_loop_resumes_from_checkpoint_and_blocks_without_evide
     )
     assert resumed["outcome_code"] == "blocked_evidence_or_authority"
     assert resumed["last_completed_stage"] == "finalize_go_live_decision"
+    from app.runtime.checkpointer import UAIDCheckpointer
+    from app.runtime.control_loop import (
+        CHECKPOINT_FORBIDDEN_KEYS,
+        CHECKPOINT_SAFE_KEYS,
+        _config,
+    )
+
+    persisted = set(resumed) - {"_n", "_checkpoint_id", "_checkpoint_ns"}
+    assert persisted <= CHECKPOINT_SAFE_KEYS
+    assert CHECKPOINT_FORBIDDEN_KEYS.isdisjoint(resumed)
+    checkpointer = UAIDCheckpointer(
+        db_session,
+        loop_ctx["context"],
+        project_id=loop_ctx["project"],
+        run_id=loop_ctx["run"],
+    )
+    snapshot = await checkpointer.aget_tuple(
+        _config(loop_ctx["run"], control_loop_run_id=cycle_id)
+    )
+    assert snapshot is not None
+    channel_values = snapshot.checkpoint["channel_values"]
+    assert CHECKPOINT_FORBIDDEN_KEYS.isdisjoint(channel_values)
+    assert set(channel_values) <= CHECKPOINT_SAFE_KEYS | {"_n"}
     assert (
         await db_session.execute(
             text("SELECT status FROM project_runs WHERE id=:run"),
@@ -1092,6 +1173,7 @@ async def test_cost_paused_loop_resumes_from_checkpoint_and_blocks_without_evide
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_newer_negative_cycle_prevents_fallback_to_older_decision(
     decision_ready_ctx, db_session
 ) -> None:
@@ -1150,6 +1232,7 @@ async def test_newer_negative_cycle_prevents_fallback_to_older_decision(
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_policy_change_between_evaluation_and_finalize_refuses(
     decision_ready_ctx, db_session
 ) -> None:
@@ -1200,6 +1283,170 @@ async def test_policy_change_between_evaluation_and_finalize_refuses(
 
 
 @pytest.mark.db
+@pytest.mark.serializable
+async def test_finalize_decision_and_audit_roll_back_together(
+    decision_ready_ctx, db_session
+) -> None:
+    from app.release.production_autonomy import GateResult, ProductionAutonomyReport
+    from app.repositories.go_live_decisions import GoLiveDecisionRepository
+
+    ctx = decision_ready_ctx
+    repo = GoLiveDecisionRepository(db_session, ctx["requester_context"])
+    cycle = await repo.start_cycle(
+        project_id=ctx["project"],
+        project_run_id=ctx["project_run"],
+        idempotency_key="atomic-finalize",
+    )
+    evaluation = await repo.record_evaluation(
+        control_loop_run_id=cycle.id,
+        report=ProductionAutonomyReport(
+            project_id=str(ctx["project"]),
+            gates=[
+                GateResult(number, f"gate_{number}", "passed", "test_passed", {})
+                for number in range(1, 14)
+            ],
+        ),
+        preapproval_gate_eligible=True,
+        policy_decision="needs_approval",
+        emergency_latch_active=False,
+        binding_ids=ctx["binding_ids"],
+        preapproval_expires_at=ctx["expiry"],
+    )
+    audits_before = await db_session.scalar(
+        text(
+            "SELECT count(*) FROM audit_logs "
+            "WHERE tenant_id=:tenant AND action='control_loop.decision_recorded'"
+        ),
+        {"tenant": ctx["tenant"]},
+    )
+    async with db_session.begin_nested() as nested:
+        decision = await repo.finalize_decision(evaluation.id)
+        assert decision.status == "decided_not_executed"
+        assert (
+            await db_session.scalar(
+                text(
+                    "SELECT count(*) FROM go_live_decisions WHERE evaluation_id=:evaluation"
+                ),
+                {"evaluation": evaluation.id},
+            )
+            == 1
+        )
+        await nested.rollback()
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM go_live_decisions WHERE evaluation_id=:evaluation"),
+            {"evaluation": evaluation.id},
+        )
+        == 0
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM audit_logs "
+                "WHERE tenant_id=:tenant AND action='control_loop.decision_recorded'"
+            ),
+            {"tenant": ctx["tenant"]},
+        )
+        == audits_before
+    )
+
+
+@pytest.mark.db
+async def test_two_connection_source_mutation_refuses_stale_finalize(admin_engine) -> None:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.release.production_autonomy import GateResult, ProductionAutonomyReport
+    from app.repositories.go_live_decisions import (
+        GoLiveDecisionRepository,
+        GoLiveDecisionRepositoryError,
+    )
+    from app.tenancy import TenantContext
+
+    async with admin_engine.connect() as seed_conn:
+        await seed_conn.execution_options(isolation_level="SERIALIZABLE")
+        async with seed_conn.begin():
+            session = AsyncSession(bind=seed_conn, expire_on_commit=False)
+            ctx = await _seed_decision_ready(session)
+            repo = GoLiveDecisionRepository(session, ctx["requester_context"])
+            cycle = await repo.start_cycle(
+                project_id=ctx["project"],
+                project_run_id=ctx["project_run"],
+                idempotency_key="source-mutation-race",
+            )
+            evaluation = await repo.record_evaluation(
+                control_loop_run_id=cycle.id,
+                report=ProductionAutonomyReport(
+                    project_id=str(ctx["project"]),
+                    gates=[
+                        GateResult(number, f"gate_{number}", "passed", "test_passed", {})
+                        for number in range(1, 14)
+                    ],
+                ),
+                preapproval_gate_eligible=True,
+                policy_decision="needs_approval",
+                emergency_latch_active=False,
+                binding_ids=ctx["binding_ids"],
+                preapproval_expires_at=ctx["expiry"],
+            )
+            evaluation_id = evaluation.id
+            tenant_id = ctx["tenant"]
+            project_id = ctx["project"]
+            policy_id = uuid.UUID(ctx["binding_ids"]["autonomy_policy_id"])
+            context = TenantContext(ctx["tenant"], actor=ctx["requester_context"].actor)
+
+    started = asyncio.Event()
+    mutated = asyncio.Event()
+
+    async def mutate_policy() -> None:
+        await started.wait()
+        async with admin_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "UPDATE autonomy_policies SET autonomy_level=3,"
+                    "updated_at=clock_timestamp() WHERE id=:policy"
+                ),
+                {"policy": policy_id},
+            )
+        mutated.set()
+
+    async def finalize_after_snapshot() -> None:
+        async with admin_engine.connect() as conn:
+            await conn.execution_options(isolation_level="SERIALIZABLE")
+            session = AsyncSession(bind=conn, expire_on_commit=False)
+            async with session.begin():
+                await session.execute(
+                    text("SELECT set_config('app.current_tenant',:tenant,true)"),
+                    {"tenant": str(tenant_id)},
+                )
+                isolation = await session.scalar(text("SHOW transaction_isolation"))
+                assert isolation == "serializable"
+                await session.execute(
+                    text("SELECT id FROM go_live_evaluations WHERE id=:evaluation"),
+                    {"evaluation": evaluation_id},
+                )
+                started.set()
+                await mutated.wait()
+                repo = GoLiveDecisionRepository(session, context)
+                await repo.finalize_decision(evaluation_id)
+
+    results = await asyncio.gather(
+        finalize_after_snapshot(), mutate_policy(), return_exceptions=True
+    )
+    errors = [item for item in results if isinstance(item, Exception)]
+    assert errors
+    assert all(
+        isinstance(item, (GoLiveDecisionRepositoryError, DBAPIError)) for item in errors
+    )
+    async with admin_engine.connect() as conn:
+        count = await conn.scalar(
+            text("SELECT count(*) FROM go_live_decisions WHERE project_id=:project"),
+            {"project": project_id},
+        )
+    assert count == 0
+
+
+@pytest.mark.db
+@pytest.mark.serializable
 async def test_emergency_activation_between_evaluation_and_finalize_refuses(
     decision_ready_ctx, db_session
 ) -> None:
@@ -1247,6 +1494,7 @@ async def test_emergency_activation_between_evaluation_and_finalize_refuses(
 
 
 @pytest.mark.db
+@pytest.mark.serializable
 async def test_preapproval_revocation_between_evaluation_and_finalize_refuses(
     decision_ready_ctx, db_session
 ) -> None:

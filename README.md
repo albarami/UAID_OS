@@ -196,9 +196,33 @@ broker/ledger-mediated, and nodes do no hidden I/O.
 - **Cost STOP→pause** — the engine consumes the Slice‑7 `evaluate` stop signal **before the next node**
   (at a checkpoint boundary); STOP ⇒ `running→paused` (`cost_paused`) without executing the node.
 
-**Still skeleton:** no tool-result persistence, no §23.3 control loop, no distributed workers; the cost
-guard is opt-in per run; LangGraph's native `interrupt()` is not used (the gate decision lives in the
-audited, RLS-backed approval engine).
+**Still deferred:** tool-result persistence, distributed workers, and LangGraph native `interrupt()`;
+the cost guard remains opt-in per run.
+
+## Bounded §23.3 control loop (Slice 55)
+`app/runtime/control_loop.py` adds an eight-stage, checkpointed control cycle through
+`evaluate_go_live_gate()` only (spec §23.3). It deliberately has no production-deploy edge:
+- **Honest observations:** unavailable build/PR/review actions are recorded as
+  `capability_unavailable_not_executed`; staging is called observed only when the allowlisted A5
+  evaluator reports gate #10 `passed`, otherwise it is `staging_evidence_not_observed`.
+- **Guarded execution:** every stage rechecks the Slice-54 emergency latch before the Slice-7 cost
+  STOP. Emergency/cost stops pause before stage work.
+- **Current decision boundary:** one SERIALIZABLE cycle persists exactly thirteen normalized A5 gate
+  results, rechecks current pre-approval/policy/latch bindings, and may append only the fixed
+  `decided_not_executed` decision. `A5_RULESET_VERSION` remains `slice54.v1`;
+  `can_go_live_autonomously` remains literal `False`.
+- **Retry honesty:** only owned start/resume wrappers retry PostgreSQL `40001`/`40P01`, at most five
+  fresh transactions with bounded jittered backoff. Other runtime failures are recorded safely in a
+  separate committed transaction after the failed transaction rolls back.
+- **Resume:** a cost/emergency pause resumes its cycle-specific checkpoint; a blocked run requires
+  the exact current Slice-53 production approval to be approved, then starts a fresh cycle,
+  checkpoint namespace, event chain, and A5 evaluation. Prior terminal rows remain immutable.
+- **Persistence:** migration `0054` adds five tenant-owned, RLS ENABLE+FORCE, append-only tables for
+  cycles, events, evaluations, gate results, and hash-chained non-executing decisions. Audit records
+  IDs/status/counts only; no raw gate context, policy body, evidence payload, or secret is stored.
+
+This slice proves a bounded decision snapshot, not deployment, production authorization, a human
+signature, or future evidence currentness (spec §§2.6, 23.3, 24.1).
 
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is

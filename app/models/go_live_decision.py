@@ -256,7 +256,7 @@ class GoLiveEvaluationGateResult(Base):
         ),
         CheckConstraint("gate_number BETWEEN 1 AND 13 AND ordinal BETWEEN 1 AND 13", name="numbers"),
         CheckConstraint(
-            "status IN ('passed','failed','insufficient_evidence','no_evidence_source')",
+            "status IN ('passed','insufficient_evidence','no_evidence_source')",
             name="status",
         ),
         CheckConstraint(

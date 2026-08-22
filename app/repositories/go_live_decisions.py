@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import random
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timezone
+from typing import TypeVar
 
 from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -32,13 +35,51 @@ from app.release.go_live_decision import (
     GO_LIVE_EVALUATION_CONTRACT_VERSION,
     GateSnapshot,
     canonical_gate_digest,
+    validate_event_transition,
 )
 from app.release.production_autonomy import A5_RULESET_VERSION, ProductionAutonomyReport
-from app.tenancy import TenantContext, TenantScopedRepository
+from app.tenancy import TenantContext, TenantScopedRepository, tenant_scope
 
 
 class GoLiveDecisionRepositoryError(ValueError):
     """Safe, code-owned repository failure."""
+
+
+RETRYABLE_TRANSACTION_SQLSTATES = frozenset({"40001", "40P01"})
+SERIALIZABLE_MAX_ATTEMPTS = 5
+RETRY_BACKOFF_BASE_SECONDS = 0.005
+RETRY_BACKOFF_JITTER_SECONDS = 0.003
+_WorkResult = TypeVar("_WorkResult")
+
+
+def transaction_sqlstate(exc: BaseException) -> str | None:
+    """Return a nested PostgreSQL SQLSTATE without changing the exception."""
+    pending: list[BaseException] = [exc]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in visited:
+            continue
+        visited.add(id(current))
+        for attribute in ("sqlstate", "pgcode"):
+            value = getattr(current, attribute, None)
+            if isinstance(value, str):
+                return value
+        for attribute in ("orig", "__cause__", "__context__"):
+            nested = getattr(current, attribute, None)
+            if isinstance(nested, BaseException):
+                pending.append(nested)
+    return None
+
+
+def is_retryable_transaction_error(exc: BaseException) -> bool:
+    """Return whether ``exc`` carries a retryable PostgreSQL transaction code."""
+    return transaction_sqlstate(exc) in RETRYABLE_TRANSACTION_SQLSTATES
+
+
+def _retry_delay_seconds(attempt: int) -> float:
+    exponential = RETRY_BACKOFF_BASE_SECONDS * (2**attempt)
+    return exponential + random.uniform(0.0, RETRY_BACKOFF_JITTER_SECONDS)
 
 
 def _hash_bytes(value: bytes) -> str:
@@ -103,6 +144,31 @@ def _evaluation_binding_digest(
     return _hash_text("|".join(fields))
 
 
+async def run_serializable_tenant_work(
+    context: TenantContext,
+    work: Callable[[AsyncSession], Awaitable[_WorkResult]],
+) -> _WorkResult:
+    """Run ``work(session)`` in a fresh SERIALIZABLE tenant transaction.
+
+    Serialization failures retry the complete transaction, not a savepoint.
+    """
+    for attempt in range(SERIALIZABLE_MAX_ATTEMPTS):
+        try:
+            async with tenant_scope(context, isolation_level="SERIALIZABLE") as session:
+                isolation = await session.scalar(text("SHOW transaction_isolation"))
+                if isolation != "serializable":
+                    raise GoLiveDecisionRepositoryError("serializable_isolation_required")
+                return await work(session)
+        except Exception as exc:
+            if (
+                not is_retryable_transaction_error(exc)
+                or attempt + 1 >= SERIALIZABLE_MAX_ATTEMPTS
+            ):
+                raise
+            await asyncio.sleep(_retry_delay_seconds(attempt))
+    raise AssertionError("bounded retry loop exhausted without returning or raising")
+
+
 class GoLiveDecisionRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession, context: TenantContext):
         super().__init__(session, context, ControlLoopRun)
@@ -159,6 +225,55 @@ class GoLiveDecisionRepository(TenantScopedRepository):
             )
         return row
 
+    async def require_serializable(self) -> None:
+        """Fail closed unless this transaction is already SERIALIZABLE."""
+        isolation = await self.session.scalar(text("SHOW transaction_isolation"))
+        if isolation != "serializable":
+            raise GoLiveDecisionRepositoryError("serializable_isolation_required")
+
+    async def require_evaluation(self, evaluation_id: uuid.UUID) -> GoLiveEvaluation:
+        row = (
+            await self.session.execute(
+                select(GoLiveEvaluation).where(
+                    GoLiveEvaluation.id == evaluation_id,
+                    GoLiveEvaluation.tenant_id == self.context.tenant_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise GoLiveDecisionRepositoryError("evaluation_unavailable")
+        return row
+
+    def preview_evaluation_digests(
+        self,
+        *,
+        report: ProductionAutonomyReport,
+        preapproval_gate_eligible: bool,
+        policy_decision: str,
+        emergency_latch_active: bool,
+        binding_ids: Mapping[str, str],
+    ) -> dict[str, str]:
+        """Derive current digests without persisting an evaluation row."""
+        snapshots = tuple(
+            GateSnapshot(
+                gate_number=gate.number,
+                gate_name=gate.gate,
+                status=gate.status,
+                reason=gate.reason,
+                safe_context_digest=_context_digest(gate.context),
+            )
+            for gate in report.gates
+        )
+        return {
+            "gate_result_digest": canonical_gate_digest(snapshots),
+            "decision_binding_digest": _evaluation_binding_digest(
+                binding_ids=binding_ids,
+                preapproval_gate_eligible=preapproval_gate_eligible,
+                policy_decision=policy_decision,
+                emergency_latch_active=emergency_latch_active,
+            ),
+        }
+
     async def _require_cycle(self, cycle_id: uuid.UUID) -> ControlLoopRun:
         row = (
             await self.session.execute(
@@ -193,6 +308,15 @@ class GoLiveDecisionRepository(TenantScopedRepository):
                 .with_for_update()
             )
         ).scalar_one_or_none()
+        try:
+            validate_event_transition(
+                prior.stage_code if prior is not None else None,
+                prior.outcome_code if prior is not None else None,
+                stage_code,
+                outcome_code,
+            )
+        except ValueError as exc:
+            raise GoLiveDecisionRepositoryError("control_loop_event_transition_invalid") from exc
         ordinal = 1 if prior is None else prior.ordinal + 1
         if ordinal > 64:
             raise GoLiveDecisionRepositoryError("control_loop_event_limit")
@@ -222,6 +346,7 @@ class GoLiveDecisionRepository(TenantScopedRepository):
         preapproval_expires_at: datetime | None = None,
         evaluated_at: datetime | None = None,
     ) -> GoLiveEvaluation:
+        await self.require_serializable()
         cycle = await self._require_cycle(control_loop_run_id)
         if report.project_id != str(cycle.project_id):
             raise GoLiveDecisionRepositoryError("evaluation_project_mismatch")
@@ -317,7 +442,10 @@ class GoLiveDecisionRepository(TenantScopedRepository):
         return evaluation
 
     async def finalize_decision(self, evaluation_id: uuid.UUID) -> GoLiveDecision:
+        await self.require_serializable()
         try:
+            # Translate a function RAISE without retrying a savepoint. A 40001
+            # still aborts the whole Postgres transaction; owned work retries it.
             async with self.session.begin_nested():
                 decision_id = (
                     await self.session.execute(
@@ -326,6 +454,8 @@ class GoLiveDecisionRepository(TenantScopedRepository):
                     )
                 ).scalar_one()
         except DBAPIError as exc:
+            if is_retryable_transaction_error(exc):
+                raise
             message = str(getattr(exc, "orig", exc))
             code = (
                 "predicate_not_satisfied"
@@ -333,7 +463,7 @@ class GoLiveDecisionRepository(TenantScopedRepository):
                 else "decision_finalization_refused"
             )
             raise GoLiveDecisionRepositoryError(code) from exc
-        decision = (
+        return (
             await self.session.execute(
                 select(GoLiveDecision).where(
                     GoLiveDecision.id == decision_id,
@@ -341,22 +471,6 @@ class GoLiveDecisionRepository(TenantScopedRepository):
                 )
             )
         ).scalar_one()
-        await audit_record(
-            self.session,
-            action="control_loop.decision_recorded",
-            actor="control_loop_runtime",
-            target="go_live_decision",
-            payload={
-                "project_id": str(decision.project_id),
-                "control_loop_run_id": str(decision.control_loop_run_id),
-                "evaluation_id": str(decision.evaluation_id),
-                "decision_id": str(decision.id),
-                "status": decision.status,
-                "production_action_executed": False,
-                "entry_hash": decision.entry_hash,
-            },
-        )
-        return decision
 
     async def latest_decision(self, project_id: uuid.UUID) -> GoLiveDecision | None:
         return (

@@ -138,6 +138,31 @@ def _create_tables() -> None:
             name="codes",
         ),
         sa.CheckConstraint(
+            "("
+            "(stage_code='read_project_state' AND outcome_code IN "
+            "('capability_unavailable_not_executed','paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='inspect_existing_work_evidence' AND outcome_code IN "
+            "('capability_unavailable_not_executed','paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='observe_existing_review_and_verification_evidence' AND outcome_code IN "
+            "('capability_unavailable_not_executed','paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='assemble_or_reaudit_evidence_pack' AND outcome_code IN "
+            "('evidence_pack_reaudited','evidence_pack_unavailable_not_executed',"
+            "'paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='check_cost_and_authority_limits' AND outcome_code IN "
+            "('cost_and_authority_limits_checked','paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='observe_staging_evidence' AND outcome_code IN "
+            "('staging_evidence_observed_not_deployed','staging_evidence_not_observed',"
+            "'paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='evaluate_a5_gate' AND outcome_code IN "
+            "('a5_evaluation_completed','paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='finalize_go_live_decision' AND outcome_code IN "
+            "('decision_recorded','blocked_evidence_or_authority',"
+            "'paused_emergency_stop','paused_cost_stop')) OR "
+            "(stage_code='control_loop_runtime' AND outcome_code='failed_infrastructure')"
+            ")",
+            name="stage_outcome",
+        ),
+        sa.CheckConstraint(
             f"evidence_reference_digest IS NULL OR evidence_reference_digest ~ '{_HASH}'",
             name="digest",
         ),
@@ -288,7 +313,7 @@ def _create_tables() -> None:
         ),
         sa.CheckConstraint("gate_number BETWEEN 1 AND 13 AND ordinal BETWEEN 1 AND 13", name="numbers"),
         sa.CheckConstraint(
-            "status IN ('passed','failed','insufficient_evidence','no_evidence_source')",
+            "status IN ('passed','insufficient_evidence','no_evidence_source')",
             name="status",
         ),
         sa.CheckConstraint(
@@ -551,10 +576,36 @@ def _create_functions() -> None:
           IF NOT FOUND THEN RETURN; END IF;
           IF e.previous_event_id IS NULL THEN
             IF e.ordinal<>1 THEN RAISE EXCEPTION 'control-loop event chain is not linear'; END IF;
+            IF e.stage_code NOT IN ('read_project_state','control_loop_runtime') THEN
+              RAISE EXCEPTION 'control-loop event transition is not allowed'; END IF;
           ELSE
             SELECT * INTO p FROM public.control_loop_events WHERE id=e.previous_event_id;
             IF NOT FOUND OR p.control_loop_run_id<>e.control_loop_run_id OR p.ordinal+1<>e.ordinal THEN
               RAISE EXCEPTION 'control-loop event chain is not linear'; END IF;
+            IF p.outcome_code IN (
+                 'failed_infrastructure','decision_recorded','blocked_evidence_or_authority'
+               ) THEN
+              RAISE EXCEPTION 'control-loop event transition is not allowed'; END IF;
+            IF p.outcome_code IN ('paused_emergency_stop','paused_cost_stop') THEN
+              IF e.stage_code<>p.stage_code THEN
+                RAISE EXCEPTION 'control-loop event transition is not allowed'; END IF;
+              RETURN;
+            END IF;
+            IF NOT (
+              (p.stage_code='read_project_state' AND e.stage_code='inspect_existing_work_evidence') OR
+              (p.stage_code='inspect_existing_work_evidence'
+                 AND e.stage_code='observe_existing_review_and_verification_evidence') OR
+              (p.stage_code='observe_existing_review_and_verification_evidence'
+                 AND e.stage_code='assemble_or_reaudit_evidence_pack') OR
+              (p.stage_code='assemble_or_reaudit_evidence_pack'
+                 AND e.stage_code='check_cost_and_authority_limits') OR
+              (p.stage_code='check_cost_and_authority_limits'
+                 AND e.stage_code='observe_staging_evidence') OR
+              (p.stage_code='observe_staging_evidence' AND e.stage_code='evaluate_a5_gate') OR
+              (p.stage_code='evaluate_a5_gate' AND e.stage_code='finalize_go_live_decision') OR
+              e.stage_code='control_loop_runtime'
+            ) THEN
+              RAISE EXCEPTION 'control-loop event transition is not allowed'; END IF;
           END IF;
         END $fn$
         """
@@ -597,6 +648,16 @@ def _create_functions() -> None:
           SELECT * INTO e FROM public.go_live_evaluations WHERE id=p_evaluation AND tenant_id=tenant;
           IF NOT FOUND THEN RAISE EXCEPTION 'go-live evaluation unavailable'; END IF;
           PERFORM 1 FROM public.projects WHERE id=e.project_id AND tenant_id=e.tenant_id FOR UPDATE;
+          PERFORM 1 FROM public.autonomy_policies
+            WHERE id=e.autonomy_policy_id AND project_id=e.project_id AND tenant_id=e.tenant_id
+            FOR UPDATE;
+          PERFORM 1 FROM public.production_preapproval_requests
+            WHERE id=e.preapproval_request_id AND project_id=e.project_id AND tenant_id=e.tenant_id
+            FOR UPDATE;
+          PERFORM 1 FROM public.emergency_control_bindings
+            WHERE id=e.emergency_control_binding_id AND project_id=e.project_id
+              AND tenant_id=e.tenant_id
+            FOR UPDATE;
           PERFORM public.slice55_validate_evaluation(e.id);
           IF NOT e.all_gates_passed OR NOT e.preapproval_gate_eligible
              OR e.policy_decision<>'needs_approval' OR e.emergency_latch_active THEN
@@ -668,6 +729,19 @@ def _create_functions() -> None:
             'decided_not_executed',
             'request_authenticated_key_custody_under_recorded_policy_not_human_signature',
             false,false,scope_hash,prior.id,prior.entry_hash,new_hash,now_at);
+          PERFORM public.audit_append(
+            'control_loop_runtime',
+            'control_loop.decision_recorded',
+            'go_live_decision',
+            jsonb_build_object(
+              'project_id', e.project_id,
+              'control_loop_run_id', e.control_loop_run_id,
+              'evaluation_id', e.id,
+              'decision_id', new_id,
+              'status', 'decided_not_executed',
+              'production_action_executed', false
+            )
+          );
           RETURN new_id;
         END $fn$
         """
@@ -736,6 +810,9 @@ def _create_functions() -> None:
     ):
         op.execute(f"REVOKE ALL ON FUNCTION public.{signature} FROM PUBLIC")
     op.execute("GRANT EXECUTE ON FUNCTION public.slice55_finalize_decision(uuid) TO uaid_app")
+    op.execute(
+        "GRANT EXECUTE ON FUNCTION public.audit_append(text,text,text,jsonb) TO CURRENT_USER"
+    )
 
 
 def upgrade() -> None:

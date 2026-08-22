@@ -31,8 +31,50 @@ SCOPE_LIMITATION_CODES = (
 
 _HASH_PREFIX = "sha256:"
 _ALLOWED_GATE_STATUSES = frozenset(
-    {"passed", "failed", "insufficient_evidence", "no_evidence_source"}
+    {"passed", "insufficient_evidence", "no_evidence_source"}
 )
+CONTROL_LOOP_STAGE_SEQUENCE = (
+    "read_project_state",
+    "inspect_existing_work_evidence",
+    "observe_existing_review_and_verification_evidence",
+    "assemble_or_reaudit_evidence_pack",
+    "check_cost_and_authority_limits",
+    "observe_staging_evidence",
+    "evaluate_a5_gate",
+    "finalize_go_live_decision",
+)
+GUARD_OUTCOMES = frozenset({"paused_emergency_stop", "paused_cost_stop"})
+TERMINAL_OUTCOMES = GUARD_OUTCOMES | frozenset(
+    {"failed_infrastructure", "decision_recorded", "blocked_evidence_or_authority"}
+)
+ALLOWED_STAGE_OUTCOMES: dict[str, frozenset[str]] = {
+    "read_project_state": frozenset({"capability_unavailable_not_executed"}) | GUARD_OUTCOMES,
+    "inspect_existing_work_evidence": frozenset({"capability_unavailable_not_executed"})
+    | GUARD_OUTCOMES,
+    "observe_existing_review_and_verification_evidence": frozenset(
+        {"capability_unavailable_not_executed"}
+    )
+    | GUARD_OUTCOMES,
+    "assemble_or_reaudit_evidence_pack": frozenset(
+        {"evidence_pack_reaudited", "evidence_pack_unavailable_not_executed"}
+    )
+    | GUARD_OUTCOMES,
+    "check_cost_and_authority_limits": frozenset({"cost_and_authority_limits_checked"})
+    | GUARD_OUTCOMES,
+    "observe_staging_evidence": frozenset(
+        {
+            "staging_evidence_observed_not_deployed",
+            "staging_evidence_not_observed",
+        }
+    )
+    | GUARD_OUTCOMES,
+    "evaluate_a5_gate": frozenset({"a5_evaluation_completed"}) | GUARD_OUTCOMES,
+    "finalize_go_live_decision": frozenset(
+        {"decision_recorded", "blocked_evidence_or_authority"}
+    )
+    | GUARD_OUTCOMES,
+    "control_loop_runtime": frozenset({"failed_infrastructure"}),
+}
 _FORBIDDEN_CALLER_TRUTH_FIELDS = frozenset(
     {
         "passed",
@@ -185,6 +227,36 @@ def decision_eligible(inputs: DecisionInputs) -> bool:
 def derive_decision(inputs: DecisionInputs) -> DecisionOutcome:
     eligible = decision_eligible(inputs)
     return DecisionOutcome(eligible=eligible, status=DECISION_STATUS if eligible else None)
+
+
+def validate_event_transition(
+    previous_stage: str | None,
+    previous_outcome: str | None,
+    stage_code: str,
+    outcome_code: str,
+) -> None:
+    """Refuse unknown pairs and out-of-order or post-terminal stage events."""
+    allowed = ALLOWED_STAGE_OUTCOMES.get(stage_code)
+    if allowed is None or outcome_code not in allowed:
+        raise ValueError("control_loop_event_transition_invalid")
+    if previous_outcome in GUARD_OUTCOMES:
+        if stage_code == previous_stage:
+            return
+        raise ValueError("control_loop_event_transition_invalid")
+    if previous_outcome in TERMINAL_OUTCOMES:
+        raise ValueError("control_loop_event_transition_invalid")
+    if stage_code == "control_loop_runtime":
+        return
+    sequence = CONTROL_LOOP_STAGE_SEQUENCE
+    if previous_stage is None:
+        expected = sequence[0]
+    else:
+        try:
+            expected = sequence[sequence.index(previous_stage) + 1]
+        except (ValueError, IndexError) as exc:
+            raise ValueError("control_loop_event_transition_invalid") from exc
+    if stage_code != expected:
+        raise ValueError("control_loop_event_transition_invalid")
 
 
 def reject_caller_truth_fields(payload: object) -> None:

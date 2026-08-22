@@ -11,12 +11,13 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.repositories.approvals import ApprovalRepository
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.cost import evaluate as cost_evaluate
 from app.repositories.emergency_controls import EmergencyControlRepository
@@ -24,23 +25,28 @@ from app.repositories.evidence_packs import EvidencePackRepository
 from app.repositories.go_live_decisions import (
     GoLiveDecisionRepository,
     GoLiveDecisionRepositoryError,
+    is_retryable_transaction_error,
+    run_serializable_tenant_work,
 )
 from app.repositories.production_autonomy import ProductionAutonomyRepository
 from app.repositories.production_preapprovals import ProductionPreapprovalRepository
 from app.repositories.runs import RunRepository
-from app.release.production_autonomy import GateResult, ProductionAutonomyReport
+from app.release.go_live_decision import CONTROL_LOOP_STAGE_SEQUENCE
+from app.release.production_autonomy import ProductionAutonomyReport
 from app.runtime.checkpointer import UAIDCheckpointer
 from app.tenancy import TenantContext
 
-CONTROL_LOOP_NODES = (
-    "read_project_state",
-    "inspect_existing_work_evidence",
-    "observe_existing_review_and_verification_evidence",
-    "assemble_or_reaudit_evidence_pack",
-    "check_cost_and_authority_limits",
-    "observe_staging_evidence",
-    "evaluate_a5_gate",
-    "finalize_go_live_decision",
+CONTROL_LOOP_NODES = CONTROL_LOOP_STAGE_SEQUENCE
+CONTROL_LOOP_APPROVAL_ACTION = "deploy_production"
+PRODUCTION_PREAPPROVAL_SUBJECT_PREFIX = "production_preapproval"
+RESUME_IDEMPOTENCY_PREFIX = "control-loop-resume"
+STAGING_ROLLBACK_GATE_NUMBER = 10
+UNAVAILABLE_OBSERVATION_STAGES = frozenset(
+    {
+        "read_project_state",
+        "inspect_existing_work_evidence",
+        "observe_existing_review_and_verification_evidence",
+    }
 )
 
 ALLOWLISTED_INVOCATIONS = (
@@ -51,6 +57,10 @@ ALLOWLISTED_INVOCATIONS = (
     "EmergencyControlRepository.status",
     "app.repositories.cost.evaluate",
 )
+
+
+class ControlLoopInfrastructureFailure(GoLiveDecisionRepositoryError):
+    """Safe nonretryable runtime failure persisted by an owned wrapper."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +129,38 @@ class ControlLoopCapabilities:
         )
 
 
+CHECKPOINT_SAFE_KEYS = frozenset(
+    {
+        "project_id",
+        "project_run_id",
+        "control_loop_run_id",
+        "outcome_code",
+        "completed_stages",
+        "last_completed_stage",
+        "preapproval_gate_eligible",
+        "policy_decision",
+        "emergency_latch_active",
+        "evaluation_id",
+        "passed_gate_count",
+        "all_gates_passed",
+        "decision_id",
+        "decision_status",
+    }
+)
+CHECKPOINT_FORBIDDEN_KEYS = frozenset(
+    {
+        "binding_ids",
+        "preapproval_expires_at",
+        "autonomy_policy_updated_at",
+        "a5_report",
+        "context",
+        "latest_frozen_release_ref",
+    }
+)
+
+
 class ControlLoopState(TypedDict, total=False):
-    """Checkpoint-safe bounded state; values are IDs, codes, booleans, and safe A5 data."""
+    """Checkpoint-safe bounded state: IDs, codes, counts, booleans, and digests only."""
 
     project_id: str
     project_run_id: str
@@ -128,19 +168,43 @@ class ControlLoopState(TypedDict, total=False):
     outcome_code: str
     completed_stages: tuple[str, ...]
     last_completed_stage: str | None
-    binding_ids: dict[str, str]
-    preapproval_expires_at: str | None
     preapproval_gate_eligible: bool
     policy_decision: str
     emergency_latch_active: bool
-    a5_report: dict[str, object]
     evaluation_id: str
+    passed_gate_count: int
+    all_gates_passed: bool
     decision_id: str
     decision_status: str
 
 
-def _config(project_run_id: uuid.UUID) -> RunnableConfig:
-    return {"configurable": {"thread_id": str(project_run_id), "checkpoint_ns": ""}}
+def _config(
+    project_run_id: uuid.UUID, *, control_loop_run_id: uuid.UUID | None = None
+) -> RunnableConfig:
+    namespace = str(control_loop_run_id) if control_loop_run_id is not None else ""
+    return {
+        "configurable": {
+            "thread_id": str(project_run_id),
+            "checkpoint_ns": namespace,
+        }
+    }
+
+
+def _preapproval_subject(request_id: uuid.UUID) -> str:
+    return f"{PRODUCTION_PREAPPROVAL_SUBJECT_PREFIX}:{request_id}"
+
+
+def _resume_idempotency_key(control_loop_run_id: uuid.UUID) -> str:
+    return f"{RESUME_IDEMPOTENCY_PREFIX}:{control_loop_run_id}"
+
+
+def _staging_evidence_outcome(report: ProductionAutonomyReport) -> str:
+    staging_gates = [
+        gate for gate in report.gates if gate.number == STAGING_ROLLBACK_GATE_NUMBER
+    ]
+    if len(staging_gates) != 1 or staging_gates[0].status != "passed":
+        return "staging_evidence_not_observed"
+    return "staging_evidence_observed_not_deployed"
 
 
 class _ControlLoopExecutor:
@@ -213,17 +277,13 @@ class _ControlLoopExecutor:
             "last_completed_stage": stage_code,
             "completed_stages": completed + (stage_code,),
         }
-        outcome = "completed"
         evidence_digest = None
-
-        if stage_code == "assemble_or_reaudit_evidence_pack":
+        if stage_code in UNAVAILABLE_OBSERVATION_STAGES:
+            outcome = "capability_unavailable_not_executed"
+        elif stage_code == "assemble_or_reaudit_evidence_pack":
             coverage = await self.capabilities.read_preapproval_coverage(as_of=self.as_of)
             emergency = await self.capabilities.read_emergency_status()
-            binding_ids, expires_at = await self._binding_snapshot(coverage, emergency)
-            updates["binding_ids"] = binding_ids
-            updates["preapproval_expires_at"] = (
-                expires_at.isoformat() if expires_at is not None else None
-            )
+            binding_ids, _expires_at = await self._binding_snapshot(coverage, emergency)
             pack_id = binding_ids.get("evidence_pack_id")
             if pack_id is None:
                 outcome = "evidence_pack_unavailable_not_executed"
@@ -235,62 +295,80 @@ class _ControlLoopExecutor:
             coverage = await self.capabilities.read_preapproval_coverage(as_of=self.as_of)
             policy = await self.capabilities.check_autonomy_policy()
             emergency = await self.capabilities.read_emergency_status()
-            binding_ids, expires_at = await self._binding_snapshot(coverage, emergency)
             updates.update(
                 {
                     "preapproval_gate_eligible": coverage.gate_eligible,
                     "policy_decision": policy.value,
                     "emergency_latch_active": emergency.state == "active",
-                    "binding_ids": binding_ids,
-                    "preapproval_expires_at": (
-                        expires_at.isoformat() if expires_at is not None else None
-                    ),
                 }
             )
+            outcome = "cost_and_authority_limits_checked"
         elif stage_code == "observe_staging_evidence":
-            outcome = "staging_evidence_observed_not_deployed"
+            staging_report = await self.capabilities.evaluate_a5(as_of=self.as_of)
+            outcome = _staging_evidence_outcome(staging_report)
         elif stage_code == "evaluate_a5_gate":
+            coverage = await self.capabilities.read_preapproval_coverage(as_of=self.as_of)
+            policy = await self.capabilities.check_autonomy_policy()
+            emergency = await self.capabilities.read_emergency_status()
+            binding_ids, expires_at = await self._binding_snapshot(coverage, emergency)
             report = await self.capabilities.evaluate_a5(as_of=self.as_of)
-            updates["a5_report"] = report.to_dict()
-            outcome = "a5_evaluation_completed"
-        elif stage_code == "finalize_go_live_decision":
-            report_payload = state.get("a5_report")
-            if not isinstance(report_payload, dict):
-                raise GoLiveDecisionRepositoryError("a5_evaluation_missing")
-            report = ProductionAutonomyReport(
-                project_id=str(report_payload["project_id"]),
-                gates=[
-                    GateResult(
-                        number=int(item["number"]),
-                        gate=str(item["gate"]),
-                        status=str(item["status"]),
-                        reason=str(item["reason"]),
-                        context=dict(item.get("context", {})),
-                    )
-                    for item in report_payload["gates"]
-                ],
-            )
-            expiry_value = state.get("preapproval_expires_at")
-            expiry = (
-                datetime.fromisoformat(str(expiry_value))
-                if expiry_value is not None
-                else None
-            )
             evaluation = await self.decisions.record_evaluation(
                 control_loop_run_id=self.control_loop_run_id,
                 report=report,
-                preapproval_gate_eligible=bool(
-                    state.get("preapproval_gate_eligible", False)
-                ),
-                policy_decision=str(state.get("policy_decision", "deny")),
-                emergency_latch_active=bool(state.get("emergency_latch_active", True)),
-                binding_ids=dict(state.get("binding_ids", {})),
-                preapproval_expires_at=expiry,
+                preapproval_gate_eligible=coverage.gate_eligible,
+                policy_decision=policy.value,
+                emergency_latch_active=emergency.state == "active",
+                binding_ids=binding_ids,
+                preapproval_expires_at=expires_at,
                 evaluated_at=self.as_of,
             )
-            updates["evaluation_id"] = str(evaluation.id)
+            updates.update(
+                {
+                    "preapproval_gate_eligible": evaluation.preapproval_gate_eligible,
+                    "policy_decision": evaluation.policy_decision,
+                    "emergency_latch_active": evaluation.emergency_latch_active,
+                    "evaluation_id": str(evaluation.id),
+                    "passed_gate_count": evaluation.passed_gate_count,
+                    "all_gates_passed": evaluation.all_gates_passed,
+                }
+            )
+            outcome = "a5_evaluation_completed"
+        elif stage_code == "finalize_go_live_decision":
+            evaluation_id = state.get("evaluation_id")
+            if not evaluation_id:
+                raise GoLiveDecisionRepositoryError("a5_evaluation_missing")
+            evaluation = await self.decisions.require_evaluation(uuid.UUID(str(evaluation_id)))
+            coverage = await self.capabilities.read_preapproval_coverage(as_of=self.as_of)
+            policy = await self.capabilities.check_autonomy_policy()
+            emergency = await self.capabilities.read_emergency_status()
+            binding_ids, _expires_at = await self._binding_snapshot(coverage, emergency)
+            live_report = await self.capabilities.evaluate_a5(as_of=self.as_of)
+            live_evaluation = self.decisions.preview_evaluation_digests(
+                report=live_report,
+                preapproval_gate_eligible=coverage.gate_eligible,
+                policy_decision=policy.value,
+                emergency_latch_active=emergency.state == "active",
+                binding_ids=binding_ids,
+            )
             if (
-                report.a5_satisfied
+                coverage.gate_eligible != evaluation.preapproval_gate_eligible
+                or policy.value != evaluation.policy_decision
+                or (emergency.state == "active") != evaluation.emergency_latch_active
+                or live_evaluation["gate_result_digest"] != evaluation.gate_result_digest
+                or live_evaluation["decision_binding_digest"] != evaluation.decision_binding_digest
+            ):
+                updates["outcome_code"] = "blocked_evidence_or_authority"
+                outcome = "blocked_evidence_or_authority"
+                await self.runs.mark_blocked_control_loop(
+                    run_id=self.project_run_id,
+                    actor="control_loop_runtime",
+                    payload={
+                        "reason_code": "go_live_sources_changed_before_finalize",
+                        "passed_gate_count": evaluation.passed_gate_count,
+                    },
+                )
+            elif (
+                evaluation.all_gates_passed
                 and evaluation.preapproval_gate_eligible
                 and evaluation.policy_decision == "needs_approval"
                 and not evaluation.emergency_latch_active
@@ -318,6 +396,8 @@ class _ControlLoopExecutor:
                         "passed_gate_count": evaluation.passed_gate_count,
                     },
                 )
+        else:
+            raise GoLiveDecisionRepositoryError("unknown_control_loop_stage")
 
         await self.decisions.append_event(
             control_loop_run_id=self.control_loop_run_id,
@@ -358,22 +438,64 @@ def _build_control_loop_graph(executor: _ControlLoopExecutor, checkpointer):
 
 async def _record_infrastructure_failure(executor: _ControlLoopExecutor) -> None:
     """Retain only a code-owned failure outcome; never persist exception text."""
-    try:
-        await executor.decisions.append_event(
-            control_loop_run_id=executor.control_loop_run_id,
-            stage_code="control_loop_runtime",
-            outcome_code="failed_infrastructure",
+    await executor.decisions.append_event(
+        control_loop_run_id=executor.control_loop_run_id,
+        stage_code="control_loop_runtime",
+        outcome_code="failed_infrastructure",
+    )
+    await executor.runs.mark_failed(
+        run_id=executor.project_run_id,
+        actor="control_loop_runtime",
+        payload={"reason_code": "control_loop_infrastructure_failure"},
+    )
+
+
+async def _persist_infrastructure_failure_owned(
+    context: TenantContext,
+    *,
+    project_id: uuid.UUID,
+    project_run_id: uuid.UUID,
+    idempotency_key: str,
+    as_of: datetime | None,
+) -> None:
+    """Persist a safe failure only after the failed transaction has rolled back."""
+    failure_at = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
+
+    async def _persist(session: AsyncSession) -> None:
+        decisions = GoLiveDecisionRepository(session, context)
+        cycle = await decisions.start_cycle(
+            project_id=project_id,
+            project_run_id=project_run_id,
+            idempotency_key=idempotency_key,
         )
-        await executor.runs.mark_failed(
-            run_id=executor.project_run_id,
-            actor="control_loop_runtime",
-            payload={"reason_code": "control_loop_infrastructure_failure"},
+        runs = RunRepository(session, context)
+        run = await runs.get(project_run_id)
+        if run is None or run.project_id != project_id:
+            raise GoLiveDecisionRepositoryError("project_run_unavailable")
+        if run.status == "failed":
+            return
+        if run.status == "created":
+            await runs.mark_running(run_id=project_run_id, actor="control_loop_runtime")
+        elif run.status in {"paused", "blocked"}:
+            await runs.mark_resumed(
+                run_id=project_run_id,
+                actor="control_loop_runtime",
+                payload={"reason_code": "control_loop_infrastructure_failure"},
+            )
+        elif run.status != "running":
+            raise GoLiveDecisionRepositoryError("control_loop_failure_state_invalid")
+        await _record_infrastructure_failure(
+            _ControlLoopExecutor(
+                session,
+                context,
+                project_id=project_id,
+                project_run_id=project_run_id,
+                control_loop_run_id=cycle.id,
+                as_of=failure_at,
+            )
         )
-    except Exception:
-        # The original operation already failed.  A broken transaction cannot
-        # safely be reused to manufacture evidence; the outer transaction will
-        # roll back and the caller still receives only the fixed safe code.
-        pass
+
+    await run_serializable_tenant_work(context, _persist)
 
 
 async def start_control_loop(
@@ -387,6 +509,7 @@ async def start_control_loop(
 ) -> dict[str, object]:
     now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
     decisions = GoLiveDecisionRepository(session, context)
+    await decisions.require_serializable()
     cycle = await decisions.start_cycle(
         project_id=project_id,
         project_run_id=project_run_id,
@@ -394,7 +517,11 @@ async def start_control_loop(
     )
     runs = RunRepository(session, context)
     checkpointer = UAIDCheckpointer(
-        session, context, project_id=project_id, run_id=project_run_id
+        session,
+        context,
+        project_id=project_id,
+        run_id=project_run_id,
+        checkpoint_namespace=str(cycle.id),
     )
     executor = _ControlLoopExecutor(
         session,
@@ -428,10 +555,79 @@ async def start_control_loop(
             ),
             config,
         )
-    except Exception:
-        await _record_infrastructure_failure(executor)
-        raise GoLiveDecisionRepositoryError("control_loop_infrastructure_failure") from None
+    except Exception as exc:
+        if is_retryable_transaction_error(exc):
+            raise
+        raise ControlLoopInfrastructureFailure(
+            "control_loop_infrastructure_failure"
+        ) from None
     return dict(state)
+
+
+async def start_control_loop_owned(
+    context: TenantContext,
+    *,
+    project_id: uuid.UUID,
+    project_run_id: uuid.UUID,
+    idempotency_key: str,
+    as_of: datetime | None = None,
+) -> dict[str, object]:
+    """Own the SERIALIZABLE tenant transaction and retry the complete cycle."""
+
+    async def _run(session: AsyncSession) -> dict[str, object]:
+        return await start_control_loop(
+            session,
+            context,
+            project_id=project_id,
+            project_run_id=project_run_id,
+            idempotency_key=idempotency_key,
+            as_of=as_of,
+        )
+
+    try:
+        return await run_serializable_tenant_work(context, _run)
+    except ControlLoopInfrastructureFailure:
+        await _persist_infrastructure_failure_owned(
+            context,
+            project_id=project_id,
+            project_run_id=project_run_id,
+            idempotency_key=idempotency_key,
+            as_of=as_of,
+        )
+        raise
+
+
+async def resume_control_loop_owned(
+    context: TenantContext,
+    *,
+    project_id: uuid.UUID,
+    project_run_id: uuid.UUID,
+    control_loop_run_id: uuid.UUID,
+    as_of: datetime | None = None,
+) -> dict[str, object]:
+    """Own and retry the complete SERIALIZABLE resume transaction."""
+
+    async def _run(session: AsyncSession) -> dict[str, object]:
+        return await resume_control_loop(
+            session,
+            context,
+            project_id=project_id,
+            project_run_id=project_run_id,
+            control_loop_run_id=control_loop_run_id,
+            as_of=as_of,
+        )
+
+    try:
+        return await run_serializable_tenant_work(context, _run)
+    except ControlLoopInfrastructureFailure:
+        await _persist_infrastructure_failure_owned(
+            context,
+            project_id=project_id,
+            project_run_id=project_run_id,
+            idempotency_key=_resume_idempotency_key(control_loop_run_id),
+            as_of=as_of,
+        )
+        raise
 
 
 async def resume_control_loop(
@@ -443,9 +639,10 @@ async def resume_control_loop(
     control_loop_run_id: uuid.UUID,
     as_of: datetime | None = None,
 ) -> dict[str, object]:
-    """Resume the same bounded cycle; completed stage effects remain idempotent."""
+    """Resume a pause or start a fresh approved attempt after a blocked cycle."""
     now = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
     decisions = GoLiveDecisionRepository(session, context)
+    await decisions.require_serializable()
     cycle = await decisions._require_cycle(control_loop_run_id)
     if cycle.project_id != project_id or cycle.project_run_id != project_run_id:
         raise GoLiveDecisionRepositoryError("control_loop_binding_mismatch")
@@ -453,9 +650,13 @@ async def resume_control_loop(
     emergency = await capabilities.read_emergency_status()
     cost = await capabilities.evaluate_cost_stop(as_of_date=now.date())
     checkpointer = UAIDCheckpointer(
-        session, context, project_id=project_id, run_id=project_run_id
+        session,
+        context,
+        project_id=project_id,
+        run_id=project_run_id,
+        checkpoint_namespace=str(control_loop_run_id),
     )
-    executor = _ControlLoopExecutor(
+    prior_executor = _ControlLoopExecutor(
         session,
         context,
         project_id=project_id,
@@ -463,9 +664,9 @@ async def resume_control_loop(
         control_loop_run_id=control_loop_run_id,
         as_of=now,
     )
-    graph = _build_control_loop_graph(executor, checkpointer)
-    config = _config(project_run_id)
-    snapshot = await graph.aget_state(config)
+    prior_graph = _build_control_loop_graph(prior_executor, checkpointer)
+    prior_config = _config(project_run_id)
+    snapshot = await prior_graph.aget_state(prior_config)
     state = dict(snapshot.values or {})
     if emergency.state == "active":
         state["outcome_code"] = "paused_emergency_stop"
@@ -478,15 +679,63 @@ async def resume_control_loop(
         raise GoLiveDecisionRepositoryError("project_run_unavailable")
     if run.status not in {"paused", "blocked"}:
         raise GoLiveDecisionRepositoryError("control_loop_not_resumable")
+    if run.status == "blocked":
+        coverage = await capabilities.read_preapproval_coverage(as_of=now)
+        if coverage.request_id is None:
+            return state
+        approval_blocked = await ApprovalRepository(session, context).is_blocked(
+            project_id,
+            CONTROL_LOOP_APPROVAL_ACTION,
+            subject_ref=_preapproval_subject(coverage.request_id),
+        )
+        if approval_blocked:
+            return state
+        resumed_cycle = await decisions.start_cycle(
+            project_id=project_id,
+            project_run_id=project_run_id,
+            idempotency_key=_resume_idempotency_key(control_loop_run_id),
+        )
+        executor = _ControlLoopExecutor(
+            session,
+            context,
+            project_id=project_id,
+            project_run_id=project_run_id,
+            control_loop_run_id=resumed_cycle.id,
+            as_of=now,
+        )
+        resumed_checkpointer = UAIDCheckpointer(
+            session,
+            context,
+            project_id=project_id,
+            run_id=project_run_id,
+            checkpoint_namespace=str(resumed_cycle.id),
+        )
+        graph = _build_control_loop_graph(executor, resumed_checkpointer)
+        config = _config(project_run_id)
+        state = ControlLoopState(
+            project_id=str(project_id),
+            project_run_id=str(project_run_id),
+            control_loop_run_id=str(resumed_cycle.id),
+            outcome_code="running",
+            completed_stages=(),
+            last_completed_stage=None,
+        )
+    else:
+        executor = prior_executor
+        graph = prior_graph
+        config = prior_config
+        state["outcome_code"] = "running"
     await RunRepository(session, context).mark_resumed(
         run_id=project_run_id,
         actor="control_loop_runtime",
         payload={"reason_code": "control_loop_resumed"},
     )
-    state["outcome_code"] = "running"
     try:
-        resumed = await graph.ainvoke(ControlLoopState(**state), config)
-    except Exception:
-        await _record_infrastructure_failure(executor)
-        raise GoLiveDecisionRepositoryError("control_loop_infrastructure_failure") from None
+        resumed = await graph.ainvoke(cast(ControlLoopState, state), config)
+    except Exception as exc:
+        if is_retryable_transaction_error(exc):
+            raise
+        raise ControlLoopInfrastructureFailure(
+            "control_loop_infrastructure_failure"
+        ) from None
     return dict(resumed)

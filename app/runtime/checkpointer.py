@@ -12,7 +12,7 @@ Checkpoint and write values are serialized with LangGraph's own serializer
 
 import uuid
 from collections.abc import AsyncIterator, Sequence
-from typing import Any
+from typing import Any, cast
 
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -44,20 +44,39 @@ class UAIDCheckpointer(BaseCheckpointSaver):
         *,
         project_id: uuid.UUID,
         run_id: uuid.UUID,
-    ):
+        checkpoint_namespace: str = "",
+    ) -> None:
         super().__init__()
         self.session = session
         self.context = context
         self.project_id = project_id
         self.run_id = run_id
         self.thread_id = str(run_id)
+        self.checkpoint_namespace = checkpoint_namespace
 
     def _check_thread(self, config: RunnableConfig) -> None:
-        thread_id = config["configurable"]["thread_id"]
+        thread_id = self._configurable(config).get("thread_id")
         if thread_id != self.thread_id:
             raise ValueError(
                 f"checkpointer is bound to run {self.thread_id}, got thread_id {thread_id}"
             )
+
+    @staticmethod
+    def _configurable(config: RunnableConfig) -> dict[str, Any]:
+        configurable = config.get("configurable")
+        if not isinstance(configurable, dict):
+            raise ValueError("checkpointer config requires a configurable mapping")
+        return configurable
+
+    def _namespace(self, config: RunnableConfig | None) -> str:
+        configured = (config or {}).get("configurable", {}).get("checkpoint_ns", "")
+        if not self.checkpoint_namespace:
+            return configured
+        if configured not in {"", self.checkpoint_namespace}:
+            raise ValueError(
+                "checkpointer namespace does not match its bound control-loop cycle"
+            )
+        return self.checkpoint_namespace
 
     async def aput(
         self,
@@ -67,8 +86,8 @@ class UAIDCheckpointer(BaseCheckpointSaver):
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
         self._check_thread(config)
-        cfg = config["configurable"]
-        ns = cfg.get("checkpoint_ns", "")
+        cfg = self._configurable(config)
+        ns = self._namespace(config)
         checkpoint_id = checkpoint["id"]
         parent_id = cfg.get("checkpoint_id")
         type_, blob = self.serde.dumps_typed(checkpoint)
@@ -108,8 +127,8 @@ class UAIDCheckpointer(BaseCheckpointSaver):
         task_path: str = "",
     ) -> None:
         self._check_thread(config)
-        cfg = config["configurable"]
-        ns = cfg.get("checkpoint_ns", "")
+        cfg = self._configurable(config)
+        ns = self._namespace(config)
         checkpoint_id = cfg["checkpoint_id"]
         for idx, (channel, value) in enumerate(writes):
             write_idx = WRITES_IDX_MAP.get(channel, idx)
@@ -175,12 +194,29 @@ class UAIDCheckpointer(BaseCheckpointSaver):
         rows = (await self.session.execute(stmt)).scalars().all()
         # CheckpointTuple.pending_writes is (task_id, channel, value); task_path is
         # preserved at rest (a column) but not part of the returned tuple.
-        return [
-            (r.task_id, r.channel, self.serde.loads_typed((r.type, bytes(r.blob)))) for r in rows
-        ]
+        pending: list[tuple[str, str, Any]] = []
+        for row in rows:
+            if row.type is None:
+                raise ValueError("checkpoint write serialization type is missing")
+            pending.append(
+                (
+                    row.task_id,
+                    row.channel,
+                    self.serde.loads_typed((row.type, bytes(row.blob))),
+                )
+            )
+        return pending
 
-    def _row_to_tuple(self, row: RunCheckpoint, ns: str, pending) -> CheckpointTuple:
-        parent_config = (
+    def _row_to_tuple(
+        self,
+        row: RunCheckpoint,
+        ns: str,
+        pending: list[tuple[str, str, Any]],
+    ) -> CheckpointTuple:
+        if row.type is None:
+            raise ValueError("checkpoint serialization type is missing")
+        parent_config = cast(
+            RunnableConfig | None,
             {
                 "configurable": {
                     "thread_id": self.thread_id,
@@ -189,7 +225,7 @@ class UAIDCheckpointer(BaseCheckpointSaver):
                 }
             }
             if row.parent_checkpoint_id
-            else None
+            else None,
         )
         return CheckpointTuple(
             config={
@@ -200,15 +236,14 @@ class UAIDCheckpointer(BaseCheckpointSaver):
                 }
             },
             checkpoint=self.serde.loads_typed((row.type, bytes(row.checkpoint))),
-            metadata=row.checkpoint_metadata,
+            metadata=cast(CheckpointMetadata, row.checkpoint_metadata),
             parent_config=parent_config,
             pending_writes=pending,
         )
 
     async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         self._check_thread(config)
-        cfg = config["configurable"]
-        ns = cfg.get("checkpoint_ns", "")
+        ns = self._namespace(config)
         checkpoint_id = get_checkpoint_id(config)
         stmt = select(RunCheckpoint).where(
             *self._bound(RunCheckpoint),
@@ -234,15 +269,18 @@ class UAIDCheckpointer(BaseCheckpointSaver):
     ) -> AsyncIterator[CheckpointTuple]:
         if config is not None and "thread_id" in config.get("configurable", {}):
             self._check_thread(config)
-        ns = (config or {}).get("configurable", {}).get("checkpoint_ns", "")
+        ns = self._namespace(config)
         stmt = select(RunCheckpoint).where(
             *self._bound(RunCheckpoint),
             RunCheckpoint.checkpoint_ns == ns,
         )
         if before is not None:
-            if before["configurable"].get("thread_id", self.thread_id) != self.thread_id:
+            before_config = self._configurable(before)
+            if before_config.get("thread_id", self.thread_id) != self.thread_id:
                 raise ValueError("`before` refers to a different thread than this checkpointer")
-            stmt = stmt.where(RunCheckpoint.checkpoint_id < before["configurable"]["checkpoint_id"])
+            stmt = stmt.where(
+                RunCheckpoint.checkpoint_id < before_config["checkpoint_id"]
+            )
         stmt = stmt.order_by(RunCheckpoint.checkpoint_id.desc())
         if limit is not None:
             stmt = stmt.limit(limit)

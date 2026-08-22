@@ -26,6 +26,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.411",
     "pytest",
     "pytest-asyncio",
     "ruff",
@@ -40,6 +41,7 @@ pythonpath = ["."]
 addopts = "-q"
 markers = [
     "db: DB-backed test requiring Postgres; run via `make test-db` (deselected by `make test`)",
+    "serializable: open the test transaction at SERIALIZABLE for Slice 55 evaluate/finalize",
 ]
 
 [tool.ruff]

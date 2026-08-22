@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-07-14)
+## Current status (2026-08-22)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -725,6 +725,24 @@ Readiness remains `slice20.v1`; `can_go_live_autonomously` remains the literal `
 pass report. Slice 55 alone may change that control-loop boundary. Verified suites: `make test` 1083
 passing / 826 deselected and `make test-db` 826 passing / 1083 deselected. Merged via PR #98 (squash
 commit `84e955a`).**
+**Slice 55 (review-approved implementation on `feat/slice-55-control-loop`, pending merge) adds the
+BOUNDED §23.3 CONTROL LOOP THROUGH GO-LIVE EVALUATION — eight checkpointed stages consume only the
+six coordinator-allowlisted reads, preserve the Slice-54 emergency-before-cost boundary, re-audit
+the current evidence pack, derive staging observation only from A5 gate #10, persist an exact
+thirteen-gate evaluation, and may append only a hash-chained `decided_not_executed` decision. There
+is no production action, external connector, HTTP route, or `can_go_live_autonomously` flip:
+`A5_RULESET_VERSION` remains `slice54.v1`, readiness remains `slice20.v1`, and go-live remains the
+literal `False`. Migration `0054` adds five tenant-owned, RLS ENABLE+FORCE, append-only control-loop
+tables plus exact Python/DB event-transition guards. Owned start/resume wrappers retry only PostgreSQL
+`40001`/`40P01`, at most five complete fresh SERIALIZABLE transactions with bounded jitter; a
+nonretryable infrastructure failure is persisted safely only after the failed transaction rolls
+back. Paused work resumes its cycle-bound checkpoint; blocked work requires the exact current
+Slice-53 production approval and starts a fresh cycle/evaluation without mutating prior terminal
+history. Audit/checkpoints retain safe IDs/status/counts/digests only — never raw gate context or
+evidence payload. Independent re-review verdict: APPROVE. Verified suites: `make test` 1150 passing /
+855 deselected; `make test-db` 855 passing / 1150 deselected. `pyright` is now installed: the Slice-55
+remediation files report 0 errors, while the full pre-existing repository currently reports 3051
+type errors (not hidden or reclassified).**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
