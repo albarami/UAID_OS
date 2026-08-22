@@ -782,7 +782,7 @@ policy ALLOWED `create_project_tasks`. This is not live IR, not Jira, not Slice 
 byte-stable. Independent plan APPROVE (agent `dba3f159-6d5b-4077-b945-617d83e84383`); independent
 code APPROVE (agent `2045edfa-ebc4-4472-8fd2-0ad7a813492b`). Verified suites: `make test` 1172
 passing / 873 deselected; `make test-db` 873 passing / 1172 deselected. Owned pyright paths report
-0 errors. Next: Slice 58 under the standing cadence.**
+0 errors. Merged via PR #104 (squash commit `037508c`). Next: Slice 58 under the standing cadence.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
