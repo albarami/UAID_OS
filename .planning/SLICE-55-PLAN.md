@@ -1,8 +1,8 @@
 # Slice 55 Plan — §23.3 control loop through go-live gate evaluation
 
-**Status:** APPROVED FOR EXECUTION — plan approved; OD-55-1…9 ruled and bound (see Coordinator rulings (final)).
+**Status:** MERGED — historical record. Implemented via PR #100 (squash commit `15d0e75`); this plan is retained as the approved design rationale for Slice 55.
 
-**Execution authorization:** The plan-only review gate is closed. Implementation is authorized only on `feat/slice-55-control-loop` under the final rulings below; production execution, merge, and any scope expansion remain unauthorized.
+**Execution authorization:** Closed. Production execution, any `can_go_live_autonomously` flip, and Slice 56 remain unauthorized pending Salim's personal review of merged PR #100 (`AWAITING SALIM GATE`).
 
 **Author persona:** Senior release-control / durable-workflow architect, applying fail-closed production-governance and evidence-integrity discipline.
 
