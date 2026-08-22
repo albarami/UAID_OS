@@ -439,6 +439,7 @@ class EmergencyRollbackAuthorization(Base):
         UniqueConstraint(
             "tenant_id", "project_id", "idempotency_key_hash", name="uq_era_idempotency"
         ),
+        UniqueConstraint("id", "project_id", "tenant_id", name="uq_era_id_project_tenant"),
     )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")

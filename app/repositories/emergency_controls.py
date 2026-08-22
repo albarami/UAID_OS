@@ -295,6 +295,45 @@ class EmergencyControlRepository(TenantScopedRepository):
         )
         return sources.candidate, sources.core, run, digest
 
+    async def current_release_binding_context(
+        self, project_id: uuid.UUID
+    ) -> tuple[object | None, object | None, RollbackVerificationRun | None, str | None]:
+        """Public current-release binding tuple. Same as ``_current_release_binding``."""
+        return await self._current_release_binding(project_id)
+
+    async def matching_rollback_authorization(
+        self,
+        *,
+        binding: EmergencyControlBinding,
+        candidate_id: uuid.UUID,
+        evidence_pack_id: uuid.UUID,
+        rollback_verification_run_id: uuid.UUID,
+        release_rollback_binding_digest: str,
+    ) -> EmergencyRollbackAuthorization | None:
+        """Latest authorization that matches the selected current-release graph."""
+        return (
+            await self.session.execute(
+                select(EmergencyRollbackAuthorization)
+                .where(
+                    EmergencyRollbackAuthorization.tenant_id == self.context.tenant_id,
+                    EmergencyRollbackAuthorization.project_id == binding.project_id,
+                    EmergencyRollbackAuthorization.binding_id == binding.id,
+                    EmergencyRollbackAuthorization.release_candidate_id == candidate_id,
+                    EmergencyRollbackAuthorization.evidence_pack_id == evidence_pack_id,
+                    EmergencyRollbackAuthorization.rollback_verification_run_id
+                    == rollback_verification_run_id,
+                    EmergencyRollbackAuthorization.release_rollback_binding_digest
+                    == release_rollback_binding_digest,
+                    EmergencyRollbackAuthorization.result_code == "authorized_not_executed",
+                )
+                .order_by(
+                    EmergencyRollbackAuthorization.created_at.desc(),
+                    EmergencyRollbackAuthorization.id.desc(),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
     async def append_binding(
         self,
         *,

@@ -10,7 +10,8 @@ the audit append derives the tenant from it and fails closed otherwise).
 """
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -21,6 +22,17 @@ from app.models.autonomy_policy import AutonomyPolicy
 from app.policy.engine import Decision, check_authority
 from app.policy.matrix import PolicyOverrideError, validate_overrides
 from app.tenancy import TenantContext, TenantScopedRepository
+
+
+@dataclass(frozen=True)
+class PolicyDecisionSnapshot:
+    """One locked policy row plus in-process decisions. Not a live re-read."""
+
+    policy_present: bool
+    policy_id: uuid.UUID | None
+    autonomy_level: int | None
+    overrides: Mapping[str, Any]
+    decisions: Mapping[str, Decision]
 
 
 class AutonomyPolicyRepository(TenantScopedRepository):
@@ -93,3 +105,43 @@ class AutonomyPolicyRepository(TenantScopedRepository):
             return check_authority(action, policy.autonomy_level, policy.overrides)
         except PolicyOverrideError:
             return Decision.DENY  # fail-closed on any invalid persisted override
+
+    async def snapshot_decisions(
+        self, project_id: uuid.UUID, actions: Sequence[str]
+    ) -> PolicyDecisionSnapshot:
+        """Load one policy row under ``FOR SHARE`` and decide every action in-process.
+
+        Missing or invalid policy fails closed to DENY for every requested action.
+        """
+        stmt = (
+            select(AutonomyPolicy)
+            .where(
+                AutonomyPolicy.project_id == project_id,
+                AutonomyPolicy.tenant_id == self.context.tenant_id,
+            )
+            .with_for_update(read=True)
+        )
+        policy = (await self.session.execute(stmt)).scalar_one_or_none()
+        if policy is None:
+            return PolicyDecisionSnapshot(
+                policy_present=False,
+                policy_id=None,
+                autonomy_level=None,
+                overrides={},
+                decisions={action: Decision.DENY for action in actions},
+            )
+        try:
+            validate_overrides(policy.overrides)
+            decisions = {
+                action: check_authority(action, policy.autonomy_level, policy.overrides)
+                for action in actions
+            }
+        except PolicyOverrideError:
+            decisions = {action: Decision.DENY for action in actions}
+        return PolicyDecisionSnapshot(
+            policy_present=True,
+            policy_id=policy.id,
+            autonomy_level=int(policy.autonomy_level),
+            overrides=dict(policy.overrides or {}),
+            decisions=decisions,
+        )
