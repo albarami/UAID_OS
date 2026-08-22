@@ -28,6 +28,7 @@ from app.release.rollback import (
     SCHEMA_VERSION,
     SCOPE_LIMITATION,
     STAGING_TARGET_CONTRACT_VERSION,
+    StagingTargetProjection,
     VERIFICATION_CONTRACT_VERSION,
     RollbackDrillArtifact,
 )
@@ -87,6 +88,38 @@ def _snapshot_digest(row: DeploymentTargetSnapshot) -> str:
 class RollbackVerificationRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession, context: TenantContext):
         super().__init__(session, context, RollbackVerificationRun)
+
+    async def _latest_matching_run(
+        self,
+        project_id: uuid.UUID,
+        *,
+        candidate_id: uuid.UUID,
+        pack_id: uuid.UUID,
+        staging: StagingTargetProjection,
+    ) -> RollbackVerificationRun | None:
+        return (
+            await self.session.execute(
+                select(RollbackVerificationRun)
+                .where(
+                    RollbackVerificationRun.tenant_id == self.context.tenant_id,
+                    RollbackVerificationRun.project_id == project_id,
+                    RollbackVerificationRun.release_candidate_id == candidate_id,
+                    RollbackVerificationRun.evidence_pack_id == pack_id,
+                    RollbackVerificationRun.staging_target_binding_hash == staging.binding_hash,
+                    RollbackVerificationRun.runner_manifest_hash == RUNNER_MANIFEST_HASH,
+                    RollbackVerificationRun.drill_contract_version == SCHEMA_VERSION,
+                    RollbackVerificationRun.verification_contract_version
+                    == VERIFICATION_CONTRACT_VERSION,
+                    RollbackVerificationRun.staging_target_contract_version
+                    == STAGING_TARGET_CONTRACT_VERSION,
+                )
+                .order_by(
+                    RollbackVerificationRun.created_at.desc(),
+                    RollbackVerificationRun.id.desc(),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
 
     async def _latest_pack(self, candidate_id: uuid.UUID) -> EvidencePack | None:
         return (
@@ -322,15 +355,20 @@ class RollbackVerificationRepository(TenantScopedRepository):
     async def coverage_for_project(
         self, project_id: uuid.UUID, *, as_of: datetime | None = None
     ) -> RollbackCoverage:
+        return (await self.coverage_with_run(project_id, as_of=as_of))[0]
+
+    async def coverage_with_run(
+        self, project_id: uuid.UUID, *, as_of: datetime | None = None
+    ) -> tuple[RollbackCoverage, RollbackVerificationRun | None]:
         as_of = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
         candidate = await ReleaseCandidateRepository(self.session, self.context).latest_frozen(
             project_id
         )
         if candidate is None:
-            return RollbackCoverage()
+            return RollbackCoverage(), None
         pack = await self._latest_pack(candidate.id)
         if pack is None:
-            return RollbackCoverage(scope_resolved=True)
+            return RollbackCoverage(scope_resolved=True), None
         try:
             await EvidencePackRepository(self.session, self.context).audit_pack(pack.id)
             core_reaudited = True
@@ -351,7 +389,7 @@ class RollbackVerificationRepository(TenantScopedRepository):
                 core_present=True,
                 core_reaudited=core_reaudited,
                 repo_binding_agreed=repo_agreed,
-            )
+            ), None
         snapshot = await DeploymentTargetRepository(
             self.session, self.context
         ).latest_deployment_target_for_ref(
@@ -366,29 +404,9 @@ class RollbackVerificationRepository(TenantScopedRepository):
             and as_of - snapshot.observed_at
             <= timedelta(hours=settings.deployment_evidence_max_age_hours)
         )
-        latest = (
-            await self.session.execute(
-                select(RollbackVerificationRun)
-                .where(
-                    RollbackVerificationRun.tenant_id == self.context.tenant_id,
-                    RollbackVerificationRun.project_id == project_id,
-                    RollbackVerificationRun.release_candidate_id == candidate.id,
-                    RollbackVerificationRun.evidence_pack_id == pack.id,
-                    RollbackVerificationRun.staging_target_binding_hash == staging.binding_hash,
-                    RollbackVerificationRun.runner_manifest_hash == RUNNER_MANIFEST_HASH,
-                    RollbackVerificationRun.drill_contract_version == SCHEMA_VERSION,
-                    RollbackVerificationRun.verification_contract_version
-                    == VERIFICATION_CONTRACT_VERSION,
-                    RollbackVerificationRun.staging_target_contract_version
-                    == STAGING_TARGET_CONTRACT_VERSION,
-                )
-                .order_by(
-                    RollbackVerificationRun.created_at.desc(),
-                    RollbackVerificationRun.id.desc(),
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        latest = await self._latest_matching_run(
+            project_id, candidate_id=candidate.id, pack_id=pack.id, staging=staging
+        )
         if latest is None:
             return RollbackCoverage(
                 scope_resolved=True,
@@ -399,7 +417,7 @@ class RollbackVerificationRepository(TenantScopedRepository):
                 staging_snapshot_present=snapshot_present,
                 staging_snapshot_available=snapshot_available,
                 staging_snapshot_fresh=snapshot_fresh,
-            )
+            ), None
         phase_count = int(
             (
                 await self.session.execute(
@@ -445,7 +463,7 @@ class RollbackVerificationRepository(TenantScopedRepository):
             gate_eligible=latest.gate_eligible,
             phase_count=phase_count,
             execution_observation=latest.execution_observation,
-        )
+        ), latest
 
     async def _audit(self, row: RollbackVerificationRun, actor: str) -> None:
         await audit_record(
