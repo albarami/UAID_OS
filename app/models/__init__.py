@@ -65,6 +65,14 @@ from app.models.run_checkpoint import RunCheckpoint
 from app.models.run_checkpoint_write import RunCheckpointWrite
 from app.models.run_step import RunStep
 from app.models.tenant_api_key import TenantApiKey
+from app.models.ops_incident import (
+    OpsIncident,
+    OpsIncidentActionEvaluation,
+    OpsIncidentActionResult,
+    OpsIncidentEvent,
+    OpsIncidentTicket,
+    OpsSupportHandover,
+)
 from app.models.ops_signal import OpsObservationRun, OpsSignalResult
 from app.models.organization import Organization
 from app.models.monitoring_status_snapshot import MonitoringStatusSnapshot
@@ -134,6 +142,12 @@ from app.models.tool_call import ToolCall
 __all__ = [
     "Base",
     "Organization",
+    "OpsIncident",
+    "OpsIncidentActionEvaluation",
+    "OpsIncidentActionResult",
+    "OpsIncidentEvent",
+    "OpsIncidentTicket",
+    "OpsSupportHandover",
     "OpsObservationRun",
     "OpsSignalResult",
     "Tenant",

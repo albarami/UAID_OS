@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -75,6 +76,12 @@ class PMIssueMapping(Base):
         CheckConstraint(
             "board_column IN (" + ", ".join(repr(c) for c in _BOARD_COLUMNS) + ")",
             name="ck_pim_board_column_valid",
+        ),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "tenant_id",
+            name="uq_pm_issue_mappings_id_project_tenant",
         ),
         Index(
             "ix_pim_tenant_project_system_instance_ref_created",

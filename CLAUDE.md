@@ -764,7 +764,25 @@ readiness stays `slice20.v1`; `can_go_live_autonomously` remains the literal `Fa
 APPROVE (agent `8ca43267-57a2-4ff1-aac5-802f30310b52`); independent code APPROVE (agent
 `160c2a06-f414-4222-876f-0bcc59029525`). Verified suites: `make test` 1160 passing / 861 deselected;
 `make test-db` 861 passing / 1160 deselected. Owned pyright paths report 0 errors. Merged via PR #102
-(squash commit `5c4b3e9`). Next: Slice 57 under the standing cadence.**
+(squash commit `5c4b3e9`).**
+**Slice 57 adds the DETERMINISTIC §25.2 INCIDENT WORKFLOW + authorized local tickets +
+§25.4 support handover (`app/ops/incidents.py` + `incident_service.py` + `OpsIncidentRepository` +
+migration `0056_ops_incidents`, `ruleset_version="slice57.v1"`). Six tenant-owned tables
+(`ops_incidents`, `ops_incident_events`, `ops_incident_tickets`, `ops_support_handovers`,
+`ops_incident_action_evaluations`, `ops_incident_action_results`) plus additive UNIQUE targets on
+`ops_signal_results` and `pm_issue_mappings`. Seq 1 writes a local bug ticket **only** when
+`AutonomyPolicyRepository.decision_for(project, "create_project_tasks")` is ALLOW; seq 2 stays
+`not_evaluated`/`no_log_source`; seq 3–5 are `deferred_slice58`; seq 6–7 are
+`production_not_executed` and never `local_ticket_written`. No incident status `accepted`.
+**Honesty crux:** UAID recorded a tenant-owned incident ledger and wrote a local ticket only when
+policy ALLOWED `create_project_tasks`. This is not live IR, not Jira, not Slice 56
+`incident_reports`, not log diagnosis, and not a hotfix. A5 stays `slice54.v1`; readiness stays
+`slice20.v1`; `can_go_live_autonomously` remains the literal `False`;
+`production_autonomy.py` / `readiness.py` / `control_loop.py` / `app/ops/db_checks.py` are
+byte-stable. Independent plan APPROVE (agent `dba3f159-6d5b-4077-b945-617d83e84383`); independent
+code APPROVE (agent `2045edfa-ebc4-4472-8fd2-0ad7a813492b`). Verified suites: `make test` 1172
+passing / 873 deselected; `make test-db` 873 passing / 1172 deselected. Owned pyright paths report
+0 errors. Next: Slice 58 under the standing cadence.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -979,6 +997,18 @@ the admin `app` role only.
   stores as those classes. Audit action `ops_signals.recorded` is counts/ids/digests only.
   **Honesty: an eleven-row assessment is not adequate monitoring, incident response, or
   go-live authority; no HTTP; no broker; A5/readiness/control-loop untouched.**
+- `app/ops/incidents.py` — deterministic §25.2 incident workflow (Slice 57). Pure contract
+  `slice57.incidents.v1` / `slice57.action_eval.v1` maps real `decision_for` results onto seven
+  frozen prescriptions; seq 2 is never authorized here. `incident_service.py` public wrappers
+  own REPEATABLE READ `tenant_scope` (no caller `session`). `OpsIncidentRepository` writes the
+  six tenant-owned, RLS ENABLE+FORCE tables in migration `0056` (incidents SELECT/INSERT/UPDATE
+  no DELETE; the other five SELECT/INSERT append-only) plus additive UNIQUE targets on
+  `ops_signal_results` and `pm_issue_mappings`. Local tickets exist only on seq-1 ALLOW;
+  diagnosis/patch/hotfix/rollback stay `recorded_not_executed`. Support handover is presence-only
+  (`recorded_complete`/`recorded_incomplete`); request-authenticated is key custody, not a human
+  signature. Audit is counts/ids/status/decisions only — never summary/detail. **Honesty: a
+  recorded incident is not live IR, Jira, log diagnosis, or a hotfix; no HTTP; no broker; A5/
+  readiness/control-loop untouched.**
 - `app/intake/` — document intake sandbox (Slice 9, §16.3). `sandbox.py` (pure): treats
   customer documents as **untrusted data** — `scan(content)` is a **best-effort, deterministic**
   prompt-injection signal returning marker **identifiers** (never raw excerpts; no ML);
@@ -1422,11 +1452,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1160 passing (Docker-free); `make test-db` → 861 passing (DB-backed: tenancy,
+  **`make test` → 1172 passing (Docker-free); `make test-db` → 873 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1532,8 +1562,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1160 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 861 passing
+make test                                  # Docker-free tests (no services) — 1172 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 873 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
