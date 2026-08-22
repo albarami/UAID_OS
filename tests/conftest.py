@@ -22,6 +22,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
+from tests.ops_incidents_support import inc_ctx as inc_ctx
 from tests.ops_signals_support import ops_ctx as ops_ctx
 
 # Admin (owner/superuser `app`) — schema build, migrations, and test seeding.

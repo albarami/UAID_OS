@@ -229,6 +229,12 @@ class OpsSignalResult(Base):
         *(CheckConstraint(sql, name=name) for name, sql in CHILD_CHECK_CONSTRAINTS),
         UniqueConstraint("run_id", "seq", name="uq_ops_signal_results_run_seq"),
         UniqueConstraint("run_id", "signal_class", name="uq_ops_signal_results_run_class"),
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "tenant_id",
+            name="uq_ops_signal_results_id_project_tenant",
+        ),
         Index("ix_ops_signal_results_run", "tenant_id", "run_id"),
     )
 

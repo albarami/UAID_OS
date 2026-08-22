@@ -242,8 +242,25 @@ adequate:
   READ and `transaction_timestamp()` `as_of` (no caller session/as_of). Audit records
   counts/ids/digests only.
 - **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
-  `can_go_live_autonomously=False`. Slice 31 alerts-active is not this signal set. Incident
-  workflow remains Slice 57.
+  `can_go_live_autonomously=False`. Slice 31 alerts-active is not this signal set.
+
+## Incident workflow (Slice 57, §25.2 / §25.4)
+`app/ops/incidents.py` records a tenant-owned incident ledger, authorized local tickets, and
+seven frozen §25.2 prescriptions. It does **not** diagnose logs, write Jira, or execute a hotfix:
+- **Tickets:** a local `ops_incident_tickets` row is written only when
+  `decision_for(project, "create_project_tasks")` is ALLOW. Missing policy or A0 ⇒ DENY and no
+  ticket. Re-evaluation reuses an existing ticket on repeated ALLOW and leaves a historical
+  ticket in place on ALLOW→DENY.
+- **Prescriptions:** seq 2 is always `not_evaluated`/`no_log_source`. Seq 3–5 are
+  `deferred_slice58`. Seq 6–7 are `production_not_executed` and structurally never
+  `local_ticket_written`. No incident status `accepted`.
+- **Handover:** presence-only `ops_support_handovers` (`recorded_complete` /
+  `recorded_incomplete`). `request_authenticated` is key custody, not a human signature.
+- **Persistence:** migration `0056` adds six tenant-owned, RLS ENABLE+FORCE tables plus
+  additive UNIQUE targets on `ops_signal_results` and `pm_issue_mappings`. Public wrappers
+  own REPEATABLE READ; audit is ids/status/counts/decisions only.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`. Slice 56 `incident_reports` is not this workflow.
 
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
