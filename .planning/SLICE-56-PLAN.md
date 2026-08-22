@@ -1,6 +1,6 @@
 # Slice 56 Plan — Post-launch monitoring (§25.1 signal set)
 
-**Status:** IMPLEMENTED — independent plan APPROVE (agent `8ca43267-57a2-4ff1-aac5-802f30310b52`) and independent code APPROVE (agent `160c2a06-f414-4222-876f-0bcc59029525`). OD-56-1…10 = Option A. Merge SHA is stamped in HANDOFF after squash.
+**Status:** MERGED — historical record. Implemented via PR #102 (squash commit `5c4b3e9`); this plan is retained as the approved design rationale for Slice 56.
 
 **Bound open decisions:**
 

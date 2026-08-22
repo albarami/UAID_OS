@@ -763,8 +763,8 @@ readiness stays `slice20.v1`; `can_go_live_autonomously` remains the literal `Fa
 `production_autonomy.py` / `readiness.py` / `control_loop.py` are byte-stable. Independent plan
 APPROVE (agent `8ca43267-57a2-4ff1-aac5-802f30310b52`); independent code APPROVE (agent
 `160c2a06-f414-4222-876f-0bcc59029525`). Verified suites: `make test` 1160 passing / 861 deselected;
-`make test-db` 861 passing / 1160 deselected. Owned pyright paths report 0 errors. Next: Slice 57
-under the standing cadence.**
+`make test-db` 861 passing / 1160 deselected. Owned pyright paths report 0 errors. Merged via PR #102
+(squash commit `5c4b3e9`). Next: Slice 57 under the standing cadence.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a

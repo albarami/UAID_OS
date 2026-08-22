@@ -3,7 +3,7 @@
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
 **Created:** 2026-06-17. **Revision:** Rev 17 (current-state reconciliation after Slice 56 implemented; Salim released 55→56 on 2026-08-22).
-**Baseline state:** Post–Slice 56 (Alembic head `0055_ops_signals` once merged; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`). Slice 55 remains `15d0e75` / PR #100.
+**Baseline state:** Post–Slice 56 (`main` at `5c4b3e9`; Slice 56 merged via PR #102 at `5c4b3e9`; Alembic head `0055_ops_signals`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
 **Status of this document:** SEQUENCING RECORD — §6 reflects Slice 56 complete under the standing 56–59 cadence and Slice 57 as next. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
@@ -556,7 +556,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 > These four slices make the system **functional after launch**, not merely A5-passable (see §11).
 
-#### Slice 56 — Post-launch monitoring (the full §25.1 signal set) — **IMPLEMENTED (this PR; merge SHA stamped after squash)**
+#### Slice 56 — Post-launch monitoring (the full §25.1 signal set) — **MERGED (PR #102, `5c4b3e9`)**
 - **Goal.** Assess all eleven §25.1 classes in one complete run with per-class source binding and source-bound threshold evaluation. Missing live sources stay `not_observed`.
 - **Why now.** Slice 55 recorded only `decided_not_executed`; §25.1 still requires the named classes to be *assessable*. Gate #11 (Slice 31 alerts-active) is not this set.
 - **Spec grounding.** §25.1 (2363–2375); §26.6 "post-launch monitoring"; `.planning/SLICE-56-PLAN.md` v8 (OD-56-1…10 = Option A).
@@ -658,7 +658,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-22): Slice 56 is IMPLEMENTED under the standing 56–59 cadence.** Salim released 55→56 after reviewing PR #100 (`15d0e75`). Slice 56 assesses all eleven §25.1 classes into `ops_observation_runs` / `ops_signal_results` (migration `0055`); default counters are `2/0/9`; A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal. An eleven-row assessment is not adequate monitoring or production readiness (`.planning/SLICE-56-PLAN.md`; `app/ops/`; migration `0055`).
+> **Current state (2026-08-22): Slice 56 is MERGED.** PR #102 landed as squash commit `5c4b3e9`; migration `0055_ops_signals` is the Alembic head. UAID assesses all eleven §25.1 classes into `ops_observation_runs` / `ops_signal_results`; default counters are `2/0/9`; A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal. An eleven-row assessment is not adequate monitoring or production readiness (`.planning/SLICE-56-PLAN.md`; `app/ops/`; migration `0055`; PR #102).
 
 **Next planned: Slice 57 — incident workflow + post-launch ticket creation + support handover (§25.2/§25.4), authorized by the standing 56–59 cadence.** Number the Slice-57 migration from Alembic head at plan time (`0055` is occupied). HALT for Salim again after Slice 59, before ecosystem slices 60–63.
 
