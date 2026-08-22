@@ -1,26 +1,27 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-22T21:10:00Z",
-  "source": "slice-58-closeout",
-  "partial": false,
+  "timestamp": "2026-08-22T21:45:00Z",
+  "source": "slice-59-plan-halt",
+  "partial": true,
   "phase": "Phase 6",
   "phase_name": "Production release & operations",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-58-PLAN.md",
-  "task": "Slice 58",
+  "plan": ".planning/SLICE-59-PLAN.md",
+  "task": "Slice 59",
   "total_tasks": null,
-  "status": "slice_58_merged_non_closing",
+  "status": "halted_three_consecutive_plan_rejects",
   "seats": {
     "builder": {
       "model": "Cursor Grok 4.6",
       "family": "grok",
-      "choice": "Grok continues",
-      "rationale": "Standing seats: Grok builds through Slice 63."
+      "choice": "Grok halted",
+      "rationale": "Three consecutive Sol REJECTs on Slice 59 PLAN. Owner halt condition fired."
     },
     "reviewer": {
       "model": "GPT-5.6 Sol",
       "family": "gpt",
       "slug": "gpt-5.6-sol-max",
+      "agent": "8cd454f8-3cdf-43d5-84b8-1b8802e2fcab",
       "rationale": "Reviewer seat must be a different model family than the builder. Sole approval authority."
     }
   },
@@ -29,57 +30,76 @@
     "Slice 56 docs follow-up merged via PR #103 (squash commit 994aca4d2cabac215b3976acd11a3422b0796fd6)",
     "Slice 57 merged via PR #104 (squash commit 037508c0438ad5c8137521f0acd222e895c4b074)",
     "Slice 57 docs follow-up merged via PR #105 (squash commit 08c17e06ca22cbe1409806dd2237ca08089e6fa5)",
-    "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation"
+    "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation",
+    "Slice 58 docs follow-up merged via PR #107 (squash commit 33ee5617ce5a68fd99fed040affa4ab8e7854865)"
   ],
   "remaining_tasks": [
-    "Slice 59 plan → review → build → validate → code review → docs → PR → merge (must not claim self-healing closed)",
-    "Slices 60–63 continuously after each merge"
+    "Slice 59 PLAN is not approved (v1, v2, v3 REJECT). No feat/slice-59 branch. No migration 0058.",
+    "Slices 60–63 not started"
   ],
-  "blockers": [],
-  "human_actions_pending": [],
+  "blockers": [
+    {
+      "id": "three_consecutive_rejects_slice59_plan",
+      "item": "Slice 59 PLAN",
+      "reviewer_agent": "8cd454f8-3cdf-43d5-84b8-1b8802e2fcab",
+      "count": 3,
+      "owner": "Salim"
+    }
+  ],
+  "human_actions_pending": [
+    "Owner ruling on Slice 59 PLAN after three consecutive Sol REJECTs. Do not implement 0058 until a plan APPROVE."
+  ],
   "salim_gate": {
     "id": "REMOVED",
     "status": "removed_by_owner_ruling",
-    "note": "Slice 59 Salim gate removed. Run 57–63 continuously. Report only at Slice 63 merge or a halt condition.",
+    "note": "Slice 59 Salim gate removed. Halt here is the three-consecutive-REJECT rule, not the old per-slice gate.",
     "released_at": "2026-08-22"
   },
   "rulings": [
     "The Slice 59 Salim gate is REMOVED. No per-slice reports, no per-slice pauses, no owner gates. Run Slice 57 → 63 continuously.",
     "Builder = Grok 4.6. Reviewer = GPT-5.6 Sol (different family; sole approval authority).",
-    "pyright is mandatory every slice; cannot run ⇒ log a blocker, never skip silently.",
-    "Hard stops: never weaken tests/CI, never force-push, never edit the spec, never insert budget figures, never commit secrets, never soften go-live or §2.6."
+    "Three consecutive REJECTs on the same item — log verdicts verbatim, halt."
   ],
   "decisions": [
     "A5 remains slice54.v1, readiness slice20.v1, can_go_live_autonomously literal False.",
-    "OD-58-1…10 = Option A (plan v3).",
-    "Slice 58 does not close spec §26.6 or the roadmap Slice 58 exit. Residual actuators stay open.",
-    "Gate #10 currentness is the complete production_autonomy conjunction from one coverage_with_run operation.",
-    "One locked snapshot_decisions policy snapshot; seq 5–7 are policy-first."
+    "Slice 58 remains non-closing. Residual §26.6 actuators stay open.",
+    "Alembic head at halt: 0057_self_healing. Slice 59 migration not taken."
   ],
   "reviewer_verdicts": {
-    "plan": {
-      "verdict": "APPROVE",
-      "agent": "aab9e2d8-141e-4de2-b992-d0d6555cba97",
-      "verbatim": "APPROVAL: I approve Slice 58 plan v3 and bind OD-58-1…10 exactly as stated. This slice delivers only a hotfix-intent evaluation and does not close §26.6. It performs no git, PR, staging, production, or rollback action; go-live remains literal false and §2.6 remains intact. Implementation must preserve: the complete gate-10 conjunction with exact matching rollback context; one locked `snapshot_decisions` policy snapshot; and policy-first precedence for seq 5–7. Migration `0057` follows verified head `0056`."
+    "plan_v1": {
+      "verdict": "REJECT",
+      "agent": "8cd454f8-3cdf-43d5-84b8-1b8802e2fcab",
+      "verbatim": "VERDICT: REJECT\n\nExact corrections:\n1. Seq 1 cannot prove an N-day incident-free streak from current open statuses or ledger absence. Use lifecycle intervals plus proven coverage/start time; otherwise mark `not_evaluable`. Test older-open and resolved-within-window incidents.\n2. Persist an immutable canonical policy snapshot. `category_id` must be non-null; a digest pointing to mutable `intake_categories.data` is insufficient.\n3. Define complete status/reason/source matrices for every criterion and improvement row, including exact source refs/digests, per-sequence CHECKs, composite FKs, and forgery tests.\n4. Pass the single transaction `as_of` into `coverage_with_run` and cost-forecast coverage so freshness and UTC-date calculations share one clock.\n5. Repair closure flow: `assert_project_not_stopped` raises before `refused_latch_active`; backup also makes later identity checks unreachable. Persist assessor identity/provenance, derive authenticated identity from `TenantContext`, and either reorder or remove unreachable refusals.\n6. Replace `extension_recorded=true` with an honest `extension_required`/`required_not_executed` posture. No extension exists until a later run is explicitly linked.\n7. Specify assessment idempotency digest material and concurrent REPEATABLE READ winner handling, including bounded full-transaction retries and a two-session race test."
     },
-    "code": {
-      "verdict": "APPROVE",
-      "agent": "aab9e2d8-141e-4de2-b992-d0d6555cba97",
-      "verbatim": "I independently verified Slice 58 against the approved v3 plan. The exact gate-10 run now comes from one `coverage_with_run` operation; DB guards enforce policy-snapshot and branch-before-PR integrity; real DB tests cover latch behavior, stale latest-wins evidence, old authorization exclusion, and forged writes. Frozen hashes, 0056→0057 migration, CI scope, ruff, pyright, 1,189 unit tests, and 888 DB tests pass. The slice remains non-closing and non-authorizing with no git, deploy, rollback, A5, readiness, or go-live change."
+    "plan_v2": {
+      "verdict": "REJECT",
+      "agent": "8cd454f8-3cdf-43d5-84b8-1b8802e2fcab",
+      "verbatim": "VERDICT: REJECT\n\nExact corrections:\n1. `projects.created_at` proves project age, not incident-ledger or post-deployment coverage. Seq 1 must remain `not_evaluable` unless v3 introduces a real, provenance-bound coverage-start source.\n2. One polymorphic `source_ref` cannot conditionally reference three tables. Use typed nullable FK columns or a normalized source-binding table. Add missing composite UNIQUE targets for monitoring snapshots and support handovers.\n3. CHECKs plus FKs cannot reject an unverified monitoring snapshot or a rollback run whose full gate-10 conjunction fails. Specify a DB guard or restricted writer that validates source eligibility, policy digest integrity, and extension-link rules.\n4. Complete the matrices: define seq-4’s non-pass status, every improvement reason/source binding, and make cost forecasts `observed` only when `coverage.run_present`. Seq-1’s digest must include the ordered incident/event evidence set, not only aggregate counts.\n5. Include normalized assessor identity/provenance in the request digest; otherwise different principals reusing a key return a row attributed to the first assessor.\n6. Retry the invisible-winner condition as well as `40001`/`40P01`; only raise `StabilizationIdempotencyRace` after all bounded fresh-transaction retries fail."
+    },
+    "plan_v3": {
+      "verdict": "REJECT",
+      "agent": "8cd454f8-3cdf-43d5-84b8-1b8802e2fcab",
+      "verbatim": "VERDICT: REJECT\n\nExact corrections:\n\n1. Seq 3’s DB guard must bind the snapshot to the currently declared monitoring target. As written, any fresh, active, connector-verified same-project snapshot—including one for an obsolete target—can forge `passed`.\n\n2. Seq 4’s DB guard must verify current/latest release, core, repository, and staging bindings—the full `gate10_conjunction_passed` semantics—or use a restricted writer. Stored pass-shaped columns plus freshness allow an obsolete run to forge `passed`.\n\n3. Choose one freshness source: snapshot the actual configured monitoring/deployment age limits on the parent and include them in `input_digest`. Remove the unresolved “GUC or copied default” choice, which can disagree with non-default runtime settings."
     }
   },
   "validation": {
-    "merged_sha": "787ddd63160d6b61d1e3189cdd00e45809109e30",
-    "pr": 106,
+    "merged_sha": "33ee5617ce5a68fd99fed040affa4ab8e7854865",
+    "pr_feat": 106,
+    "pr_docs": 107,
     "alembic_head": "0057_self_healing",
     "make_test": "1189 passed / 888 deselected",
     "make_test_db": "888 passed / 1189 deselected",
-    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32598439872 — pass"
+    "ci_feat": "https://github.com/albarami/UAID_OS/actions/runs/32598439872 — pass",
+    "ci_docs": "https://github.com/albarami/UAID_OS/actions/runs/32598755648 — pass"
   },
   "open_questions": [
-    "Residual §26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt."
+    "Residual §26.6 actuators remain open after Slice 58.",
+    "Slice 59 PLAN unapproved. v3 remaining defects: declaration-bound monitoring snapshot; full gate-10 current-binding in DB or restricted writer; single freshness snapshot on the parent included in input_digest."
   ],
-  "uncommitted_files": [],
-  "next_action": "ORIENT + PLAN Slice 59 from Alembic head 0057. Do not claim self-healing closed. Do not message Salim.",
-  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Slice 58 close-out is this HANDOFF entry, not a user report. Slice 59 must not treat self-healing as done."
+  "uncommitted_files": [
+    ".planning/SLICE-59-PLAN.md",
+    ".planning/HANDOFF.json"
+  ],
+  "next_action": "HALTED. Owner ruling required before any Slice 59 implementation. Do not start Slices 60–63.",
+  "context_notes": "Owner halt condition: three consecutive REJECTs on Slice 59 PLAN (same reviewer agent 8cd454f8). Slice 58 is merged on main at 33ee561. No feat/slice-59 branch. No code, tests, or migration 0058 were written."
 }
