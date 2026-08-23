@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-59-PLAN.md",
   "task": "Slice 59",
   "total_tasks": null,
-  "status": "slice_59_merged_non_closing__slice_60_plan_HALTED_three_consecutive_rejects",
+  "status": "slice_59_merged_non_closing__slice_60_plan_APPROVED_v4_building",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -46,7 +46,8 @@
   "blockers": [
     {
       "id": "SLICE-60-PLAN-HALT",
-      "kind": "halt_condition_reached",
+      "kind": "halt_condition_reached_and_cleared",
+      "cleared": "Salim authorized the fourth review round on 2026-08-23; reviewer APPROVED v4. Retained as history, not an open blocker.",
       "condition": "three consecutive plan REJECTs (v1, v2, v3)",
       "plan": ".planning/SLICE-60-PLAN.md",
       "current_version": "v4 (v3 defect fixed; NO fourth review round opened, NO build started)",
@@ -56,8 +57,9 @@
         "v2 REJECT (3 defects): signed manifest not rebound to its export record, permitting a direct-SQL replay that refreshes the declared horizon without the private key; base64 normalization stripped newlines from BOTH sides, which the reviewer disproved on real PostgreSQL 16 by inserting a newline-injected 88-char signature that decoded to 64 bytes and was accepted; a single closed enum cannot hold both 'verified' and 'expired_declared_horizon' while the plan required reporting them together.",
         "v3 REJECT (1 defect): the verifier is not total over attacker-writable bytes. content is arbitrary BYTEA, so uaid_app can commit a file 3 that is invalid UTF-8 / malformed JSON / wrong-shaped while satisfying every hash, count, signature-byte and base64 invariant; step 3 would then raise instead of returning a closed result. Reviewer explicitly recorded that EVERYTHING ELSE now holds: rebinding closes replay without circularity, the trusted-key map is not row-controlled, the PostgreSQL base64 and sha256(bytea) checks are correct, and the two result axes are properly independent."
       ],
-      "fix_applied_awaiting_authorization": "v4 adds §2.1.3 total fail-closed parsing, the manifest_invalid result value, and probes D-28a/b/c.",
-      "owner_decision_needed": "Authorize a fourth plan review round (as Salim did for the Slice 59 three-REJECT halt on 2026-08-23), or redirect the Slice 60 scope."
+      "fix_applied": "v4 adds §2.1.3 total fail-closed parsing, the manifest_invalid result value, and probes D-28a/b/c.",
+      "resolution": "AUTHORIZED by Salim on 2026-08-23: fourth plan review round on v4 approved. Halt rules otherwise unchanged (a further three consecutive REJECTs halts again).",
+      "seat_authorship_confirmation": "Salim required that v4 be the PLANNER seat's work, not the builder's. Confirmed: the planner seat (this main session) authored v1, v2, v3 and v4 in full. The builder seat (Cursor Grok 4.6 Extra High) was never invoked on the Slice 60 plan and has not been invoked since the Slice 59 test-defect fix. No v5 handoff is required."
     }
   ],
   "human_actions_pending": [],
@@ -82,6 +84,16 @@
     "Seq 5 (support handover) is the ONLY pass path, scoped to 'the latest recorded row says recorded_complete'. Seq 3 (monitoring) and seq 4 (rollback currency) have NO passed value at either the Python or DB layer, because their positive rungs rest on evidence tiers uaid_app can write directly. Seq 1 is not_evaluable (no production coverage clock); seq 6/7/8 are not_observed. all_criteria_passed is structurally unreachable.",
     "as_of is guard-forced to transaction_timestamp(); freshness limits are recorded and digested for transparency only and gate nothing."
   ],
+  "slice_60_verdicts": {
+    "plan": {
+      "verdict": "APPROVE",
+      "version": "v4 (after v1/v2/v3 REJECT — 12 defects total, all accepted, none argued down)",
+      "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "verbatim": "APPROVE\n\nThe verifier is now total and fail-closed... Returning `manifest_invalid` before trust/signature checks is correct fail-closed precedence. The ten-value integrity enum and two-value horizon enum are complete and independent. PostgreSQL probes confirmed the strict base64 expression and core `sha256(bytea)` behavior. D-28a/b/c and change-log item 12 accurately cover the v3 correction. ... The builder may proceed.",
+      "authored_by_seat": "planner (all four versions; builder never involved)"
+    },
+    "code": {"verdict": "PENDING"}
+  },
   "reviewer_verdicts": {
     "plan": {
       "verdict": "APPROVE",
@@ -121,6 +133,6 @@
     "Seat-ruling naming: the ruling says 'Claude Fable 5' but no such model slug is addressable. Recorded as the Claude seat with the actual model string. Owner may correct."
   ],
   "uncommitted_files": [],
-  "next_action": "HALTED at the Slice 60 plan gate on three consecutive REJECTs. Do NOT open a fourth review round and do NOT start the build without Salim's authorization. The v4 plan (.planning/SLICE-60-PLAN.md) already contains the fix for the sole remaining v3 defect; the reviewer recorded that everything else holds.",
+  "next_action": "BUILD Slice 60 on branch feat/slice-60-export-bundle per the APPROVED v4 plan, then validate, then Sol code review, then docs/PR/merge. Migration is 0059 from head 0058. Then continue to Slices 61-63 under the standing cadence.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice; Slice 59 ran under the prior seating and was already compliant (planner Claude, builder Grok, reviewer Sol). Slice 59 close-out is this HANDOFF entry, not a user report."
 }
