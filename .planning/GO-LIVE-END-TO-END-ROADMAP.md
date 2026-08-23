@@ -2,7 +2,7 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 23 (Slice 62 cost learning + tenant-safe publisher delivered with honesty limitations; Alembic head `0061`; Slice 61 exit still OPEN; D-8/D-9/D-10 still OPEN with owner=Salim; go-live unaffected). Rev 22 recorded Slice 61b population. Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
+**Created:** 2026-06-17. **Revision:** Rev 24 (Slice 62 MERGED via PR #114 squash `96faa86`; Alembic head `0061`; Slice 61 exit still OPEN; D-8/D-9/D-10 still OPEN with owner=Salim; go-live unaffected). Rev 23 recorded the bounded Slice 62 delivery on the feature branch. Rev 22 recorded Slice 61b population. Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
 **Status of this document:** SEQUENCING RECORD — §6 reflects Slice 59 merged as a stabilization-window *assessment* that does **not** close spec §25.4 or §26.6, with Slice 60 as next. Residual self-healing actuators and the stabilization exit stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
@@ -640,7 +640,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** The Slice 61 exit. After 61b the honest status is "catalog mechanism exists and is populated with declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open."
 - **Exit.** Populated declared catalog; D-8/D-9/D-10 still OPEN; go-live unaffected. **Does not close the Slice 61 exit.**
 
-#### Slice 62 — Advanced cost optimizer + tenant-safe cross-project learning
+#### Slice 62 — Advanced cost optimizer + tenant-safe cross-project learning — **MERGED (PR #114, `96faa86`)**
 - **Goal.** §26.7 advanced cost optimizer; cross-project learning obeying §17.5 tenant-safe allowed-aggregate vs forbidden tenant-content rules (App. C l.3009).
 - **Why now.** Needed after cost/ops/eval signals exist (S51/S56/S40): optimization and tenant-safe cross-project learning require real aggregate data to learn from (§17.5/§19), which only accrues once the system runs.
 - **Spec grounding.** §26.7; §17.5 (1724+); App. C (l.3009); §19 model routing.
@@ -650,7 +650,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Tests.** Learning uses only allowed aggregate signals; no tenant-content crossover; cost routing improves on fixtures.
 - **A5 gate(s) advanced.** None.
 - **Must NOT claim.** Any tenant-content reuse.
-- **Exit.** **Delivered (bounded):** admin-path 62-row tenant-safe publisher + decision-only tier optimizer under A5 `slice54.v1` / readiness `slice20.v1` / literal `can_go_live_autonomously=False`. Publication threshold is not a privacy proof; consent path unbuilt; no actuated routing; Slice 61 exit and D-8/D-9/D-10 remain OPEN. Go-live unaffected.
+- **Exit.** **MERGED (bounded)** by PR #114 (`96faa86`): admin-path 62-row tenant-safe publisher + decision-only tier optimizer under A5 `slice54.v1` / readiness `slice20.v1` / literal `can_go_live_autonomously=False`. Publication threshold is not a privacy proof; consent path unbuilt; no actuated routing; Slice 61 exit and D-8/D-9/D-10 remain OPEN. Go-live unaffected. Does **not** close the Slice 61 exit.
 
 #### Slice 63 — Enterprise administration
 - **Goal.** §26.7 enterprise administration (org/tenant admin, RBAC, policy management) over the existing tenant model.
@@ -668,9 +668,9 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-22): Slice 58 is MERGED AS NON-CLOSING.** PR #106 landed as squash commit `787ddd6`; migration `0057_self_healing` is the Alembic head. UAID records a tenant-owned hotfix-intent evaluation (local A2 plans under one policy snapshot; staging/production/rollback not executed). Spec §26.6 “self-healing/hotfix loop” and the original Slice 58 exit remain **open**. A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-58-PLAN.md`; `app/ops/hotfix.py`; migration `0057`; PR #106).
+> **Current state (2026-08-24): Slice 62 is MERGED.** PR #114 landed as squash commit `96faa86`; migration `0061_cost_learning` is the Alembic head (`uv run alembic heads` → `0061`). UAID records a tenant-owned model-tier recommendation and a 62-row tenant-safe aggregate snapshot; this is not actuated routing, not a privacy proof, and not go-live authority. The roadmap Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-62-PLAN.md`; `app/ecosystem/learning.py`; `app/ecosystem/cost_optimizer.py`; migration `0061`; PR #114).
 
-**Next planned: Slice 60 — external-assurance export hardening (OSCAL, signed manifest, auditor access), authorized by the standing continuous run to Slice 63.** Number the Slice-60 migration from Alembic head at plan time (`0058` is occupied by Slice 59). Slice 60 must **not** claim stabilization closed, self-healing closed, or go-live authorized. Seat ruling (2026-08-23, effective Slice 60): planner = Claude seat, builder = Cursor Grok 4.6 Extra High, reviewer = GPT-5.6 Sol with sole approval authority and probe-backed verdicts; no seat approves its own output; never reseat mid-slice. Owner ruling: no per-slice Salim gate; continue through Slice 63. HALT only on a genuine halt condition.
+**Next planned: Slice 63 — enterprise administration**, authorized by the standing continuous run through Slice 63. Number the Slice-63 migration from Alembic head at plan time (head is `0061`; expect `0062` — verify, do not assume). Slice 63 must **not** claim the Slice 61 exit closed, D-8/D-9/D-10 closed, admin convenience overriding tenant isolation, or go-live authorized. After Slice 63 merges: stop and write the Slice 55–63 final report; do not start new work. Seat ruling (2026-08-23, standing): planner = Claude seat, builder = Cursor Grok 4.6 Extra High, reviewer = GPT-5.6 Sol with sole approval authority and probe-backed verdicts; no seat approves its own output; never reseat mid-slice. Halt rules unchanged; no plan v4 without owner.
 
 ---
 

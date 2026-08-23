@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-08-23)
+## Current status (2026-08-24)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -943,9 +943,13 @@ proof against reconstruction, not tenant-content sharing, and not go-live author
 freshly migrated database has no published aggregates until the admin publisher runs.
 Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
 A5 stays `slice54.v1`; readiness stays `slice20.v1`;
-`can_go_live_autonomously` remains the literal `False`. Verified suites:
-`make test` 1270 passing / 1022 deselected; `make test-db` 1022 passing / 1270
-deselected. Owned pyright paths report 0 errors.**
+`can_go_live_autonomously` remains the literal `False`. Seats: PLANNER = Claude
+(approved v4); BUILDER = Cursor Grok 4.6 Extra High
+(`9de933b4-b741-43ff-8a9e-0c6cdb7b75ec`); REVIEWER = GPT-5.6 Sol
+(`4ac9facc-44e1-4172-9cb6-37cef628d36c`). Verified suites: `make test`
+1270 passing / 1022 deselected; `make test-db` 1022 passing / 1270 deselected.
+Owned pyright paths report 0 errors. **Merged via PR #114 (squash commit
+`96faa864c19d7cbffb3677600530de5071c12b2c`).** The Slice 61 exit stays OPEN.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
