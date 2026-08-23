@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T13:40:00Z",
+  "timestamp": "2026-08-23T13:45:00Z",
   "source": "slice-60-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61A-PLAN.md",
   "task": "Slice 61a",
   "total_tasks": null,
-  "status": "slice_61a_replan_v3_submitted_for_third_review__race_linearizations_and_listing_clause7",
+  "status": "slice_61a_plan_v3_approved__handing_to_builder",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -140,7 +140,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Await the third plan review of SLICE-61A-PLAN.md v3. On APPROVE, hand to the builder. On REJECT, the halt condition fires: stop and report to the owner; do not write v4.",
+  "next_action": "Builder (Cursor Grok 4.6 Extra High) implements SLICE-61A-PLAN.md v3 exactly on feat/slice-61a-ecosystem-catalog. Migration 0060 from head 0059. Do not edit the plan. Do not open a PR until code review APPROVE. Add roadmap §12 OPEN D-8, D-9, D-10 with owner=Salim. Docs in the Slice 55-60 non-closing register. Catalog stays empty.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -192,8 +192,8 @@
       "superseded": "The v1-v3 reject history below belongs to the superseded plan. It is retained as a record of twenty accepted defects, not as context the new plan builds on."
     },
     "replan": {
-      "version": "v3 (v1 REJECT — three defects; v2 REJECT — two; all five accepted)",
-      "verdict": "PENDING — third review of the from-scratch plan",
+      "version": "v3 APPROVED (v1 three defects, v2 two; all accepted; third-round APPROVE)",
+      "verdict": "APPROVE",
       "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
       "root_cause_addressed": "Every rejected version tried to make a database constraint prove something a database cannot prove: that a text blob is a canonical serialization, that a recorded result was computed, that a declared tool scope matches code behaviour. The new plan stops reaching for forgery resistance against admin write access and records only what the datastore enforces.",
       "what_changed": [
@@ -211,13 +211,14 @@
         "61b populates the declared catalog and does not close the roadmap Slice 61 exit. Header, 0.7, 6, 7, and 8 now agree.",
         "D-10 is an evidence-backed security-review gate (verified human workflow or scanner). Allowed claim is a reviewer-asserted record labelled blueprint_security_review, not a performed review."
       ],
-      "halt_watch": "Two consecutive REJECTs recorded on the from-scratch line. A REJECT on v3 is the third and triggers the standing halt: stop and report; do not narrow again.",
+      "halt_watch": "Cleared. Plan approved on the third from-scratch review. Halt rules remain in force for code review: three consecutive code REJECTs halt and report.",
       "v2_reject": "v2 REJECT by cacd3b79-15df-4d15-899f-1514426cb9a1: (1) race outcome overspecified — FOR UPDATE serializes but child-first lets both commit (scopes=2, vettings=1), contradicting \"cannot both succeed\" / \"exactly one commits\"; record_contract_test must lock before loading children; \"children the checker ran against\" was unsupported; (2) listing-guard clause 7 had no behavioural test — helper unit test plus source-text mention is not a guard firing.",
       "v3_fixes": [
         "Both linearizations specified and probed (D-21h): vetting-first freezes the later child; child-first both commit and the extra child is in the frozen pre-vetting set. Forbidden outcome is a child committing after a vetting row.",
         "record_contract_test locks the asset before loading children and running the checker (D-21i), so checker input equals the frozen set. Claim language is \"children present when the vetting row was inserted\" except on that repository path.",
         "D-22 clause 7: admin disables freeze and vetting guards only, inserts incomplete connector plus passing-shaped vetting row, re-enables, listing guard stays enabled throughout, listing INSERT refused with listing_connector_children_required. No replica-role."
-      ]
+      ],
+      "verbatim": "APPROVE. Both PostgreSQL lock linearizations are now correctly specified; only post-vetting child insertion is forbidden. record_contract_test locks before loading children and running checks. Clause 7 now behaviorally exercises the listing guard. PostgreSQL confirmed disabling one named trigger leaves the listing trigger tgenabled=O; it fired and prevented insertion. No stale race or performed-review/61b-exit overclaims remain outside historical quotations. Frozen hashes match the tree."
     }
   }
 }
