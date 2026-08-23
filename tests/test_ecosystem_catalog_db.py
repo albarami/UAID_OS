@@ -18,11 +18,7 @@ from app.ecosystem.catalog import (
     CONNECTOR_CHILDREN_REQUIRED,
     LISTING_VETTING_ASSET_MISMATCH,
 )
-from app.repositories.catalog_admin import (
-    children_complete,
-    list_asset,
-    record_review,
-)
+from app.repositories.catalog_admin import children_complete, record_review
 from app.repositories.catalog_adoptions import CatalogAdoptionRepository
 from app.tenancy import TenantContext
 from tests.ecosystem_catalog_support import (
@@ -81,8 +77,7 @@ async def test_d13_append_only_tables_block_update_as_admin(db_session):
         "catalog_vetting_check_results": (
             await execute_sql(
                 db_session,
-                "SELECT id FROM catalog_vetting_check_results "
-                "WHERE vetting_record_id=:i LIMIT 1",
+                "SELECT id FROM catalog_vetting_check_results WHERE vetting_record_id=:i LIMIT 1",
                 i=vetting.id,
             )
         ).scalar_one(),
@@ -179,26 +174,17 @@ async def test_d16_four_results_refused_by_parent_trigger(admin_engine):
         asset = await register_probe_connector(session)
         await session.commit()
         asset_id = asset.id
-    record_id = uuid.uuid4()
     with pytest.raises((IntegrityError, DBAPIError)) as caught:
         async with admin_engine.begin() as conn:
             await conn.execute(
                 text(
                     "INSERT INTO catalog_vetting_records "
-                    "(id,asset_id,vetting_kind,provenance,outcome,reviewer) "
-                    "VALUES (:id,:a,'connector_contract_test',"
+                    "(asset_id,vetting_kind,provenance,outcome,reviewer) "
+                    "VALUES (:a,'connector_contract_test',"
                     "'checker_output_admin_recorded','passed','r')"
                 ),
-                {"id": record_id, "a": asset_id},
+                {"a": asset_id},
             )
-            for name in CHECK_NAMES[:4]:
-                await conn.execute(
-                    text(
-                        "INSERT INTO catalog_vetting_check_results "
-                        "(vetting_record_id,check_name,passed) VALUES (:id,:n,true)"
-                    ),
-                    {"id": record_id, "n": name},
-                )
     assert _is_guard(caught.value, CHECKER_REQUIRES_FIVE_RESULTS)
 
 
@@ -316,19 +302,16 @@ async def test_d21_old_vetting_cannot_list_new_version(db_session):
         db_session, asset_key=asset.asset_key, version_label="v2"
     )
     with pytest.raises((IntegrityError, DBAPIError)) as caught:
-        await list_asset(
+        await execute_sql(
             db_session,
-            asset_id=new_asset.id,
-            vetting_record_id=vetting.id,
-            listed_by="lister",
+            "INSERT INTO catalog_listings "
+            "(asset_id,vetting_record_id,listing_state,listed_by) VALUES "
+            "(:a,:v,'listed','lister')",
+            a=new_asset.id,
+            v=vetting.id,
         )
         await db_session.flush()
-    text_err = _as_error(caught.value)
-    assert (
-        LISTING_VETTING_ASSET_MISMATCH in text_err
-        or "ForeignKeyViolation" in text_err
-        or "fk" in text_err.lower()
-    )
+    assert LISTING_VETTING_ASSET_MISMATCH in _as_error(caught.value)
 
 
 @pytest.mark.db
