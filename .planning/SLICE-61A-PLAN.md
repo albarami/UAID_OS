@@ -4,12 +4,12 @@
 BUILDER = Cursor Grok 4.6 Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority on plan and
 code, probe-backed verdicts only.
 
-**Version.** v2 (v1 REJECTED — three defects, all accepted; see §10). This is a **from-scratch
-replan** under the owner's 2026-08-23 direction after an earlier Slice 61a plan was rejected three
-times (twenty defects). That earlier plan is archived at
+**Version.** v3 (v1 REJECTED — three defects; v2 REJECTED — two; all five accepted; see §10). This
+is a **from-scratch replan** under the owner's 2026-08-23 direction after an earlier Slice 61a plan
+was rejected three times (twenty defects). That earlier plan is archived at
 `.planning/archive/SLICE-61A-PLAN-SUPERSEDED-v1-v3.md` and **nothing in it is carried forward**.
 Halt rules are unchanged: three rejects on *this* plan (the from-scratch line, of which this is the
-second version) means halt and report, not narrow again.
+third version) means halt and report, not narrow again.
 
 > **This slice does NOT satisfy the roadmap's Slice 61 exit.** It builds the listing mechanism and
 > registers nothing. Slice 61b populates the catalog and also does **not** close that exit: the
@@ -68,7 +68,13 @@ The freeze that closes it (OD-2, OD-13):
    refused. Failed or passing, the children freeze; a correction is a new `version_label`.
 4. Both the child-insert trigger and the vetting-insert trigger take `SELECT … FROM catalog_assets
    WHERE id = … FOR UPDATE` before their existence checks, so a concurrent scope insert and a
-   concurrent vetting serialize on the asset row and cannot both succeed.
+   concurrent vetting **serialize** on the asset row. Serialization is not mutual exclusion. The
+   two valid linearizations (v2 defect 1, confirmed on PostgreSQL 16): **vetting-first** — the
+   vetting row commits, the later child insert raises `connector_children_frozen`; **child-first**
+   — the child commits, the waiting vetting observes the completed children and also commits. In
+   the child-first case both transactions succeed, and the extra child is part of the frozen
+   pre-vetting set. What cannot happen is a child committing **after** a vetting row for the same
+   asset. That was the v1 hole.
 
 The mechanisms are a foreign key, an append-only trigger, a freeze trigger, a listing/vetting
 guard, and a parent-row lock. Nothing exotic, and nothing that claims to resist an admin rewriting
@@ -89,7 +95,9 @@ Proven by the schema, and claimable:
   `listed → delisted`.
 - **Freeze of connector children** — once any vetting record exists for an asset, no further spec
   or scope row can be inserted (OD-13). Combined with the parent-row lock, a listed connector's
-  declared spec and scope are the spec and scope that were present at vetting.
+  declared spec and scope are the spec and scope that were present **when the vetting row was
+  inserted**. That is not, by itself, "the children the checker ran against"; the repository
+  ordering that aligns those two is OD-13's `record_contract_test` rule, separately proven.
 - **Trust zone** — `uaid_app` holds SELECT and nothing else on every global catalog table, so the
   runtime role cannot register, vet, list, or delist (`0007:229-234`, `0037:315-317`,
   `0039:438-441`, `0047:83-86` precedent).
@@ -240,8 +248,8 @@ inserts a new asset row; the old vetting record still references the old row, so
 unvetted. Probe D-21 keeps that proof.
 
 **Re-vetting on a child-row change is now also automatic, because the child cannot change.** See
-OD-13. Probe D-21a…D-21h prove the freeze, the nonempty-spec/scope requirement, the kind pin, and
-the parent-row lock.
+OD-13. Probe D-21a…D-21i prove the freeze, the nonempty-spec/scope requirement, the kind pin, the
+parent-row lock's two linearizations, and the repository lock-before-load.
 
 `UNIQUE (asset_kind, asset_key, version_label)` prevents two rows claiming the same version, and
 `UNIQUE (id, asset_kind)` is the composite FK target that pins both the connector spec and the
@@ -334,11 +342,16 @@ probes can tell them apart:
 5. For `agent_blueprint`, the record's `reviewer` differs from the asset's `registered_by` (§2.2).
 6. `listing_state = 'listed'` with `delisted_at` and `delisted_reason` NULL.
 7. For `connector`, `catalog_connector_children_complete(asset_id)` is true — exactly one spec
-   row and at least one scope row. The same helper is the vetting-time check in OD-13.
+   row and at least one scope row. The same helper is the vetting-time check in OD-13. Distinct
+   message: `listing_connector_children_required`.
 
-Clause 7 is defense in depth: a connector cannot be listed without the spec and scope the checker
-ran against, and after vetting those children cannot grow. The helper is probed directly (D-21f)
-so the listing clause is not only reachable by disabling the freeze.
+Clause 7 is defense in depth: a connector cannot be listed unless the children present **when the
+cited vetting row was inserted** are still complete. After that insert those children cannot grow.
+The helper is probed directly (D-21f). The listing guard's *call* of the helper is probed
+behaviourally (D-22 clause 7): an admin-only trigger-bypassed setup creates an incomplete
+connector that already has a passing-shaped vetting row, then — with `catalog_listings_guard`
+having remained enabled the whole time — a listing INSERT is refused with
+`listing_connector_children_required`.
 
 Naming a specific record, rather than proving some qualifying record exists, makes the listing's
 justification explicit and auditable.
@@ -418,16 +431,41 @@ END IF;
 AND
 `EXISTS (SELECT 1 FROM connector_catalog_tool_scope WHERE asset_id = $1)`.
 The listing guard's connector clause calls the same function. Probe D-21f asserts the helper
-itself, so neither guard's child-completeness check is only reachable by disabling the other.
+itself. Probe D-22 clause 7 asserts that the listing guard *calls* it, by refusing a listing of an
+incomplete connector (setup in OD-7 / D-22).
 
-The two locks are the same row, so a concurrent scope insert and a concurrent vetting cannot both
-commit: one waits, then either sees a freeze or sees the extra scope. Probe D-21h is the two-session
-proof.
+The two locks are the same row, so a concurrent scope insert and a concurrent vetting serialize.
+PostgreSQL 16 confirms both linearizations (v2 defect 1):
 
-The repository is not the enforcement: `register_connector` writes asset + spec + scope in one
-transaction and `record_contract_test` / `record_review` take the same `FOR UPDATE`, but a direct
-admin `INSERT` still hits the trigger. A failed vetting freezes the version; a correction is a new
-`version_label`. That is the identity-is-the-row rule applied to children.
+- **Vetting-first.** The vetting session acquires the lock, inserts, commits. The waiting scope
+  insert then sees a vetting row and raises `connector_children_frozen`. Final: one vetting, no
+  extra scope.
+- **Child-first.** The scope session acquires the lock, inserts `tool.b`, commits. The waiting
+  vetting then observes completed children and also commits. Final: two scopes, one vetting. The
+  extra scope is in the frozen pre-vetting set; a subsequent `tool.c` is refused.
+
+Both may therefore succeed. What the lock proves is that a child cannot commit **after** a vetting
+row for the same asset. Probe D-21h requires both linearizations and forbids the post-vetting
+child.
+
+**`record_contract_test` lock-before-load (v2 defect 1, the application half).** The trigger
+serializes *row insertion*. It does not, by itself, make the checker observe the children that
+end up frozen. `record_contract_test` therefore:
+
+1. `SELECT … FROM catalog_assets WHERE id = :asset_id FOR UPDATE`;
+2. loads spec and scope from that locked state;
+3. runs the checker against those loaded children;
+4. inserts the vetting record (the trigger re-takes the same row lock, already held).
+
+A concurrent extra-scope insert blocks at step 1, then either freezes (vetting-first) or is
+already visible at step 2 (child-first). Either way the checker input equals the frozen set.
+`record_review` does not write connector contract tests (`ck_cvr_kind_provenance`); it still takes
+the same lock when the asset is a connector, so a misplaced call cannot race a child insert.
+Probe D-21i.
+
+The repository is not the freeze: a direct admin `INSERT` still hits the trigger. A failed vetting
+freezes the version; a correction is a new `version_label`. That is the identity-is-the-row rule
+applied to children.
 
 ---
 
@@ -579,7 +617,7 @@ by the unique constraint. D-20 an assertion-provenance record carrying any resul
 and a `blueprint_security_review` claiming checker provenance is refused by
 `ck_cvr_kind_provenance`.
 
-**DB — re-vetting on change and child freeze (D-21…D-21h).** D-21 register a connector, vet it, list
+**DB — re-vetting on change and child freeze (D-21…D-21i).** D-21 register a connector, vet it, list
 it; register the same `asset_key` with a changed `version_label`, producing a new asset row;
 listing the new row while citing the **old** vetting record is refused — the guard's clause 1
 fires, and the composite FK independently would too. D-21a after a (passing or failing) vetting
@@ -591,19 +629,30 @@ refused the same way. D-21f `catalog_connector_children_complete` returns false 
 no spec, false for a spec and zero scope rows, and true for a spec plus at least one scope row —
 the helper both guards call, probed directly, no trigger bypass. D-21g a `tool_scope` row whose
 `asset_kind` is not `'connector'`, or that targets a blueprint asset, is refused by the composite
-FK. D-21h two sessions: one inserts a scope row, the other inserts a vetting record, both against
-the same asset; exactly one commits, the other either waits and then sees freeze or waits and then
-sees the extra scope — never both a vetting record and a post-vetting scope row.
+FK. D-21h two sessions against the same asset that already has a spec and `tool.a`: one inserts
+`tool.b`, the other inserts a vetting record. Both valid linearizations must occur in the suite
+(or be forced by lock ordering) and are accepted: **vetting-first** — vetting commits, `tool.b`
+raises `connector_children_frozen`, final `scopes=1, vettings=1`; **child-first** — `tool.b`
+commits, vetting waits then commits, final `scopes=2, vettings=1`, and a subsequent `tool.c` is
+refused. The forbidden outcome is `tool.b` committing after the vetting row — the v1 hole.
+D-21i `record_contract_test` takes `FOR UPDATE` on the asset **before** loading children and
+running the checker; a concurrent extra-scope insert either blocks and then freezes, or is
+visible to the checker. After commit, the frozen scope set equals the set the checker was given.
 
 **DB — listing guard (D-22…D-24).** D-22 each of OD-7 clauses 1–6 is exercised separately and
 refused with its own distinct message: wrong asset, failed outcome, wrong `vetting_kind`, wrong
-provenance, blueprint self-review, and non-`listed` insert state. Clause 7 is covered by D-21f
-(the shared helper) plus an assertion that `catalog_listings_guard` calls
-`catalog_connector_children_complete` — it is not probed by inserting a listing against an
-incomplete connector, because OD-13 makes that state unreachable without disabling triggers.
-D-23 two live listings for one asset are refused by the partial unique index. D-24 the delist
-lifecycle: `listed → delisted` succeeds and sets `delisted_at`; `delisted → listed` is refused;
-mutating any other column during delist is refused; a same-state update is refused.
+provenance, blueprint self-review, and non-`listed` insert state. Clause 7 is a **behavioural**
+probe, not a source-text assertion (v2 defect 2): as the **admin** role, disable
+`connector_spec_freeze_guard`, `connector_scope_freeze_guard`, and
+`catalog_vetting_records_guard` — and **not** `catalog_listings_guard`; insert a connector asset
+with no spec and no scope plus a passing-shaped `connector_contract_test` /
+`checker_output_admin_recorded` record and its five result rows; re-enable the three disabled
+triggers; with `catalog_listings_guard.tgenabled = 'O'` throughout, INSERT a listing citing that
+record; refused with `listing_connector_children_required`. Replica-role is not used: it would
+also silence the listing guard. D-23 two live listings for one asset are refused by the partial
+unique index. D-24 the delist lifecycle: `listed → delisted` succeeds and sets `delisted_at`;
+`delisted → listed` is refused; mutating any other column during delist is refused; a same-state
+update is refused.
 
 **DB — adoption (D-25…D-26).** D-25 adopting a listed asset succeeds, is audited with safe metadata
 only — assert the payload carries no `source_ref` and no `domain_label` free text — and creates
@@ -722,3 +771,21 @@ go-live change. No catalog population.
    security review exists" contradicted §0.7. Fixed: D-10 is an evidence-backed security-review
    gate (verified human workflow or scanner); the allowed claim is "a reviewer-asserted record
    labelled `blueprint_security_review` exists."
+
+**v2 → v3 (two reviewer defects, all accepted).**
+
+1. **Race outcome overspecified.** v2 said a concurrent scope insert and a concurrent vetting
+   "cannot both succeed" / "exactly one commits." A PostgreSQL 16 probe with the proposed triggers
+   showed the child-first linearization: scope acquires the lock, inserts `tool.b`, commits;
+   vetting waits, observes completed children, also commits; final `scopes=2, vettings=1`. That is
+   safe serialization, not mutual exclusion. Fixed: both linearizations are specified and probed
+   (D-21h); the forbidden outcome is a child committing after a vetting row. `record_contract_test`
+   locks before loading children and running the checker, so the checker input equals the frozen
+   set (D-21i). The listing/vetting claim is "children present when the vetting row was inserted,"
+   not "children the checker ran against," except on the repository path D-21i proves.
+2. **Listing-guard clause 7 had no behavioural test.** D-21f tested the helper; a source-text
+   assertion that the listing function mentions the helper name does not prove the guard calls it
+   on the listed asset or refuses incomplete state. Fixed: D-22 clause 7 prepares incomplete
+   connector/vetting state by disabling the freeze and vetting guards only (admin-only), restores
+   them, then — with `catalog_listings_guard` enabled throughout — inserts a listing and requires
+   `listing_connector_children_required`. Replica-role is not used.
