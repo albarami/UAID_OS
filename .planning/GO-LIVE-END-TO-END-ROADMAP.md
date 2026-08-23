@@ -662,7 +662,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Tests.** RBAC; tenant-boundary preserved; admin actions audited.
 - **A5 gate(s) advanced.** None.
 - **Must NOT claim.** Admin convenience overriding tenant isolation.
-- **Exit.** Enterprise admin; tenant isolation intact; end-to-end system complete.
+- **Exit.** **HALTED (plan line).** Three consecutive Sol plan REJECTs (v1, v2, v3). No product code. Alembic head still `0061`. No v4 without owner. D-8/D-9/D-10 and the Slice 61 exit stay OPEN.
 
 ---
 
@@ -670,7 +670,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 > **Current state (2026-08-24): Slice 62 is MERGED.** PR #114 landed as squash commit `96faa86`; migration `0061_cost_learning` is the Alembic head (`uv run alembic heads` → `0061`). UAID records a tenant-owned model-tier recommendation and a 62-row tenant-safe aggregate snapshot; this is not actuated routing, not a privacy proof, and not go-live authority. The roadmap Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-62-PLAN.md`; `app/ecosystem/learning.py`; `app/ecosystem/cost_optimizer.py`; migration `0061`; PR #114).
 
-**Next planned: Slice 63 — enterprise administration**, authorized by the standing continuous run through Slice 63. Number the Slice-63 migration from Alembic head at plan time (head is `0061`; expect `0062` — verify, do not assume). Slice 63 must **not** claim the Slice 61 exit closed, D-8/D-9/D-10 closed, admin convenience overriding tenant isolation, or go-live authorized. After Slice 63 merges: stop and write the Slice 55–63 final report; do not start new work. Seat ruling (2026-08-23, standing): planner = Claude seat, builder = Cursor Grok 4.6 Extra High, reviewer = GPT-5.6 Sol with sole approval authority and probe-backed verdicts; no seat approves its own output; never reseat mid-slice. Halt rules unchanged; no plan v4 without owner.
+**HALTED: Slice 63 plan line.** Sol REJECT of v3 is consecutive plan REJECT #3. Defect: writer-function mutations in `.planning/SLICE-63-PLAN.md` §5.2.a remain masked by `admin_policy_changes_guard`; live PostgreSQL 16 probes commit only when that neighbouring trigger is also disabled, so `P-writer-no-existing-policy` does not close v2 defect 3. No v4, no implementation, no product PR until the owner authorizes. Alembic head remains `0061`. Slice 61 exit and D-8/D-9/D-10 stay OPEN. A5 `slice54.v1`, readiness `slice20.v1`, `can_go_live_autonomously=False`. Seat ruling (2026-08-23, standing) unchanged. After any future Slice 63 merge: stop and write the Slice 55–63 final report; do not start new work.
 
 ---
 
