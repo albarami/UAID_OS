@@ -915,7 +915,7 @@ A5 stays `slice54.v1`; readiness stays `slice20.v1`;
 `can_go_live_autonomously` remains the literal `False`. Seats: PLANNER = Claude
 (approved v2); BUILDER = Cursor Grok 4.6 Extra High; REVIEWER = GPT-5.6 Sol
 (`cacd3b79-15df-4d15-899f-1514426cb9a1`). Verified suites: `make test`
-1253 passing / 996 deselected; `make test-db` 996 passing / 1253 deselected. Owned
+1253 passing / 1000 deselected; `make test-db` 1000 passing / 1253 deselected. Owned
 pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
@@ -1646,7 +1646,7 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1253 passing (Docker-free); `make test-db` → 996 passing (DB-backed: tenancy,
+  **`make test` → 1253 passing (Docker-free); `make test-db` → 1000 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1753,7 +1753,7 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 1253 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 996 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1000 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

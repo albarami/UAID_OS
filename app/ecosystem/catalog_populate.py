@@ -35,7 +35,7 @@ from app.repositories.catalog_admin import (
     register_connector,
     register_reference_intake,
 )
-from app.repositories.catalog_reads import get_by_key, latest_listing, latest_vetting, scope_names
+from app.repositories.catalog_reads import get_by_key, latest_listing, scope_names
 
 
 class CatalogPopulateError(Exception):
@@ -71,13 +71,19 @@ def _spec_matches(stored: ConnectorSpecInput, declared: ConnectorSpecInput) -> b
     )
 
 
-async def _stored_connector_spec(session: AsyncSession, asset_id: uuid.UUID) -> ConnectorSpecInput:
+async def _stored_connector_spec(
+    session: AsyncSession, asset_id: uuid.UUID, asset_key: str
+) -> ConnectorSpecInput:
     spec = (
         await session.execute(
             select(ConnectorCatalogSpec).where(ConnectorCatalogSpec.asset_id == asset_id)
         )
-    ).scalar_one()
+    ).scalar_one_or_none()
+    if spec is None:
+        raise _mismatch(asset_key)
     names = tuple(await scope_names(session, spec.asset_id))
+    if not names:
+        raise _mismatch(asset_key)
     return ConnectorSpecInput(
         protocol_module=spec.protocol_module,
         protocol_name=spec.protocol_name,
@@ -95,21 +101,13 @@ async def _is_listed(session: AsyncSession, asset_id: uuid.UUID) -> bool:
 
 
 async def _list_connector(session: AsyncSession, asset: CatalogAsset, asset_key: str) -> None:
-    latest = await latest_vetting(session, asset.id)
-    if (
-        latest is None
-        or latest.vetting_kind != "connector_contract_test"
-        or latest.outcome != "passed"
-    ):
-        latest = await record_contract_test(
-            session, asset_id=asset.id, reviewer=ACTOR_CONTRACT_CHECKER
-        )
-    if latest.outcome != "passed":
+    record = await record_contract_test(session, asset_id=asset.id, reviewer=ACTOR_CONTRACT_CHECKER)
+    if record.outcome != "passed":
         raise CatalogPopulateError(f"connector_contract_test_failed:{asset_key}")
     await list_asset(
         session,
         asset_id=asset.id,
-        vetting_record_id=latest.id,
+        vetting_record_id=record.id,
         listed_by=ACTOR_POPULATE,
     )
 
@@ -121,7 +119,7 @@ async def _populate_connectors(session: AsyncSession) -> tuple[list[str], list[s
         declared = DECLARED_CONNECTORS[asset_key]
         existing = await get_by_key(session, "connector", asset_key, DECLARED_VERSION_LABEL)
         if existing is not None:
-            stored = await _stored_connector_spec(session, existing.id)
+            stored = await _stored_connector_spec(session, existing.id, asset_key)
             if not _spec_matches(stored, declared):
                 raise _mismatch(asset_key)
             if await _is_listed(session, existing.id):
@@ -155,20 +153,18 @@ async def _list_review(
     vetting_kind: str,
     reviewer: str,
 ) -> None:
-    latest = await latest_vetting(session, asset.id)
-    if latest is None or latest.vetting_kind != vetting_kind or latest.outcome != "passed":
-        latest = await record_review(
-            session,
-            asset_id=asset.id,
-            vetting_kind=vetting_kind,
-            provenance="reviewer_asserted_admin_recorded",
-            outcome="passed",
-            reviewer=reviewer,
-        )
+    record = await record_review(
+        session,
+        asset_id=asset.id,
+        vetting_kind=vetting_kind,
+        provenance="reviewer_asserted_admin_recorded",
+        outcome="passed",
+        reviewer=reviewer,
+    )
     await list_asset(
         session,
         asset_id=asset.id,
-        vetting_record_id=latest.id,
+        vetting_record_id=record.id,
         listed_by=ACTOR_POPULATE,
     )
 
