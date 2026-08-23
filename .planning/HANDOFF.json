@@ -1,22 +1,23 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T11:55:00Z",
+  "timestamp": "2026-08-23T12:35:00Z",
   "source": "slice-60-closeout",
   "partial": false,
   "phase": "Phase 6",
   "phase_name": "Production release & operations",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-60-PLAN.md",
-  "task": "Slice 60",
+  "plan": ".planning/SLICE-61A-PLAN.md",
+  "task": "Slice 61a",
   "total_tasks": null,
-  "status": "slice_60_merged__signed_offline_auditor_bundle__closes_no_spec_section",
+  "status": "HALTED_at_slice_61a_plan_gate__three_consecutive_reviewer_rejects__owner_authorization_required_before_v4",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
       "family": "claude",
       "note": "The 2026-08-23 seat ruling names the planner 'Claude Fable 5'. No such model slug is addressable from this session; the Claude options are the main thread and claude-opus-5-thinking-max. Recorded as the actual model rather than the ruling's label. Flagged to the owner, not silently resolved.",
       "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs.",
-      "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work."
+      "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work.",
+      "slice_61a_authorship": "Authored SLICE-61A-PLAN.md v1, v2 and v3 in full. Builder seat never invoked on the plan."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
@@ -31,7 +32,8 @@
       "slug": "gpt-5.6-sol-max",
       "rationale": "Reviews BOTH plan and code diff. Sole approval authority. Probe-backed verdicts only, never prose-only. Different family from both planner and builder.",
       "agent_id": "cacd3b79-15df-4d15-899f-1514426cb9a1"
-    }
+    },
+    "ruling_status": "Standing and in force for Slice 61a. Re-confirmed by the owner on 2026-08-23. The planner label \"Fable 5\" still has no addressable model slug from this session; the actual model is recorded instead of the label, flagged rather than silently resolved."
   },
   "completed_tasks": [
     "Slice 56 merged via PR #102 (squash commit 5c4b3e91d9fc1d206d5d506c4f859993906946ef)",
@@ -50,21 +52,11 @@
   ],
   "blockers": [
     {
-      "id": "SLICE-60-PLAN-HALT",
-      "kind": "halt_condition_reached_and_cleared",
-      "cleared": "Salim authorized the fourth review round on 2026-08-23; reviewer APPROVED v4. Retained as history, not an open blocker.",
-      "condition": "three consecutive plan REJECTs (v1, v2, v3)",
-      "plan": ".planning/SLICE-60-PLAN.md",
-      "current_version": "v4 (v3 defect fixed; NO fourth review round opened, NO build started)",
-      "reviewer_agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
-      "reject_history": [
-        "v1 REJECT (8 defects): self-hashing manifest fixed point; attacker-controlled trust anchor via stored public_key_b64; no persisted bundle bytes so verification could not run; unenforced cardinality/lineage incl. a guard rule referencing a nonexistent evidence_packs.immutable_log_reference column; forgeable bundle_verified audit claim; uq_ep_id_project_tenant already exists at 0048:329; base64 length CHECK proves nothing; unworkable REPEATABLE READ race handling.",
-        "v2 REJECT (3 defects): signed manifest not rebound to its export record, permitting a direct-SQL replay that refreshes the declared horizon without the private key; base64 normalization stripped newlines from BOTH sides, which the reviewer disproved on real PostgreSQL 16 by inserting a newline-injected 88-char signature that decoded to 64 bytes and was accepted; a single closed enum cannot hold both 'verified' and 'expired_declared_horizon' while the plan required reporting them together.",
-        "v3 REJECT (1 defect): the verifier is not total over attacker-writable bytes. content is arbitrary BYTEA, so uaid_app can commit a file 3 that is invalid UTF-8 / malformed JSON / wrong-shaped while satisfying every hash, count, signature-byte and base64 invariant; step 3 would then raise instead of returning a closed result. Reviewer explicitly recorded that EVERYTHING ELSE now holds: rebinding closes replay without circularity, the trusted-key map is not row-controlled, the PostgreSQL base64 and sha256(bytea) checks are correct, and the two result axes are properly independent."
-      ],
-      "fix_applied": "v4 adds §2.1.3 total fail-closed parsing, the manifest_invalid result value, and probes D-28a/b/c.",
-      "resolution": "AUTHORIZED by Salim on 2026-08-23: fourth plan review round on v4 approved. Halt rules otherwise unchanged (a further three consecutive REJECTs halts again).",
-      "seat_authorship_confirmation": "Salim required that v4 be the PLANNER seat's work, not the builder's. Confirmed: the planner seat (this main session) authored v1, v2, v3 and v4 in full. The builder seat (Cursor Grok 4.6 Extra High) was never invoked on the Slice 60 plan and has not been invoked since the Slice 59 test-defect fix. No v5 handoff is required."
+      "id": "slice-61a-plan-halt",
+      "severity": "halt",
+      "summary": "Slice 61a plan rejected three times in a row. The standing halt condition stops the continuous run at the plan gate and requires owner authorization before a fourth round.",
+      "owner_decision_needed": "Authorize a fourth plan round (v4) addressing the five v3 defects, or redirect: narrow Slice 61a further, defer it, or change approach.",
+      "nothing_built": "No code, migration, or schema exists for Slice 61a. The halt is at the plan gate, so nothing needs reverting. Migration 0060 is still unwritten; head remains 0059."
     }
   ],
   "human_actions_pending": [],
@@ -79,7 +71,12 @@
     "SEAT RULING 2026-08-23, effective Slice 60 onward, never reseat mid-slice: PLANNER = Claude seat (writes the discussion doc where required and SLICE-N-PLAN.md; full ORIENT re-read of authority docs before every plan). BUILDER = Cursor Grok 4.6 Extra High (implements exactly the approved plan; sub-agents allowed, none approve; builder never edits the plan - plan changes return to the planner seat and go through plan re-review). REVIEWER = GPT-5.6 Sol (reviews BOTH plan and code diff; sole approval authority; probe-backed verdicts only, never prose-only). No seat reviews or approves its own output. Record all three seats in HANDOFF.json every slice.",
     "pyright is mandatory every slice; cannot run => log a blocker, never skip silently.",
     "Hard stops: never weaken tests/CI, never force-push, never edit the spec, never insert budget figures, never commit secrets, never soften go-live or 2.6.",
-    "Owner lifted the Slice 59 three-REJECT plan halt on 2026-08-23 and authorized a retry."
+    "Owner lifted the Slice 59 three-REJECT plan halt on 2026-08-23 and authorized a retry.",
+    {
+      "date": "2026-08-23",
+      "ruling": "seat_ruling_reconfirmed_by_owner",
+      "text": "Owner re-sent the Slice-60 authorization verbatim after Slice 60 had already merged. No retroactive action was taken and no v5 was produced: Slice 60 v4 was planner work, the reviewer had no outstanding item, and the plan and code were both APPROVED. The substantive ruling is treated as standing and carried forward unchanged to Slice 61a and beyond: PLANNER writes every plan version, BUILDER implements only, REVIEWER holds sole approval on both plan and code, no seat reviews its own output, all three seats recorded every slice, halt rules unchanged."
+    }
   ],
   "decisions": [
     "A5 remains slice54.v1, readiness slice20.v1, can_go_live_autonomously literal False.",
@@ -151,6 +148,55 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Slice 61 under the standing cadence and the 2026-08-23 three-seat ruling. Migration is 0060 from head 0059. Do not claim external assurance, PKI, or compliance certification from Slice 60.",
-  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63."
+  "next_action": "STOP. Report the three-reject halt to the owner and await authorization. Do not write SLICE-61A-PLAN.md v4 without it. The five v3 defects are recorded above with the planner probe re-verification of the two most damaging ones.",
+  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
+  "slice_61a": {
+    "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
+    "split_rationale": "Reviewer showed on v1 that an empty mechanism cannot claim the roadmap Slice 61 exit (\"vetted connector/blueprint/reference libraries\"). Split 61a (mechanism) / 61b (population), per the 8a/8b and 14a/14b precedent.",
+    "migration": "0060 from head 0059, purely additive",
+    "plan_verdicts": {
+      "v1": "REJECT - 8 defects: (1) provenance CHECK admitted system-executed with empty check_results; (2) content-hash pinning under-specified, connector identity outside the hashed row and blueprint labels unbound; (3) _TOOL IN tool_scope trivially satisfied by a wide declaration; (4) shipped_untested factually wrong, adapters are mock-tested; (5) no owner-level DELETE/TRUNCATE blockers on catalog_listings, adoption index wrongly called partial; (6) populated downgrade destructive; (7) empty catalog presented as the roadmap deliverable; (8) import scan called structural.",
+      "v2": "REJECT - 7 defects: (1) cardinality contradiction, five checks in 0.2 vs six everywhere else; (2) vetting guard still admitted under-constrained system results (extra element keys, non-universal count equality); (3) check_results::text digest unstable - Postgres JSONB rendering differs from Python canonical JSON; (4) identity rebinding not exact (extra keys ignored, duplicate keys collapsed at ::jsonb, ->> laundered wrong scalar types, blueprint labels not bound to agent_blueprints/agent_versions); (5) AST scope checker not complete (aliased import, module-object call, getattr, shadowed name, wrapper); (6) live_adapter_status only a one-way implication, shipped_* could name nothing; (7) stale probe references.",
+      "v3": "PENDING review - all 15 defects across both rounds accepted and fixed, none argued down."
+    },
+    "v3_fixes": "six everywhere + guard-mirrored name list; exact {name,passed} element keys and universal count equality, with 0.2 stating plainly that fabricated passing values remain admissible to admin write access; new check_results_canonical_json TEXT column carrying Python canonical bytes with the digest bound to those bytes; rebinding gated by exact key set, regexp_count duplicate detection on raw text, and jsonb_typeof type checks, plus direct blueprint label equality; AST check 5 fails closed unless broker access is fully accountable (single direct import binding, no rebinding, no dynamic-access builtins, occurrence accounting, at least one observed call) with the claim narrowed to direct calls in the service module; ck_ccs_adapter_name_iff_shipped enforces the iff; all probe references resolved.",
+    "halt_watch": "Two consecutive plan REJECTs recorded. A third consecutive REJECT triggers the standing halt-and-report condition."
+  },
+  "slice_61a_verdicts": {
+    "scope_split": "Slice 61 is split into 61a (catalog mechanism, this plan) and 61b (population). The reviewer recommended the split on the v1 round: the roadmap Slice 61 exit requires POPULATED vetted connector/blueprint/reference libraries, and an empty mechanism claiming that exit would be fake-done under spec section 2.1. Precedent: 8a/8b, 14a/14b. 61a explicitly does NOT close the roadmap Slice 61 exit, Appendix C l.3010, or l.3012.",
+    "plan": {
+      "verdict": "REJECT (third consecutive) — HALT CONDITION FIRED",
+      "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "version": "v3 REJECTED (v1 eight defects, v2 seven, v3 five; twenty defects total, all accepted, none argued down)",
+      "halt_watch": "FIRED. Three consecutive REJECTs on the Slice 61a plan. The continuous run is stopped at the plan gate. No v4 may be written until the owner authorizes a fourth round, exactly as at the Slice 60 plan gate (commit 336943e).",
+      "reject_history": [
+        "v1 (eight defects): (1) provenance CHECK admitted a system_executed_contract_test record with empty check_results, so the tier claimed unearned execution; (2) content-hash pinning under-specified — connector identity lived outside catalog_assets and blueprint labels were not DB-bound to agent_version; (3) permission scope trivially widened — _TOOL IN tool_scope is satisfied by declaring every tool; (4) shipped_untested factually inaccurate — the adapters are mock-tested in CI, not untested; (5) listing lifecycle protection incomplete — no owner-level DELETE/TRUNCATE blockers on catalog_listings, and the adoption idempotency index was described as partial with no predicate; (6) populated downgrade destructive; (7) an empty catalog presented as the roadmap deliverable; (8) an import scan described as a structural section-20.3 guarantee when it is regression evidence.",
+        "v2 (seven defects): (1) cardinality contradiction — section 0.2 said five checks while section 3.3, OD-61-5 and the probes said six; (2) the vetting guard still accepted under-constrained system results — extra element keys admissible, count equality not universal, and fabricated passed:true values admissible while the wording implied proven execution; (3) check_results::text digest instability — PostgreSQL JSONB text rendering differs from Python canonical JSON, so the digest binding was unsatisfiable across languages; (4) identity rebinding incomplete — field-by-field ->> comparison ignores extra keys, collapses duplicate keys at ::jsonb, coerces wrong scalar types, cannot distinguish missing from explicit null, and blueprint labels were not bound directly to agent_blueprints/agent_versions; (5) the AST scope checker was not complete — aliased imports, module-object calls, getattr, shadowed names or imported wrappers can hide a brokered call while the observed set still equals the declaration; (6) live_adapter_status was a one-way implication, letting a shipped adapter name nothing; (7) stale probe references.",
+        "v3 (five defects): (1) identity rebinding still bypassable and internally contradictory — a Unicode-escaped duplicate key evades the regexp_count rule, and the no-optional-fields rule contradicts live_adapter_name being NULL for an absent adapter, so such a connector has no valid identity payload; (2) canonical check-result bytes are not actually enforced — reordered text is JSONB-equal and its recomputed digest is self-consistent, so every specified guard clause passes and probe D-25c has no implementing mechanism; (3) AST accounting still underspecified — a method call client.broker_call_service(...) is an ast.Attribute, invisible to ast.Name occurrence counting, so all five conditions can pass alongside a hidden route; (4) the plan still overclaims — sections 0.3 and OD-61-5 say the bar \"proves protocol/structural conformance\", contradicting the honest refusal in sections 0.2 and 0.7 that fabricated passing results stay admin-admissible; (5) stale probe ranges D-16…D-19c should be D-16…D-19d."
+      ],
+      "v3_fixes": [
+        "Standardized to six checks in every section; the guard mirrors a single code-owned name list, probed for exhaustiveness by D-15.",
+        "Vetting guard requires exactly-{name,passed} elements and universal count equality; section 0.2 now states plainly that six fabricated passing values remain admissible to admin write access, so the proven claim is \"recorded through a path uaid_app cannot reach\", not \"UAID executed this\". Probes D-25a, D-30.",
+        "New check_results_canonical_json TEXT column holds the Python-produced canonical bytes; the digest binds to those bytes and the guard verifies the column parses to the same document as check_results. Probe D-25b asserts the two renderings genuinely differ so the regression cannot pass vacuously.",
+        "Identity rebinding gains three gates before any comparison — exact key set via jsonb_object_keys, regexp_count duplicate detection on the raw text, jsonb_typeof type checks — plus direct label equality against agent_blueprints/agent_versions. Probes D-19a through D-19d.",
+        "Check 5 fails closed unless the module broker access is fully accountable: single direct import binding, no rebinding or shadowing, no getattr/setattr/eval/exec/__import__/importlib, occurrence accounting, at least one observed call. Claim narrowed in section 0.6 to direct calls within the service module. Probes D-10a through D-10f.",
+        "ck_ccs_adapter_name_iff_shipped enforces the iff in both directions. Probes D-56a, D-56b.",
+        "All stale probe cross-references corrected."
+      ],
+      "planner_self_verification": {
+        "why": "v2 defect 3 was a wrong factual claim about PostgreSQL rendering asserted without probing. Before submitting v3 the planner probed every new SQL claim on the live PostgreSQL 16.14 container rather than reasoning from memory.",
+        "results": [
+          "regexp_count exists (PG15+) and returns 2 for a duplicated JSON key, 1 for a single key.",
+          "A duplicate key does collapse at ::jsonb, last value winning: {\"name\":\"x\",\"name\":\"y\"} yields \"y\". The count check therefore has to inspect the raw text, as the plan specifies.",
+          "jsonb_typeof returns number for 7 while ->> coerces the same value to the text 7 — the exact laundering path defect 4 identified; the type gate must run first, as the plan specifies.",
+          "Digest binding is well-defined: sha256 over the stored canonical text is 4d88235c... while sha256 over the same document rendered by PostgreSQL ::text is d88776d5... The two genuinely differ, so probe D-25b cannot pass vacuously and the defect-3 premise is confirmed.",
+          "Exact key-set comparison via array_agg over jsonb_object_keys detects an extra top-level key.",
+          "The duplicate-key regexp has no false positives: a value containing the literal text \"domain_label\": still counts 1, because JSON escapes the inner quotes; and a key that is a substring of another key (key vs asset_key) counts 1 each, because the opening quote anchors the boundary."
+        ],
+        "correction": "The claim recorded earlier — that the duplicate-key regexp \"has no false positives\" — was true as far as it went and misleading as a soundness claim. The probe set covered a value mimicking a key and a key that is a substring of another key, but NOT a Unicode-escaped key name. The reviewer probed that case and it is a real bypass, re-verified by the planner on PostgreSQL 16.14: for {\"asset_key\":\"bad\",\"\\u0061sset_key\":\"good\"}, regexp_count returns 1 while json_each decodes two asset_key entries and JSONB keeps \"good\" — so the DB verifies \"good\" while the human-visible canonical text says \"bad\", defeating the premise that the canonical bytes are the identity. Also re-verified: reordered check-result text is JSONB-equal to the canonical form, byte-different, and digest-self-consistent, so nothing in the specified guard forces actual canonical ordering. Incomplete verification is not verification; the record is corrected rather than left standing."
+      },
+      "v3_prior_defect_disposition": "Reviewer disposition of the seven v2 defects: 1 fixed, 2 fixed, 3 partial, 4 not fixed, 5 partial, 6 fixed, 7 not fully fixed.",
+      "reviewer_confirmed_good": "jsonb_object_keys exact-set checks and jsonb_typeof checks behave correctly; PostgreSQL and Python UTF-8 SHA-256 digests agree; the fourteen frozen hashes match; the grounding facts in section 0.1 hold against the current models and connectors."
+    }
+  }
 }
