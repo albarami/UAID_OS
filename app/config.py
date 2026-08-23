@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Slice 31 — monitoring/alerts evidence freshness (its own domain; gate #11 treats verified
     # monitoring evidence older than this many hours as stale / not-pass).
     monitoring_evidence_max_age_hours: int = 24
+    # Slice 60 — Ed25519 export-bundle signing. Empty values fail closed (no unsigned fallback).
+    # The private seed is signing input only and is never used as a verification trust anchor.
+    evidence_signing_private_key_b64: str = ""
+    evidence_signing_key_id: str = ""
+    evidence_signing_trusted_keys: str = ""
 
 
 settings = Settings()
