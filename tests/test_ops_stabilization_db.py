@@ -31,8 +31,11 @@ from tests.ops_stabilization_support import (
     STABLE_HASHES,
     STABILIZATION_TABLES,
     VALID_POLICY,
+    bind_and_activate_emergency_stop,
     by_seq,
+    create_project,
     declare_window,
+    seed_emergency_authority,
     unique_key,
     window_data,
 )
@@ -326,3 +329,62 @@ async def test_frozen_hashes_and_verified_unreadable_seq3(inc_ctx):
     assert seq3.status == "not_evaluable"
     assert seq3.reason == "monitoring_evidence_unreadable"
     assert seq3.status != "failed"
+
+
+@pytest.mark.db
+async def test_real_emergency_latch_refuses_closure_and_leaves_window_open(inc_ctx, db_session):
+    member = TenantContext(inc_ctx["t1"], actor=AuthenticatedActor("stop-a@example.test", "human"))
+    closer = TenantContext(inc_ctx["t1"], actor=AuthenticatedActor("stop-b@example.test", "human"))
+    project = await create_project(member, name="StabLatch", slug=unique_key("stab-latch"))
+    await declare_window(member, project)
+    window = await assess_stabilization(
+        member, project, actor="alice", idempotency_key=unique_key("latch-win")
+    )
+    await seed_emergency_authority(member, project)
+    bound, activated = await bind_and_activate_emergency_stop(
+        member,
+        project,
+        bind_key=unique_key("stab-bind"),
+        activate_key=unique_key("stab-activate"),
+    )
+    assert bound.binding_id is not None
+    assert activated.state == "active"
+    refused = await attempt_closure(closer, project, actor="bob")
+    assert refused.result_code == "refused_latch_active"
+    persisted = (
+        await db_session.execute(
+            text("SELECT result_code FROM ops_stabilization_closure_attempts WHERE id=:id"),
+            {"id": refused.id},
+        )
+    ).scalar_one()
+    assert persisted == "refused_latch_active"
+    latest = await latest_stabilization(member, project)
+    assert latest is not None
+    assert latest.id == window.id
+    assert latest.status == "open"
+
+
+@pytest.mark.db
+async def test_assess_leaves_a5_and_readiness_bit_stable(inc_ctx):
+    from app.repositories.production_autonomy import ProductionAutonomyRepository
+    from app.repositories.readiness import ReadinessRepository
+
+    ctx = TenantContext(inc_ctx["t1"])
+    project = inc_ctx["p1"]
+    await declare_window(ctx, project)
+    async with tenant_scope(ctx) as session:
+        before_a5 = (await ProductionAutonomyRepository(session, ctx).evaluate(project)).to_dict()
+        before_ready = (await ReadinessRepository(session, ctx).evaluate(project)).to_dict()
+    recorded = await assess_stabilization(
+        ctx, project, actor="stab-test", idempotency_key=unique_key("a5-stable")
+    )
+    assert recorded.status == "open"
+    async with tenant_scope(ctx) as session:
+        after_a5 = (await ProductionAutonomyRepository(session, ctx).evaluate(project)).to_dict()
+        after_ready = (await ReadinessRepository(session, ctx).evaluate(project)).to_dict()
+    assert before_a5 == after_a5
+    assert before_ready == after_ready
+    assert after_a5["ruleset_version"] == "slice54.v1"
+    assert after_a5["can_go_live_autonomously"] is False
+    assert after_ready["ruleset_version"] == "slice20.v1"
+    assert after_ready["can_go_live_autonomously"] is False

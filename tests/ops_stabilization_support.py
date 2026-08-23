@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 from sqlalchemy import text
 
+from app.release.emergency_control_service import EmergencyControlResult
 from app.release.monitoring_evidence import observation_valid
-from app.tenancy import tenant_scope
+from app.tenancy import TenantContext, tenant_scope
 
 FINDINGS_GUARD_MD5 = "808036faf2660d6810aeca4342e6f1ac"
 DB_CHECKS_SHA = "468837a3afe452239fa392a16cdf1ab90c10938fecb0854478f32606eabb49fc"
@@ -298,3 +299,59 @@ async def insert_raw_snapshot(
             },
         )
     ).scalar_one()
+
+
+async def create_project(ctx: TenantContext, *, name: str, slug: str) -> uuid.UUID:
+    """Create a committed same-tenant project for isolated Slice-59 DB proofs."""
+    from app.repositories.projects import ProjectRepository
+
+    async with tenant_scope(ctx) as session:
+        project = await ProjectRepository(session, ctx).create(name=name, slug=slug)
+        await session.flush()
+        return project.id
+
+
+async def seed_emergency_authority(ctx: TenantContext, project_id: uuid.UUID) -> None:
+    """Declare the Slice-54 recorded policy + checklist and a valid autonomy row.
+
+    Bind/activate need this graph. ``emergency_controls.py`` stays unmodified.
+    """
+    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from app.repositories.intake_categories import IntakeCategoryRepository
+    from tests.test_emergency_controls import _checklist, _policy
+
+    async with tenant_scope(ctx) as session:
+        cats = IntakeCategoryRepository(session, ctx)
+        await cats.declare(
+            project_id=project_id,
+            category="human_approval_policy",
+            actor="stab-test",
+            data=_policy(),
+            origin="test",
+        )
+        await cats.declare(
+            project_id=project_id,
+            category="go_live_checklist",
+            actor="stab-test",
+            data=_checklist(),
+            origin="test",
+        )
+        await AutonomyPolicyRepository(session, ctx).upsert(
+            project_id=project_id,
+            autonomy_level=5,
+            overrides={},
+            actor="stab-test",
+        )
+
+
+async def bind_and_activate_emergency_stop(
+    ctx: TenantContext, project_id: uuid.UUID, *, bind_key: str, activate_key: str
+) -> tuple[EmergencyControlResult, EmergencyControlResult]:
+    """Drive the real ``EmergencyControlService`` bind + activate path."""
+    from app.release.emergency_control_service import EmergencyControlService
+
+    async with tenant_scope(ctx) as session:
+        service = EmergencyControlService(session, ctx)
+        bound = await service.bind(project_id=project_id, idempotency_key=bind_key)
+        activated = await service.activate(project_id=project_id, idempotency_key=activate_key)
+        return bound, activated
