@@ -6,7 +6,7 @@ import hashlib
 import uuid
 from typing import Protocol
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ecosystem.catalog import ConnectorSpecInput
@@ -116,61 +116,12 @@ def probe_spec(
 
 
 def real_connector_specs() -> dict[str, ConnectorSpecInput]:
-    """True specs for the six release services. Used by D-9 only; catalog stays empty."""
-    scm = dict(
-        protocol_module="app.release.scm_connector",
-        protocol_name="SCMConnector",
-        fake_name="FakeSCMConnector",
-        live_adapter_status="shipped_mock_tested_no_live_provider",
-        live_adapter_name="GitHubSCMConnector",
-    )
+    """True specs for the six release services. Thin wrapper over DECLARED_CONNECTORS."""
+    from app.ecosystem.catalog_declared import DECLARED_CONNECTORS, DECLARED_CONNECTOR_SHORT_KEYS
+
     return {
-        "ci": ConnectorSpecInput(
-            service_module="app.release.ci_evidence_service",
-            tool_names=("source_control.read_branch_protection",),
-            **scm,
-        ),
-        "pr": ConnectorSpecInput(
-            service_module="app.release.pr_evidence_service",
-            tool_names=("source_control.read_pull_request",),
-            **scm,
-        ),
-        "deploy": ConnectorSpecInput(
-            protocol_module="app.release.deploy_connector",
-            protocol_name="DeployTargetConnector",
-            fake_name="FakeDeployTargetConnector",
-            service_module="app.release.deploy_evidence_service",
-            live_adapter_status="shipped_mock_tested_no_live_provider",
-            live_adapter_name="GenericHttpsDeployTargetConnector",
-            tool_names=("deployment.read_target_status",),
-        ),
-        "monitoring": ConnectorSpecInput(
-            protocol_module="app.release.monitoring_connector",
-            protocol_name="MonitoringConnector",
-            fake_name="FakeMonitoringConnector",
-            service_module="app.release.monitoring_evidence_service",
-            live_adapter_status="shipped_mock_tested_no_live_provider",
-            live_adapter_name="GenericMonitoringApiConnector",
-            tool_names=("monitoring.read_status",),
-        ),
-        "secrets": ConnectorSpecInput(
-            protocol_module="app.release.secrets_connector",
-            protocol_name="SecretsManagerConnector",
-            fake_name="FakeSecretsManagerConnector",
-            service_module="app.release.secrets_verification_service",
-            live_adapter_status="shipped_local_no_network",
-            live_adapter_name="EnvSecretsManagerConnector",
-            tool_names=("secrets.verify_reference",),
-        ),
-        "pm": ConnectorSpecInput(
-            protocol_module="app.release.pm_connector",
-            protocol_name="IssueTrackerConnector",
-            fake_name="FakeIssueTrackerConnector",
-            service_module="app.release.pm_sync_service",
-            live_adapter_status="absent",
-            live_adapter_name=None,
-            tool_names=("pm.read_issues",),
-        ),
+        short: DECLARED_CONNECTORS[asset_key]
+        for short, asset_key in DECLARED_CONNECTOR_SHORT_KEYS.items()
     }
 
 
@@ -335,3 +286,63 @@ def message_holds(exc: BaseException, fragment: str) -> bool:
 
 async def execute_sql(session: AsyncSession, sql: str, **params):
     return await session.execute(text(sql), params)
+
+
+async def add_probe_blueprint(session: AsyncSession, key: str):
+    from app.agents.registry import register_blueprint
+
+    return await register_blueprint(
+        session, key=key, role="builder", mission="p", archetype="builder", actor="admin"
+    )
+
+
+async def add_probe_version(session: AsyncSession, blueprint_id, label: str, tag: str):
+    from app.agents.registry import register_version
+
+    return await register_version(
+        session,
+        blueprint_id=blueprint_id,
+        version_label=label,
+        model_route="fake",
+        prompt_hash=sha(tag + "p"),
+        tool_policy_hash=sha(tag + "t"),
+        context_policy_hash=sha(tag + "c"),
+        eval_suite_hash=sha(tag + "e"),
+        critical_dependencies_hash=sha(tag + "d"),
+        output_schema_hash=sha(tag + "o"),
+        actor="admin",
+    )
+
+
+async def stored_connector_spec(session: AsyncSession, key: str) -> ConnectorSpecInput:
+    from app.ecosystem.catalog_declared import DECLARED_VERSION_LABEL
+    from app.models.ecosystem_catalog import ConnectorCatalogSpec, ConnectorCatalogToolScope
+    from app.repositories.catalog_reads import get_by_key
+
+    asset = await get_by_key(session, "connector", key, DECLARED_VERSION_LABEL)
+    assert asset is not None
+    spec = (
+        await session.execute(
+            select(ConnectorCatalogSpec).where(ConnectorCatalogSpec.asset_id == asset.id)
+        )
+    ).scalar_one()
+    names = (
+        (
+            await session.execute(
+                select(ConnectorCatalogToolScope.tool_name)
+                .where(ConnectorCatalogToolScope.asset_id == asset.id)
+                .order_by(ConnectorCatalogToolScope.tool_name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return ConnectorSpecInput(
+        protocol_module=spec.protocol_module,
+        protocol_name=spec.protocol_name,
+        fake_name=spec.fake_name,
+        service_module=spec.service_module,
+        live_adapter_status=spec.live_adapter_status,
+        live_adapter_name=spec.live_adapter_name,
+        tool_names=tuple(names),
+    )

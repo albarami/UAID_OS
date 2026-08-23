@@ -1,5 +1,5 @@
 .PHONY: dev up down logs test test-db test-db-create test-db-migrate test-db-drop \
-        db-bootstrap-rls-role migrate require-rls-pw fmt
+        db-bootstrap-rls-role migrate require-rls-pw fmt catalog-populate
 
 # --- connection model -------------------------------------------------------
 # Runtime  = non-superuser, RLS-enforced role `uaid_app` (password from env).
@@ -66,6 +66,10 @@ test-db-migrate:
 
 migrate:
 	ALEMBIC_DATABASE_URL="$(ADMIN_DATABASE_URL)" uv run alembic upgrade head
+
+# Admin-path catalog population. Schema-only migrate stays above; this is not DDL.
+catalog-populate:
+	ADMIN_DATABASE_URL="$(ADMIN_DATABASE_URL)" uv run python scripts/populate_catalog.py
 
 test-db-drop:
 	$(PSQL) -U app -d postgres -c "DROP DATABASE IF EXISTS app_test"
