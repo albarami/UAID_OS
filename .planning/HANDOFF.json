@@ -6,10 +6,10 @@
   "phase": "Phase 7",
   "phase_name": "Scale & ecosystem",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-62-PLAN.md",
+  "plan": ".planning/SLICE-63-PLAN.md",
   "task": "Slice 63",
   "total_tasks": null,
-  "status": "slice_62_merged",
+  "status": "slice_63_plan_v1_awaiting_review",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -18,7 +18,8 @@
       "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs.",
       "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work.",
       "slice_61a_authorship": "Authored the superseded v1-v3 and the from-scratch SLICE-61A-PLAN.md v1, v2, and v3 in full. Builder seat never invoked on any plan version. Sol APPROVED v3. Owner accepted the narrowing on 2026-08-23 and directed immediate build.",
-      "slice_62_authorship": "Authored SLICE-62-PLAN.md v1-v4 in full. Builder never edited the plan. Sol (4ac9facc-44e1-4172-9cb6-37cef628d36c) APPROVED v4."
+      "slice_62_authorship": "Authored SLICE-62-PLAN.md v1-v4 in full. Builder never edited the plan. Sol (4ac9facc-44e1-4172-9cb6-37cef628d36c) APPROVED v4.",
+      "slice_63_authorship": "Authored SLICE-63-PLAN.md v1 in full (agent 699e14a3-f8d3-4584-b67e-4a54dd87cf05). Builder never edited the plan. Live Alembic head at plan time: 0061; planned revision 0062."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
