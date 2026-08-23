@@ -41,7 +41,8 @@
     "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation",
     "Slice 58 docs follow-up merged via PR #107 (squash commit 33ee561)",
     "Slice 59 merged via PR #108 (squash commit 15bb587e2adff2f00b95067e0c79eff2290352cc) as NON-CLOSING stabilization-window assessment",
-    "Slice 60 built and reviewed: signed offline auditor bundle (§28.1), migration 0059, closes no spec section"
+    "Slice 60 built and reviewed: signed offline auditor bundle (§28.1), migration 0059, closes no spec section",
+    "Slice 60 merged via PR #110 (squash commit 8e001ca) as SIGNED OFFLINE AUDITOR BUNDLE, closing no spec section"
   ],
   "remaining_tasks": [
     "Slice 60 plan (planner seat) → Sol plan review → build → validate → Sol code review → docs → PR → merge",
@@ -134,14 +135,14 @@
     }
   },
   "validation": {
-    "merged_sha": "PENDING",
-    "pr": "PENDING",
+    "merged_sha": "8e001ca",
+    "pr": "#110",
     "alembic_head": "0059_export_bundles",
     "make_test": "1224 passed / 939 deselected",
     "make_test_db": "939 passed / 1224 deselected",
     "pyright": "0 errors on Slice 55/56/57/58/59/60 owned paths",
     "frozen_hashes": "all ten plan section-1 hashes unchanged, verified independently by the coordinator after build and after the defect fix",
-    "ci": "PENDING"
+    "ci": "green on PR #110 (run 32637957017, 2m45s)"
   },
   "open_questions": [
     "Residual 26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt.",
