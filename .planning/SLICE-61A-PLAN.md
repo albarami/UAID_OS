@@ -4,16 +4,19 @@
 BUILDER = Cursor Grok 4.6 Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority on plan and
 code, probe-backed verdicts only.
 
-**Version.** v1. This is a **from-scratch replan** under the owner's 2026-08-23 direction after the
-previous Slice 61a plan was rejected three times (twenty defects). That plan is archived at
-`.planning/archive/SLICE-61A-PLAN-SUPERSEDED-v1-v3.md` and **nothing in it is carried forward** —
-not its schema, not its guards, not its claims. It is retained only as a record. Halt rules are
-unchanged: three rejects on *this* plan means halt and report, not narrow again.
+**Version.** v2 (v1 REJECTED — three defects, all accepted; see §10). This is a **from-scratch
+replan** under the owner's 2026-08-23 direction after an earlier Slice 61a plan was rejected three
+times (twenty defects). That earlier plan is archived at
+`.planning/archive/SLICE-61A-PLAN-SUPERSEDED-v1-v3.md` and **nothing in it is carried forward**.
+Halt rules are unchanged: three rejects on *this* plan (the from-scratch line, of which this is the
+second version) means halt and report, not narrow again.
 
 > **This slice does NOT satisfy the roadmap's Slice 61 exit.** It builds the listing mechanism and
-> registers nothing. The roadmap exit — "vetted connector/blueprint/reference libraries" — needs
-> populated libraries and is **Slice 61b**. Claiming the exit here would be the fake-done §2.1
-> forbids. Precedent for the split: Slices 8a/8b and 14a/14b.
+> registers nothing. Slice 61b populates the catalog and also does **not** close that exit: the
+> roadmap goal is a permission-scoped, tested library of security-reviewed blueprints, and those
+> three capabilities remain §12 OPEN (D-8, D-9, D-10) until an evidence-backed gate exists for
+> each. Claiming the exit from either 61a or 61b would be the fake-done §2.1 forbids. Precedent for
+> the mechanism/population split: Slices 8a/8b and 14a/14b.
 
 **Roadmap.** `.planning/GO-LIVE-END-TO-END-ROADMAP.md` §5 Slice 61 (to be split 61a/61b on
 approval). **Spec grounding.** §26.7 (l.2512–2522); §20.3 (l.2039–2044); Appendix C l.3010, l.3012.
@@ -39,18 +42,41 @@ declared.
 ### 0.2 The one structural claim, and why it holds
 
 **A listing is impossible without a passing vetting record of the required kind bound to that exact
-asset row.**
+asset row, and a connector's spec and declared scope cannot change after any vetting record exists
+for that row.**
 
-This is DB-proven, and it needs no hashing to be so. The catalog tables are **append-only**: a row,
-once written, never changes. Therefore a row's primary key *is* its version identity, and a vetting
-record carrying `asset_id` is bound to immutable content **by construction**. Change any asset
-attribute and you get a new row with a new id; every prior vetting record still points at the old
-one, so the changed asset arrives unvetted and unlistable. The three mechanisms doing the work are
-a foreign key, an append-only trigger, and a BEFORE INSERT guard on the listing — nothing exotic.
+This is DB-proven, and it needs no hashing to be so.
 
-The previous plan bolted a `content_hash` + canonical-JSON payload + deferrable rebinding trigger
-on top of exactly this, to defend the binding against direct SQL rewriting of a row. That defence
-never worked and was the source of most defects. It is gone.
+The parent half: catalog tables are **append-only**, so a row, once written, never changes. A
+row's primary key *is* therefore a stable version identity, and a vetting record carrying
+`asset_id` is bound to that row by foreign key. Change any *parent-row* attribute and you get a new
+row with a new id; every prior vetting record still points at the old one.
+
+The child half, which v1 missed (reviewer defect 1). Append-only blocks UPDATE of a child row, not
+INSERT of another child row. A connector's declared identity lives partly in
+`connector_catalog_specs` and `connector_catalog_tool_scope`. Those children can accumulate. The
+reviewer inserted a second `tool_scope` row after listing and changed `{tool.a}` into
+`{tool.a, tool.b}` without a new asset id; a spec can also be absent at listing because v1's
+listing guard never required one.
+
+The freeze that closes it (OD-2, OD-13):
+
+1. Tool-scope rows, like specs, pin `(asset_id, asset_kind)` with `asset_kind = 'connector'`.
+2. Connector vetting — and therefore listing — refuses unless exactly one spec and at least one
+   scope row exist.
+3. Once **any** `catalog_vetting_records` row exists for an asset, INSERT into both child tables is
+   refused. Failed or passing, the children freeze; a correction is a new `version_label`.
+4. Both the child-insert trigger and the vetting-insert trigger take `SELECT … FROM catalog_assets
+   WHERE id = … FOR UPDATE` before their existence checks, so a concurrent scope insert and a
+   concurrent vetting serialize on the asset row and cannot both succeed.
+
+The mechanisms are a foreign key, an append-only trigger, a freeze trigger, a listing/vetting
+guard, and a parent-row lock. Nothing exotic, and nothing that claims to resist an admin rewriting
+a row.
+
+The previous (archived) plan bolted a `content_hash` + canonical-JSON payload + deferrable
+rebinding trigger on top of the parent half, to defend against direct SQL rewriting. That defence
+never worked and is gone. v1 restored the parent half and stopped there; v2 adds the child freeze.
 
 ### 0.3 What the datastore proves, and what it does not
 
@@ -58,8 +84,12 @@ Proven by the schema, and claimable:
 
 - **Binding** — a vetting record and a listing reference an existing asset row (foreign keys), and
   a listing's cited vetting record belongs to the asset it lists (guard clause).
-- **Immutability** — no row in the catalog changes after insert (append-only triggers plus absent
-  UPDATE/DELETE grants). The single exception is the listing's one-way `listed → delisted`.
+- **Immutability of a written row** — no catalog row changes after insert (append-only triggers
+  plus absent UPDATE/DELETE grants). The single exception is the listing's one-way
+  `listed → delisted`.
+- **Freeze of connector children** — once any vetting record exists for an asset, no further spec
+  or scope row can be inserted (OD-13). Combined with the parent-row lock, a listed connector's
+  declared spec and scope are the spec and scope that were present at vetting.
 - **Trust zone** — `uaid_app` holds SELECT and nothing else on every global catalog table, so the
   runtime role cannot register, vet, list, or delist (`0007:229-234`, `0037:315-317`,
   `0039:438-441`, `0047:83-86` precedent).
@@ -129,19 +159,24 @@ Established by exploration and confirmed against the current tree:
   the kind required for its asset class references that exact asset row."
 - "For a listed connector, a complete five-result contract-test record exists whose outcome agrees
   with its results, recorded through the admin path, which the runtime role cannot write."
-- "For a listed blueprint version, a recorded security review exists, attributed to an actor
-  distinct from the version's registrant, and bound by foreign key to the exact `agent_versions`
-  row."
+- "For a listed blueprint version, a reviewer-asserted record labelled
+  `blueprint_security_review` exists, attributed to an actor distinct from the version's
+  registrant, and bound by foreign key to the exact `agent_versions` row. This is the recorded
+  label, not a performed review."
 - "A tenant's adoption of a listed asset is recorded under RLS and is auditable."
 
 ### 0.7 Refused claims, verbatim
 
 - That a listing is an endorsement, a safety guarantee, or evidence of fitness for a purpose.
 - That the catalog contains anything. Slice 61a registers **no** asset.
+- That Slice 61b will close the roadmap Slice 61 exit. 61b populates the declared catalog; D-8,
+  D-9, and D-10 remain open until an evidence-backed permission-scope verifier, a real-provider
+  test, and an evidence-backed security-review gate exist.
 - That the roadmap Slice 61 exit is met, or Appendix C l.3010 / l.3012 satisfied.
 - That the contract-test record proves the checker ran, or that the connector is thereby conformant.
   The record proves its own shape and its writing path.
-- That a blueprint security review was performed by a qualified reviewer or found anything.
+- That a reviewer-asserted record labelled `blueprint_security_review` is a security review that
+  was performed, was competent, or found anything. Appendix C l.3010 remains open (§7, D-10).
 - That any connector's live adapter is tested against a real provider. None is; one does not exist.
 - That any connector is permission-scoped, or that a declared `tool_scope` reflects code behaviour.
 - That the recorded `content_sha256` of a reference intake authenticates any document.
@@ -189,19 +224,28 @@ chances to get the listing rule subtly different. `catalog_assets` carries the c
 a nullable kind-specific tail governed by an iff CHECK; connector-only attributes live in a child
 table.
 
-### OD-2 — Identity is the row, not a hash
+### OD-2 — Identity is the row, not a hash — and connector children freeze at first vetting
 
-Because every catalog table is append-only, a row is immutable and its `id` is a stable version
-identity. All binding is by foreign key to that id. There is no `content_hash` column on
+Because every catalog table is append-only, a *written row* is immutable and its `id` is a stable
+version identity. All binding is by foreign key to that id. There is no `content_hash` column on
 `catalog_assets`, no canonical-JSON payload, and no rebinding trigger.
 
-Consequence, which is the property the previous plan wanted: **re-vetting on change is automatic**.
-Registering a changed connector spec means inserting a new asset row; the old vetting record still
-references the old row, so the new one is unvetted and the listing guard refuses it. Probe D-21
-proves this end to end.
+That is sufficient for columns on `catalog_assets` itself, and for the already-immutable
+`agent_versions` row a blueprint points at. It is **not** sufficient for connector children. v1
+stated the parent-row argument as if it covered declared scope; the reviewer disproved it by
+inserting a second `tool_scope` row after listing.
+
+**Re-vetting on a parent-row change is still automatic:** registering a changed `version_label`
+inserts a new asset row; the old vetting record still references the old row, so the new one is
+unvetted. Probe D-21 keeps that proof.
+
+**Re-vetting on a child-row change is now also automatic, because the child cannot change.** See
+OD-13. Probe D-21a…D-21h prove the freeze, the nonempty-spec/scope requirement, the kind pin, and
+the parent-row lock.
 
 `UNIQUE (asset_kind, asset_key, version_label)` prevents two rows claiming the same version, and
-`UNIQUE (id, asset_kind)` is the composite FK target that pins the connector spec to a connector.
+`UNIQUE (id, asset_kind)` is the composite FK target that pins both the connector spec and the
+tool-scope rows to a connector.
 
 ### OD-3 — Vetting results are typed rows, not a JSON document
 
@@ -228,7 +272,8 @@ Two **DEFERRABLE** constraint triggers, one on each side, enforce it at commit:
   checker as invoked by `record_contract_test`. Available only for `connector_contract_test`.
 - `reviewer_asserted_admin_recorded` — an actor asserted an outcome and UAID recorded the
   assertion. The only value available for blueprint security reviews and reference-intake
-  attestations, because no automated blueprint scanner and no §20.3 constraint checker exist.
+  attestations, because no evidence-backed security-review gate (verified human workflow or
+  scanner — §12 D-10) and no §20.3 constraint checker exist.
 
 Both are written through the admin path. **The difference between them is which repository function
 produced the payload, and the database cannot see that difference** — the label is app-stamped.
@@ -262,14 +307,17 @@ There is deliberately **no** static analysis of broker usage — see §7, D-8.
 ### OD-6 — Declared tool scope is declared, and nothing more
 
 `connector_catalog_tool_scope` records the tool names a registrar declares for a connector, one row
-each. The database bounds the strings and enforces uniqueness within an asset; the repository
-additionally requires each name to resolve in `TOOL_REGISTRY` at write time (`TOOL_REGISTRY` is a
-code constant, not a table, so no foreign key is possible).
+each. The database bounds the strings, enforces uniqueness within an asset, and pins the row to a
+connector via `(asset_id, asset_kind)`. The repository additionally requires each name to resolve
+in `TOOL_REGISTRY` at write time (`TOOL_REGISTRY` is a code constant, not a table, so no foreign
+key is possible).
 
-Nothing verifies that the declaration matches what the connector can actually broker. The previous
+Nothing verifies that the declaration matches what the connector can actually broker. The archived
 plan attempted this with AST analysis and failed twice; the capability is deferred with a §12 OPEN
 entry (§7, D-8). Until it exists, the catalog's scope field is metadata, and §0.7 refuses the
 permission-scoped claim outright.
+
+A declared scope that can grow after vetting is not even a stable declaration. OD-13 freezes it.
 
 ### OD-7 — Listing guard
 
@@ -285,6 +333,12 @@ probes can tell them apart:
    `checker_output_admin_recorded`, the other two → `reviewer_asserted_admin_recorded`.
 5. For `agent_blueprint`, the record's `reviewer` differs from the asset's `registered_by` (§2.2).
 6. `listing_state = 'listed'` with `delisted_at` and `delisted_reason` NULL.
+7. For `connector`, `catalog_connector_children_complete(asset_id)` is true — exactly one spec
+   row and at least one scope row. The same helper is the vetting-time check in OD-13.
+
+Clause 7 is defense in depth: a connector cannot be listed without the spec and scope the checker
+ran against, and after vetting those children cannot grow. The helper is probed directly (D-21f)
+so the listing clause is not only reachable by disabling the freeze.
 
 Naming a specific record, rather than proving some qualifying record exists, makes the listing's
 justification explicit and auditable.
@@ -338,6 +392,43 @@ Following the `0059` convention, `populated_downgrade_sql` raises when **any** o
 holds a row. An empty downgrade drops them in FK order. No pre-existing object is altered, so
 nothing needs restoring.
 
+### OD-13 — Connector children freeze at first vetting (v1 defect 1)
+
+Two BEFORE INSERT triggers, `connector_spec_freeze_guard` on `connector_catalog_specs` and
+`connector_scope_freeze_guard` on `connector_catalog_tool_scope`, share one rule:
+
+```
+LOCK catalog_assets WHERE id = NEW.asset_id FOR UPDATE;
+IF EXISTS (SELECT 1 FROM catalog_vetting_records WHERE asset_id = NEW.asset_id) THEN
+    RAISE 'connector_children_frozen';
+END IF;
+```
+
+`catalog_vetting_records_guard()`, BEFORE INSERT, for `asset_kind = 'connector'`:
+
+```
+LOCK catalog_assets WHERE id = NEW.asset_id FOR UPDATE;
+IF NOT catalog_connector_children_complete(NEW.asset_id) THEN
+    RAISE 'connector_children_required';
+END IF;
+```
+
+`catalog_connector_children_complete(asset_id)` is a `STABLE` SQL function:
+`(SELECT count(*) FROM connector_catalog_specs WHERE asset_id = $1) = 1`
+AND
+`EXISTS (SELECT 1 FROM connector_catalog_tool_scope WHERE asset_id = $1)`.
+The listing guard's connector clause calls the same function. Probe D-21f asserts the helper
+itself, so neither guard's child-completeness check is only reachable by disabling the other.
+
+The two locks are the same row, so a concurrent scope insert and a concurrent vetting cannot both
+commit: one waits, then either sees a freeze or sees the extra scope. Probe D-21h is the two-session
+proof.
+
+The repository is not the enforcement: `register_connector` writes asset + spec + scope in one
+transaction and `record_contract_test` / `record_review` take the same `FOR UPDATE`, but a direct
+admin `INSERT` still hits the trigger. A failed vetting freezes the version; a correction is a new
+`version_label`. That is the identity-is-the-row rule applied to children.
+
 ---
 
 ## 3. Schema — migration `0060_ecosystem_catalog`, purely additive
@@ -371,6 +462,7 @@ with `CHECK (asset_kind = 'connector')` · `protocol_module` / `protocol_name` /
 - `UNIQUE (asset_id)` — one spec per connector asset.
 - `ck_ccs_adapter_name_iff_shipped`, an **iff**: `live_adapter_status = 'absent'` if and only if
   `live_adapter_name IS NULL`. A shipped status must name an adapter; an absent one must not.
+- `connector_spec_freeze_guard` implements OD-13.
 
 The `live_adapter_status` vocabulary is declared and unverified, and its values are drawn from
 grounding fact 3: `absent` is Jira, `shipped_mock_tested_no_live_provider` is GitHub / deploy /
@@ -379,11 +471,13 @@ a declared symbol resolves.
 
 ### 3.3 `connector_catalog_tool_scope` (GLOBAL, append-only)
 
-`id` UUID PK · `asset_id` UUID FK → `catalog_assets.id` · `tool_name` text 1–120 non-blank ·
-`created_at`. `UNIQUE (asset_id, tool_name)`.
+`id` UUID PK · `asset_id` UUID + `asset_kind` text, composite FK → `catalog_assets(id, asset_kind)`
+with `CHECK (asset_kind = 'connector')` · `tool_name` text 1–120 non-blank · `created_at`.
+`UNIQUE (asset_id, tool_name)`.
 
 Per OD-6 this is a declaration. The repository validates each name against `get_contract`; the
-database bounds and de-duplicates it.
+database bounds and de-duplicates it, and pins it to a connector so a scope row cannot attach to a
+blueprint or a reference intake. `connector_scope_freeze_guard` implements OD-13.
 
 ### 3.4 `catalog_vetting_records` (GLOBAL, append-only)
 
@@ -438,8 +532,8 @@ state predicate. `catalog_listings_guard()` implements OD-7 on INSERT and OD-8 o
 `app/ecosystem/__init__.py` · `catalog.py` (pure: the enums, the five check names, the
 required-kind and required-provenance maps, bounds and validators) · `contract_test.py` (the five
 checks) · `catalog_db_checks.py` (shared `NAME, SQL` tuples, the `app/ops/db_checks.py` convention)
-· `catalog_ddl.py` (`install_catalog_guards` / `drop_catalog_guards` / `populated_downgrade_sql`,
-the `0059` convention) · `app/models/ecosystem_catalog.py` · `app/repositories/catalog_admin.py`
+· `catalog_ddl.py` (`install_catalog_guards` / `drop_catalog_guards` /
+`populated_downgrade_sql` / `catalog_connector_children_complete`, the `0059` convention) · `app/models/ecosystem_catalog.py` · `app/repositories/catalog_admin.py`
 (register, vet, list, delist) · `app/repositories/catalog_reads.py` ·
 `app/repositories/catalog_adoptions.py` · `migrations/versions/0060_ecosystem_catalog.py`.
 
@@ -485,17 +579,31 @@ by the unique constraint. D-20 an assertion-provenance record carrying any resul
 and a `blueprint_security_review` claiming checker provenance is refused by
 `ck_cvr_kind_provenance`.
 
-**DB — re-vetting on change (D-21).** Register a connector, vet it, list it. Register the same
-`asset_key` with a changed `version_label`, producing a new asset row. Listing the new row while
-citing the **old** vetting record is refused — the guard's clause 1 fires, and the composite FK
-independently would too.
+**DB — re-vetting on change and child freeze (D-21…D-21h).** D-21 register a connector, vet it, list
+it; register the same `asset_key` with a changed `version_label`, producing a new asset row;
+listing the new row while citing the **old** vetting record is refused — the guard's clause 1
+fires, and the composite FK independently would too. D-21a after a (passing or failing) vetting
+record exists, INSERT into `connector_catalog_tool_scope` is refused with `connector_children_frozen`,
+probed as the **admin** role — the exact v1 hole. D-21b the same after listing. D-21c INSERT into
+`connector_catalog_specs` after vetting is refused the same way. D-21d vetting a connector with no
+spec is refused (`connector_children_required`). D-21e vetting a connector with zero scope rows is
+refused the same way. D-21f `catalog_connector_children_complete` returns false for an asset with
+no spec, false for a spec and zero scope rows, and true for a spec plus at least one scope row —
+the helper both guards call, probed directly, no trigger bypass. D-21g a `tool_scope` row whose
+`asset_kind` is not `'connector'`, or that targets a blueprint asset, is refused by the composite
+FK. D-21h two sessions: one inserts a scope row, the other inserts a vetting record, both against
+the same asset; exactly one commits, the other either waits and then sees freeze or waits and then
+sees the extra scope — never both a vetting record and a post-vetting scope row.
 
-**DB — listing guard (D-22…D-24).** D-22 each of the six OD-7 clauses is exercised separately and
+**DB — listing guard (D-22…D-24).** D-22 each of OD-7 clauses 1–6 is exercised separately and
 refused with its own distinct message: wrong asset, failed outcome, wrong `vetting_kind`, wrong
-provenance, blueprint self-review, and non-`listed` insert state. D-23 two live listings for one
-asset are refused by the partial unique index. D-24 the delist lifecycle: `listed → delisted`
-succeeds and sets `delisted_at`; `delisted → listed` is refused; mutating any other column during
-delist is refused; a same-state update is refused.
+provenance, blueprint self-review, and non-`listed` insert state. Clause 7 is covered by D-21f
+(the shared helper) plus an assertion that `catalog_listings_guard` calls
+`catalog_connector_children_complete` — it is not probed by inserting a listing against an
+incomplete connector, because OD-13 makes that state unreachable without disabling triggers.
+D-23 two live listings for one asset are refused by the partial unique index. D-24 the delist
+lifecycle: `listed → delisted` succeeds and sets `delisted_at`; `delisted → listed` is refused;
+mutating any other column during delist is refused; a same-state update is refused.
 
 **DB — adoption (D-25…D-26).** D-25 adopting a listed asset succeeds, is audited with safe metadata
 only — assert the payload carries no `source_ref` and no `domain_label` free text — and creates
@@ -532,12 +640,14 @@ the literal `False`.
 `CLAUDE.md` and `README.md` must describe this slice in the non-closing, non-authorizing register
 Slices 55–60 use. Specifically:
 
-- State that it **closes no spec section** and does **not** meet the roadmap Slice 61 exit.
+- State that it **closes no spec section** and does **not** meet the roadmap Slice 61 exit, and
+  that Slice 61b populates the catalog without closing that exit either.
 - Carry an explicit honesty crux in the house form: *UAID maintains an append-only catalog in which
   a listing requires a passing vetting record bound to that exact asset row. This is not an
   endorsement, not proof that a checker ran, not verified permission scoping, not a real-provider
   connector test, not a performed security review, and not resistant to an actor with admin write
-  access. The catalog is empty; Slice 61b populates it.*
+  access. The catalog is empty; Slice 61b populates it and still does not close the roadmap
+  Slice 61 exit, which waits on §12 D-8, D-9, and D-10.*
 - State that A5 stays `slice54.v1`, readiness stays `slice20.v1`, and
   `can_go_live_autonomously` remains the literal `False`.
 - Record no test counts in `README.md`, per the Slice-60 convention.
@@ -552,13 +662,13 @@ reason. Nothing here is silently deleted; the three that the spec actually requi
 
 | Capability | Reason | Disposition |
 |---|---|---|
-| **Verified permission scoping** — proving a connector's declared `tool_scope` equals what it can broker | Two rejected attempts showed static analysis of Python broker access is not soundly achievable at slice scope; an alias, module-object call, `getattr`, shadowed name, or imported wrapper each defeat it | **§12 OPEN D-8**, owner = Salim. Appendix C l.3012 requires it; §0.7 refuses the claim until then |
-| **Real-provider connector testing** | No live-provider integration test exists for any adapter, and the Jira adapter does not exist at all (grounding fact 3) | **§12 OPEN D-9**, owner = Salim. Appendix C l.3012 says connectors are tested; mock-tested is not that |
-| **Automated blueprint security scanning** | No scanner exists; reviews are actor assertions | **§12 OPEN D-10**, owner = Salim. Appendix C l.3010 requires generated agents to pass security review |
+| **Verified permission scoping** — proving a connector's declared `tool_scope` equals what it can broker | Two rejected attempts showed static analysis of Python broker access is not soundly achievable at slice scope; an alias, module-object call, `getattr`, shadowed name, or imported wrapper each defeat it | **§12 OPEN D-8**, owner = Salim. Appendix C l.3012 requires it; §0.7 refuses the claim until then. Slice 61b does not close this. |
+| **Real-provider connector testing** | No live-provider integration test exists for any adapter, and the Jira adapter does not exist at all (grounding fact 3) | **§12 OPEN D-9**, owner = Salim. Appendix C l.3012 says connectors are tested; mock-tested is not that. Slice 61b does not close this. |
+| **Evidence-backed security-review gate** — generated agents pass security review (Appendix C l.3010). A verified human workflow or an automated scanner would both satisfy it; neither exists | Reviews today are actor assertions with no evidence that a review occurred | **§12 OPEN D-10**, owner = Salim. Not "build a scanner" — build a gate whose evidence a listing can require. Slice 61b does not close this. |
 | **Proof that a recorded checker result was computed** | A constraint sees shape, never invocation; the label is app-stamped | Not separately deferrable — it is a permanent property of DB-recorded facts. Stated in §0.3 and refused in §0.7 |
 | **Forgery resistance against admin write access** | Out of reach for any CHECK constraint; attempting it produced most of the twenty defects | Explicitly out of scope; refused in §0.7. Not a spec requirement — the spec's tamper-evidence requirement (§16.6) is met by the audit chain, which is untouched |
 | **Canonical-serialization pinning of catalog records** | PostgreSQL has no canonical JSON serializer, so the property is unenforceable in-database | Not lost capability — typed columns and child rows replace it and are strictly stronger |
-| **Catalog population** — the six connectors, the existing agent versions, at least one real reference intake | 61a is the mechanism; populating it is separable work with its own review surface | **Slice 61b**, §8 |
+| **Catalog population** — the six connectors, the existing agent versions, at least one real reference intake | 61a is the mechanism; populating it is separable work with its own review surface | **Slice 61b**, §8. Population is not the roadmap exit. |
 | **§20.3 constraint checking** — verifying a reference intake does not bind the platform to an industry or certifier | No checker exists | Structural refusal instead (OD-11): no body column, no resolver, nothing to depend on |
 | **Generalized connector abstraction** | Grounding fact 4 — six deliberately different failure-honesty policies encode per-slice A5-gate semantics; flattening them would destroy properties each was built to have | Refused by design, not deferred. Recorded here so the roadmap's "generalize connectors" wording is not read as silently dropped |
 
@@ -566,13 +676,18 @@ reason. Nothing here is silently deleted; the three that the spec actually requi
 
 ## 8. Slice 61b, scheduled here so it is not lost
 
-61a's exit is the mechanism. The roadmap's Slice 61 exit needs 61b to register and list all six
-connectors with their true specs and `live_adapter_status` values; register the existing
-`agent_versions` and record their security reviews; author at least one real reference intake under
-`docs/UAID_OS_Intake_Template_Pack_v1_2/reference_intakes/` and register it; and add the CI
-regression test asserting each registered connector's declared scope matches its source — as
-regression evidence, not a catalog fact. Only then may the roadmap exit be claimed, and even then
-Appendix C l.3010 and l.3012 stay open pending §12 D-8, D-9, and D-10.
+61a's exit is the mechanism. Slice 61b populates it: register and list all six connectors with
+their true specs and `live_adapter_status` values; register the existing `agent_versions` and
+record a reviewer-asserted `blueprint_security_review` for each; author at least one real
+reference intake under `docs/UAID_OS_Intake_Template_Pack_v1_2/reference_intakes/` and register
+it; and add a CI regression asserting each registered connector's declared scope matches its
+source — as regression evidence, not a catalog fact.
+
+**61b does not close the roadmap Slice 61 exit.** The roadmap goal is a permission-scoped, tested
+library of security-reviewed blueprints (`GO-LIVE-END-TO-END-ROADMAP.md` §5 Slice 61). Those three
+requirements are §12 OPEN D-8, D-9, and D-10 and stay open until an evidence-backed gate exists
+for each. After 61b the honest status is "catalog mechanism exists and is populated with declared
+assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open."
 
 Until 61b merges, the honest status is "catalog mechanism exists; libraries are empty."
 
@@ -584,3 +699,26 @@ No change to `app/tools/broker.py`, `registry.py`, `matrix.py`, or the allowlist
 enforcement point, no new tool, no new A1 action. No connector modified. No HTTP route. No LLM. No
 signing, hashing-for-authenticity, or hash chain. No A5 gate movement, no readiness change, no
 go-live change. No catalog population.
+
+---
+
+## 10. Change log
+
+**v1 → v2 (three reviewer defects, all accepted).**
+
+1. **Connector identity was not frozen.** Append-only parent rows do not freeze child tables. A
+   second `tool_scope` row could land after listing and widen declared scope without a new asset
+   id, and a spec could be absent at listing. Fixed: tool-scope rows pin `(asset_id, asset_kind)`
+   with `asset_kind='connector'`; `catalog_connector_children_complete` requires exactly one spec
+   and nonempty scope at vetting and at listing; INSERT into spec or scope is refused once any
+   vetting record exists; both the freeze trigger and the vetting trigger `FOR UPDATE` the asset
+   row. Probes D-21a…D-21h.
+2. **§8 scheduled a false roadmap-exit claim.** v1 said 61b may claim the exit while D-8, D-9, and
+   D-10 remain open, contradicting the roadmap's actual goal. Fixed: 61b populates the declared
+   catalog; the Slice 61 exit stays open until those three gates exist. Header, §0.7, §6, §7, and
+   §8 now agree.
+3. **D-10 tracked a scanner, and §0.6 overclaimed a performed review.** Appendix C l.3010 requires
+   generated agents to pass security review, not specifically an automated scanner; "a recorded
+   security review exists" contradicted §0.7. Fixed: D-10 is an evidence-backed security-review
+   gate (verified human workflow or scanner); the allowed claim is "a reviewer-asserted record
+   labelled `blueprint_security_review` exists."

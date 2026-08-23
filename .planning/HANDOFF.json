@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T13:10:00Z",
+  "timestamp": "2026-08-23T13:25:00Z",
   "source": "slice-60-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61A-PLAN.md",
   "task": "Slice 61a",
   "total_tasks": null,
-  "status": "slice_61a_replanned_from_scratch_as_v1__narrowed_listing_mechanism__awaiting_plan_review",
+  "status": "slice_61a_replan_v2_submitted_for_second_review__child_freeze_and_honest_exit",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -140,7 +140,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Submit the new SLICE-61A-PLAN.md v1 to the reviewer seat. On APPROVE, hand to the builder seat with migration 0060 from head 0059, including the three roadmap section 12 OPEN entries and the section 6 documentation language. On a third REJECT of this plan, halt and report; do not narrow again.",
+  "next_action": "Await the second plan review of SLICE-61A-PLAN.md v2. On APPROVE, hand to the builder. On a third REJECT of this from-scratch line, halt and report.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -192,8 +192,8 @@
       "superseded": "The v1-v3 reject history below belongs to the superseded plan. It is retained as a record of twenty accepted defects, not as context the new plan builds on."
     },
     "replan": {
-      "version": "v1 (from-scratch, supersedes the archived v1-v3)",
-      "verdict": "PENDING — first review of the new plan",
+      "version": "v2 (v1 REJECTED — three defects, all accepted)",
+      "verdict": "PENDING — second review of the from-scratch plan",
       "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
       "root_cause_addressed": "Every rejected version tried to make a database constraint prove something a database cannot prove: that a text blob is a canonical serialization, that a recorded result was computed, that a declared tool scope matches code behaviour. The new plan stops reaching for forgery resistance against admin write access and records only what the datastore enforces.",
       "what_changed": [
@@ -204,7 +204,14 @@
         "The only digest retained, reference intake content_sha256, is labelled registrar-supplied drift-detection metadata and explicitly not authenticity or non-repudiation, per the owner's constraint.",
         "Seven tables, 585 plan lines, versus the superseded five tables and 800+ lines of guard machinery."
       ],
-      "deferred_with_owner_entries": "Section 7 of the plan lists every dropped capability with a one-line reason. Three are spec-required and get roadmap section 12 OPEN entries with owner=Salim, added by the builder in the same PR: D-8 verified permission scoping (App. C l.3012), D-9 real-provider connector testing (App. C l.3012), D-10 automated blueprint security scanning (App. C l.3010)."
+      "deferred_with_owner_entries": "Section 7 of the plan lists every dropped capability with a one-line reason. Three are spec-required and get roadmap section 12 OPEN entries with owner=Salim, added by the builder in the same PR: D-8 verified permission scoping (App. C l.3012), D-9 real-provider connector testing (App. C l.3012), D-10 automated blueprint security scanning (App. C l.3010).",
+      "v1_reject": "v1 REJECT by cacd3b79-15df-4d15-899f-1514426cb9a1: (1) connector identity not frozen — append-only parent rows do not freeze child inserts, so a second tool_scope row could land after listing; (2) section 8 scheduled a false roadmap-exit claim for 61b while D-8/D-9/D-10 remain open; (3) D-10 tracked automated scanning rather than an evidence-backed security-review gate, and section 0.6 overclaimed a performed review.",
+      "v2_fixes": [
+        "OD-13: tool-scope pins (asset_id, asset_kind); catalog_connector_children_complete required at vetting and listing; spec/scope INSERT refused once any vetting record exists; both triggers FOR UPDATE the asset row. Probes D-21a through D-21h.",
+        "61b populates the declared catalog and does not close the roadmap Slice 61 exit. Header, 0.7, 6, 7, and 8 now agree.",
+        "D-10 is an evidence-backed security-review gate (verified human workflow or scanner). Allowed claim is a reviewer-asserted record labelled blueprint_security_review, not a performed review."
+      ],
+      "halt_watch": "One REJECT recorded on the from-scratch line. Two more consecutive REJECTs halt and report; do not narrow again."
     }
   }
 }
