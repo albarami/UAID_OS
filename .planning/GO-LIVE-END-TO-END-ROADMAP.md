@@ -2,7 +2,7 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 20 (current-state reconciliation after Slice 60 merged as **closing no spec section**; Salim released 55→56 on 2026-08-22; Slice 59 Salim gate removed; seat ruling of 2026-08-23 splits planner/builder/reviewer from Slice 60; Salim authorized a fourth Slice-60 plan review round after the three-REJECT halt on 2026-08-23). Alembic head is `0059`; Slice 61 plans against `0060`.
+**Created:** 2026-06-17. **Revision:** Rev 21 (Slice 61 split into 61a listing mechanism / 61b population after owner-accepted v3 plan; §12 OPEN D-8/D-9/D-10 recorded with owner=Salim; Alembic head after 61a is `0060`). Rev 20 remains the post–Slice-60 reconciliation.
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
 **Status of this document:** SEQUENCING RECORD — §6 reflects Slice 59 merged as a stabilization-window *assessment* that does **not** close spec §25.4 or §26.6, with Slice 60 as next. Residual self-healing actuators and the stabilization exit stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
@@ -620,17 +620,23 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** That export replaces evidence (§28 l.2914).
 - **Exit.** Signed, auditor-consumable export; go-live unaffected.
 
-#### Slice 61 — Connector library + vetted-blueprint marketplace + reference-intake companion library
-- **Goal.** Generalize connectors (Phase 3) into a permission-scoped, tested library; a marketplace of security-reviewed blueprints; a reference-intake companion library (§20.3).
-- **Why now.** Needed after real connectors/agents exist (Phase 3/4): a marketplace/connector/reference library must *generalize proven implementations*, so it follows them rather than preceding them (§26.7).
-- **Spec grounding.** §26.7; §20.3 (2039–2044); App. C (l.3012 connectors tested/permission-scoped, l.3010 blueprints security-reviewed).
-- **Files.** `app/ecosystem/*`; reuse connector + agent-registry subsystems.
-- **Migration.** Number from Alembic head at Slice-61 plan time. Additive catalog tables.
-- **Tenant/RLS/FK/audit/immutability.** Global catalogs (immutable versions, cf. blueprints); tenant usage RLS; audited.
-- **Tests.** Connector contract tests (§9.5.1 integration archetype); blueprint listing requires security review.
+#### Slice 61a — Ecosystem catalog listing mechanism (empty catalog; non-closing)
+- **Goal.** Build the listing mechanism: an asset version cannot be listed unless a passing vetting record of the required kind references that exact asset row; connector children freeze at first vetting. Register nothing.
+- **Why now.** Mechanism before population (Slices 8a/8b, 14a/14b precedent). The roadmap Slice 61 exit is a permission-scoped, tested library of security-reviewed blueprints; those three capabilities are §12 OPEN D-8, D-9, D-10.
+- **Spec grounding.** §26.7; §20.3 (2039–2044); App. C (l.3012, l.3010) — cited as open requirements, not claimed.
+- **Files.** `app/ecosystem/*`; `app/repositories/catalog_*.py`; migration `0060`.
+- **Migration.** `0060`, `down_revision="0059"`. Additive. Seven tables.
 - **A5 gate(s) advanced.** None.
-- **Must NOT claim.** Listing without security review/connector tests.
-- **Exit.** Vetted connector/blueprint/reference libraries; go-live unaffected.
+- **Must NOT claim.** The roadmap Slice 61 exit, Appendix C l.3010 / l.3012, catalog population, a performed review, or that a checker ran.
+- **Exit.** Mechanism exists; libraries are empty; go-live unaffected. **Does not close the Slice 61 exit.**
+
+#### Slice 61b — Catalog population (also non-closing)
+- **Goal.** Register and list the six connectors, existing agent versions, and at least one real reference intake. Population is not the roadmap exit.
+- **Why now.** Follows 61a. Exit still waits on D-8, D-9, and D-10.
+- **Spec grounding.** Same as 61a. Do not claim Appendix C l.3010 / l.3012.
+- **A5 gate(s) advanced.** None.
+- **Must NOT claim.** The Slice 61 exit. After 61b the honest status is "catalog mechanism exists and is populated with declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open."
+- **Exit.** Populated declared catalog; D-8/D-9/D-10 still OPEN; go-live unaffected. **Does not close the Slice 61 exit.**
 
 #### Slice 62 — Advanced cost optimizer + tenant-safe cross-project learning
 - **Goal.** §26.7 advanced cost optimizer; cross-project learning obeying §17.5 tenant-safe allowed-aggregate vs forbidden tenant-content rules (App. C l.3009).
@@ -836,6 +842,9 @@ Go-live is not the end state; spec §29 item 16 requires "Monitor and stabilize 
 - **D-5 — Evidence-pack schema variant — RESOLVED (Slice 49 ruling OD-49-1).** The checked-in `uaid.evidence_pack.v1.2` asset is canonical and unchanged; `slice49.evidence_pack.v1` adds a strict code-owned semantic contract and allowlisted expanded sections on top. Unknown caller fields fail closed even where the shallow schema permits them (`.planning/SLICE-49-PLAN.md`; `app/release/evidence_pack.py`).
 - **D-6 — Track-B scheduling.** Phase-2 closure (S35–37) is off the A5 critical path. **Default: run in parallel after S26 ships**, builder's discretion; not the gate-path next step. (assumption.)
 - **D-7 — Temporal revisit.** Deferred until a `.planning/PHASE-1-PLAN.md` trigger (distributed multi-worker, hard event-sourced replay, multi-region/compliance) is met — likely surfaced by S55 (§23.3 loop) or Phase 7. Flagged so it is not forgotten.
+- **D-8 — Verified permission scoping.** Owner = Salim. Appendix C l.3012. Proving a connector's declared `tool_scope` equals what it can broker. Static analysis of Python broker access is not soundly achievable at slice scope. Slice 61a/61b do not close this. Until an evidence-backed verifier exists, §0.7 refuses the permission-scoped claim.
+- **D-9 — Real-provider connector testing.** Owner = Salim. Appendix C l.3012. No live-provider integration test exists for any adapter; the Jira adapter does not exist. Mock-tested is not that. Slice 61a/61b do not close this.
+- **D-10 — Automated blueprint security scanning.** Owner = Salim. Appendix C l.3010. Recorded under that owner-named title. The approved-plan widening Sol required and the owner accepted as a round-2 fix: an evidence-backed security-review gate, satisfied by a verified human workflow **or** an automated scanner; neither exists. Not "build a scanner" — build a gate whose evidence a listing can require. Slice 61a/61b do not close this.
 
 ---
 

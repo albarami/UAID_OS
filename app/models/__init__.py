@@ -31,6 +31,15 @@ from app.models.cost_forecast import (
     CostForecastRun,
 )
 from app.models.deployment_target_snapshot import DeploymentTargetSnapshot
+from app.models.ecosystem_catalog import (
+    CatalogAsset,
+    CatalogListing,
+    CatalogVettingCheckResult,
+    CatalogVettingRecord,
+    ConnectorCatalogSpec,
+    ConnectorCatalogToolScope,
+    TenantCatalogAdoption,
+)
 from app.models.emergency_control import (
     EmergencyControlAuthorityMember,
     EmergencyControlBinding,
@@ -196,6 +205,13 @@ __all__ = [
     "BranchProtectionSnapshot",
     "PullRequestEvidenceSnapshot",
     "DeploymentTargetSnapshot",
+    "CatalogAsset",
+    "CatalogListing",
+    "CatalogVettingCheckResult",
+    "CatalogVettingRecord",
+    "ConnectorCatalogSpec",
+    "ConnectorCatalogToolScope",
+    "TenantCatalogAdoption",
     "EmergencyControlBinding",
     "EmergencyControlAuthorityMember",
     "EmergencyStopEvent",
