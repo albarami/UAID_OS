@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
@@ -54,7 +56,9 @@ async def _toggle(engine, table: str, name: str, *, enabled: bool) -> None:
 async def _tgenabled(engine, name: str) -> str:
     async with engine.connect() as conn:
         value = (
-            await conn.execute(text("SELECT tgenabled FROM pg_trigger WHERE tgname=:n"), {"n": name})
+            await conn.execute(
+                text("SELECT tgenabled FROM pg_trigger WHERE tgname=:n"), {"n": name}
+            )
         ).scalar_one()
     return value.decode() if isinstance(value, bytes) else str(value)
 
@@ -436,7 +440,7 @@ async def test_p_overlay_shape_and_append_only() -> None:
                 await record_cost(admin, tenant_id, project_id, component=component, amount="1")
         extra = await _publish_real(admin)
         async with scoped(rls, ctx) as session:
-            wrong = dict(
+            key_rows = (
                 (
                     await session.execute(
                         text(
@@ -446,8 +450,11 @@ async def test_p_overlay_shape_and_append_only() -> None:
                         ),
                         {"r": extra.run_id},
                     )
-                ).all()
+                )
+                .mappings()
+                .all()
             )
+            wrong: dict[str, UUID] = {str(row["bucket_key"]): row["id"] for row in key_rows}
             assert set(wrong) == {"cost:ci_cd", "cost:tool_execution"}
             with pytest.raises((IntegrityError, DBAPIError), match="overlay citation shape"):
                 bad = await insert_optimizer_sql(
