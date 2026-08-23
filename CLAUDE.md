@@ -869,6 +869,26 @@ code APPROVE after one REJECT (four defects: non-total parser, a production-wide
 byte-binding guards proven only with triggers disabled), re-verified with mutation probes.
 Verified suites: `make test` 1224 passing / 939 deselected; `make test-db` 939 passing / 1224
 deselected. Owned pyright paths report 0 errors.**
+**Slice 61a adds the ECOSYSTEM CATALOG LISTING MECHANISM (closes NO spec section; does
+**not** meet the roadmap Slice 61 exit) (`app/ecosystem/` + `CatalogAdmin`/`catalog_reads`/
+`catalog_adoptions` + migration `0060_ecosystem_catalog`). Seven tables: six global
+append-only catalog tables (`catalog_assets`, `connector_catalog_specs`,
+`connector_catalog_tool_scope`, `catalog_vetting_records`, `catalog_vetting_check_results`,
+`catalog_listings`) plus tenant-owned RLS `tenant_catalog_adoptions`. Identity is the row —
+no content hash, no canonical JSON, no AST scan. A listing is impossible without a passing
+vetting record of the required kind bound to that exact asset row. Connector spec/scope
+children freeze at first vetting. **The catalog stays empty** — register nothing. Slice 61b
+populates it and still does **not** close the roadmap Slice 61 exit. **Honesty crux:** UAID
+maintains an append-only catalog in which a listing requires a passing vetting record bound
+to that exact asset row. This is not an endorsement, not proof that a checker ran, not
+verified permission scoping, not a real-provider connector test, not a performed security
+review, and not resistant to an actor with admin write access. The catalog is empty; Slice
+61b populates it and still does not close the roadmap Slice 61 exit, which waits on §12 D-8,
+D-9, and D-10. The DB cannot attribute a payload to the code that produced it; provenance
+labels are app-stamped. A5 stays `slice54.v1`; readiness stays `slice20.v1`;
+`can_go_live_autonomously` remains the literal `False`. Verified suites: `make test`
+1244 passing / 975 deselected; `make test-db` 975 passing / 1244 deselected. Owned
+pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1117,7 +1137,19 @@ the admin `app` role only.
   never owner/URL/journeys. **Honesty: this is a recorded assessment, not a closed
   stabilization window; no backup/restore, no go-live, no HTTP, no broker; A5/readiness/
   control-loop/hotfix/incidents untouched.**
-- `app/release/export_bundle.py` — signed offline auditor bundle (Slice 60, §28.1; **closes no
+- `app/ecosystem/` — ecosystem catalog listing mechanism (Slice 61a; **closes no spec
+  section**; does **not** meet the roadmap Slice 61 exit). Pure vocabulary + five-check
+  contract tester + admin-path register/vet/list/delist + tenant adoption records.
+  Migration `0060` is purely additive. **Honesty crux:** UAID maintains an append-only
+  catalog in which a listing requires a passing vetting record bound to that exact asset
+  row. This is not an endorsement, not proof that a checker ran, not verified permission
+  scoping, not a real-provider connector test, not a performed security review, and not
+  resistant to an actor with admin write access. The catalog is empty; Slice 61b populates
+  it and still does not close the roadmap Slice 61 exit, which waits on §12 D-8, D-9, and
+  D-10. The DB cannot attribute a payload to the code that produced it; provenance labels
+  are app-stamped. A5 stays `slice54.v1`; readiness stays `slice20.v1`;
+  `can_go_live_autonomously` remains the literal `False`.
+- `app/release/export_bundle.py` — signed offline auditor bundle (Slice 60, §28.1; **closes no**
   spec section**). Pure contracts `slice60.signed_manifest.v1` /
   `slice60.bundle_verification.v1` / `slice60.redaction_policy.v1`; `export_signing.py` holds
   the Ed25519 sign/verify and the operator trusted-key map (keys env-only, never stored);
@@ -1582,7 +1614,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1224 passing (Docker-free); `make test-db` → 939 passing (DB-backed: tenancy,
+  **`make test` → 1244 passing (Docker-free); `make test-db` → 975 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1688,8 +1720,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1224 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 939 passing
+make test                                  # Docker-free tests (no services) — 1244 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 975 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
