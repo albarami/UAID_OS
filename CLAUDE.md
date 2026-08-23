@@ -829,7 +829,8 @@ rejects (agents `8cd454f8-3cdf-43d5-84b8-1b8802e2fcab`, `02b57793-3170-4b0d-bb8f
 independent code APPROVE (same agent, after one REJECT on test quality) with runtime-role SQL
 forgery probes and mutation probes on the repaired tests. Verified suites: `make test` 1207
 passing / 903 deselected; `make test-db` 903 passing / 1207 deselected. Owned pyright paths
-report 0 errors.**
+report 0 errors. Merged via PR #108 (squash commit `15bb587`). Next: Slice 60 under the
+standing cadence and the 2026-08-23 three-seat ruling; do not claim stabilization closed.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
