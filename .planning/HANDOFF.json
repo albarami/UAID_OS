@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T16:25:00Z",
+  "timestamp": "2026-08-23T16:40:00Z",
   "source": "slice-61a-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61B-PLAN.md",
   "task": "Slice 61b",
   "total_tasks": null,
-  "status": "slice_61b_plan_v1_awaiting_review",
+  "status": "slice_61b_plan_v2_awaiting_review",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -144,7 +144,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Sol reviews SLICE-61B-PLAN.md v1. On APPROVE, Grok builds. No interim owner report.",
+  "next_action": "Sol reviews SLICE-61B-PLAN.md v2 (v1 three defects accepted).",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -256,8 +256,13 @@
   "slice_61b": {
     "scope": "Populate the Slice-61a listing mechanism with six declared connector assets, existing agent_versions (zero after fresh migrate; do not invent hashes), and one real reference intake. CI scope-literal regression is regression evidence, not D-8. Closes no spec section. Does not close the roadmap Slice 61 exit.",
     "plan": ".planning/SLICE-61B-PLAN.md",
-    "version": "v1",
+    "version": "v2",
     "migration": "none; Alembic head remains 0060; populate is CatalogAdmin-only, not DDL",
-    "plan_status": "awaiting Sol review"
+    "plan_status": "v1 REJECT (3 defects, all accepted); v2 awaiting Sol review",
+    "v1_reject": [
+      "Overclaimed SQL-forgery refusal / CatalogAdmin-only listing; admin SQL can insert shape-valid passing+listed rows",
+      "Skip listed rows without reconciling stored identity to DECLARED; P-22 cannot force a version bump",
+      "Claimed every agent_versions row at populate time is listed, with no snapshot vs concurrent insert"
+    ]
   }
 }

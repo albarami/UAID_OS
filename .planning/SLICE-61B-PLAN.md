@@ -4,11 +4,11 @@
 Cursor Grok 4.6 Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority on plan and code,
 probe-backed verdicts only. Builder never edits this plan.
 
-**Version.** v1.
+**Version.** v2 (v1 REJECTED — three defects, all accepted; see §10).
 
 > **This slice does NOT satisfy the roadmap's Slice 61 exit.** It populates the Slice-61a listing
-> mechanism with the declared connectors, every `agent_versions` row that already exists, and one
-> real reference intake. After this slice the honest status is: *catalog mechanism exists and is
+> mechanism with the declared connectors, the `agent_versions` rows returned by that call's
+> ordered query, and one real reference intake. After this slice the honest status is: *catalog mechanism exists and is
 > populated with declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit,
 > remain open.* Those three requirements stay §12 OPEN D-8, D-9, and D-10 (owner = Salim). Claiming
 > the exit here would be the fake-done §2.1 forbids. Precedent: 61a §8; Slices 8a/8b and 14a/14b.
@@ -19,8 +19,10 @@ probe-backed verdicts only. Builder never edits this plan.
 **Alembic.** Head is `0060` (`migrations/versions/0060_ecosystem_catalog.py`, `revision="0060"`,
 `down_revision="0059"`). **This slice adds no migration.** There is no schema change. Population is
 an idempotent admin-path Python function that writes through the existing Slice-61a
-`CatalogAdmin` APIs. Forging passing vetting rows in SQL is refused (OD-2). A freshly migrated
-database has an empty catalog until populate runs; that is honest, not a defect.
+`CatalogAdmin` APIs. **Populate itself** does not SQL-insert vetting rows; it calls
+`record_contract_test`. Admin SQL can still create shape-valid passing records and listings —
+the 61a limitation, retained (OD-2). A freshly migrated database has an empty catalog until
+populate runs; that is honest, not a defect.
 
 ---
 
@@ -28,8 +30,9 @@ database has an empty catalog until populate runs; that is honest, not a defect.
 
 Slice 61a built an empty listing mechanism. Slice 61b is the population pass scheduled in 61a §8:
 register and list the six release **services** as six connector catalog assets, with their true
-specs and `live_adapter_status` values; catalog every existing `agent_versions` row with a
-reviewer-asserted `blueprint_security_review`; author one real reference intake under
+specs and `live_adapter_status` values; catalog the `agent_versions` rows returned by that
+call's ordered query with a reviewer-asserted `blueprint_security_review`; author one real
+reference intake under
 `docs/UAID_OS_Intake_Template_Pack_v1_2/reference_intakes/` and list it; add a CI regression that
 the declared `tool_scope` equals the quoted `TOOL_REGISTRY` keys in that service's source file —
 as **regression evidence**, not a catalog fact, not D-8.
@@ -45,15 +48,18 @@ as **regression evidence**, not a catalog fact, not D-8.
 2. **No `agent_versions` are migration-seeded.** `0007_agent_registry.py` creates empty global
    tables. Versions exist only when an admin calls `register_blueprint` / `register_version`.
    Slice 61b does **not** invent §22.2 component hashes. After a fresh migrate, listed blueprints
-   = 0. Populate is total over whatever rows exist at call time.
+   = 0. Populate catalogs the result set of that call's ordered `SELECT` (OD-3). A version
+   inserted after that `SELECT` is not in that report and is picked up on a later call.
 3. **`reference_intakes/` holds only a three-line README**
    (`docs/UAID_OS_Intake_Template_Pack_v1_2/reference_intakes/README.md`). This slice authors one
    companion file. It is not part of the core spec and must not bind the platform to an industry,
    geography, customer, or certifier (§20.3).
-4. **CatalogAdmin is the only product writer.** `register_connector` + `record_contract_test`
+4. **Populate writes only through CatalogAdmin.** `register_connector` + `record_contract_test`
    (runs `run_connector_contract_test`) + `list_asset`; `register_blueprint_version` +
    `record_review` + `list_asset`; `register_reference_intake` + `record_review` + `list_asset`.
-   The runtime role cannot INSERT the six global tables (61a D-27).
+   The runtime role cannot INSERT the six global tables (61a D-27). An admin SQL session can
+   still insert shape-valid passing vetting rows and listings — 61a §0.7, retained. Populate
+   does not close that path.
 5. **Each service already has exactly one `_TOOL` string** matching the D-9 spec
    (`ci_evidence_service.py:26`, `pr_evidence_service.py:30`, `deploy_evidence_service.py:35`,
    `monitoring_evidence_service.py:31`, `secrets_verification_service.py:30`,
@@ -61,10 +67,11 @@ as **regression evidence**, not a catalog fact, not D-8.
 
 ### 0.2 Load-bearing claim
 
-A declared product asset is listed only by going through the Slice-61a admin path, so a listed
-connector has a passing five-result contract-test record whose outcome agrees with its results,
-and a listed blueprint or intake has a reviewer-asserted record of the required kind, bound to
-that exact asset row. Populate does not invent a new listing rule.
+A declared product asset **that `populate_declared_catalog` lists** went through the Slice-61a
+CatalogAdmin path (`record_contract_test` for connectors; `record_review` for blueprints and
+intakes). That function does not invent a new listing rule. It does **not** prove that every
+row in `catalog_listings` was produced that way: admin SQL can still write a shape-valid
+passing record and a listing (61a §0.7).
 
 ### 0.3 Honesty crux (verbatim, for CLAUDE.md / README.md)
 
@@ -80,21 +87,25 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
 ### 0.4 Allowed claims, verbatim
 
 - "The six release services are listed connector assets, each bound to a passing
-  `connector_contract_test` record produced by `record_contract_test`."
+  `connector_contract_test` record produced by `record_contract_test` **when listed by
+  `populate_declared_catalog`**."
 - "CI and PR are distinct catalog assets that share the SCM protocol/fake/adapter and differ by
   service module and declared tool scope."
 - "PM's `live_adapter_status` is `absent` because no Jira adapter exists; secrets is
   `shipped_local_no_network`; the other four shipped adapters are
   `shipped_mock_tested_no_live_provider`."
-- "Every `agent_versions` row present at populate time is listed with a reviewer-asserted
-  `blueprint_security_review` whose reviewer is distinct from the catalog registrant. After a
-  fresh migrate that set is empty."
+- "Each `agent_versions` row returned by that call's ordered query is listed with a
+  reviewer-asserted `blueprint_security_review` whose reviewer is distinct from the catalog
+  registrant. After a fresh migrate that set is empty. A version inserted after the SELECT is
+  not in that report."
 - "One reference-intake file exists under `reference_intakes/` and is listed with a
   reviewer-asserted `reference_intake_constraint_attestation`. Its `content_sha256` is
   registrar-supplied drift metadata of the file bytes."
 - "A CI check fails if a declared connector's `tool_names` disagree with the quoted
   `TOOL_REGISTRY` keys in that service's source file. That check is regression evidence, not
   proof of broker behaviour."
+- "Populate refuses to skip an existing declared `(kind, key, version)` row whose stored
+  identity disagrees field-for-field with `DECLARED_*`."
 
 ### 0.5 Refused claims, verbatim
 
@@ -117,6 +128,12 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
 - That a registered reference intake influences any platform decision, or that the platform now
   depends on any industry, geography, customer, or certifier (§20.3).
 - That a quoted-string CI regression is an AST scan, a soundness proof, or D-8.
+- That admin SQL cannot create a shape-valid passing vetting record and listing. It can (61a
+  §0.7). Populate does not close that path; it simply does not use it.
+- That P-3 or P-22 forces a `version_label` bump. They compare source↔DECLARED and
+  DB↔DECLARED for the declared `(key, version)` only.
+- That every `agent_versions` row that exists at the wall-clock moment of the call is listed.
+  Only the ordered SELECT's result set is.
 
 ---
 
@@ -178,9 +195,10 @@ wrapper's short keys map 1:1 onto the six `asset_key`s above.
 
 ### OD-2 — One writer: `populate_declared_catalog` calls CatalogAdmin; no SQL seed; no migration
 
-Rejected: Alembic `0061` INSERTs of passing `catalog_vetting_check_results`. That would bypass
-`run_connector_contract_test` and mint `checker_output_admin_recorded` rows the checker never
-emitted.
+Rejected: Alembic `0061` INSERTs of passing `catalog_vetting_check_results` **as the populate
+path**. That would bypass `run_connector_contract_test` inside `record_contract_test`. It is
+not claimed that the database refuses those INSERTs from an admin session — 61a already
+proved they can succeed. `uaid_app` still cannot INSERT the six global tables.
 
 Rejected: a sync reimplementation of CatalogAdmin inside `upgrade()`. Two writers drift.
 
@@ -196,10 +214,13 @@ async def populate_declared_catalog(session: AsyncSession) -> PopulateReport
 - Admin session only (same trust zone as `register_connector`).
 - One transaction. If any declared connector's checker result is not `passed`, raise
   `CatalogPopulateError` and let the transaction roll back. Nothing listed.
-- Idempotent on `(asset_kind, asset_key, version_label)`:
+- Idempotent on `(asset_kind, asset_key, version_label)`, **after reconciling identity**:
   - missing → register → vet → list
-  - present, not listed → vet if needed → list citing the passing record
-  - present and latest listing is `listed` → skip writes; still include in the report
+  - present → compare stored identity to `DECLARED_*` field-for-field (OD-2a). Mismatch →
+    raise `CatalogPopulateError`; do not skip, do not overwrite frozen children, do not list.
+  - present, identity matches, not listed → vet if needed → list citing the passing record
+  - present, identity matches, latest listing is `listed` → skip writes; still include in
+    the report
 - Does not delist. Does not change `version_label` this slice (`v1` is frozen).
 - Actors (bounded text, distinct where §2.2 requires it):
 
@@ -221,7 +242,22 @@ already refuses self-review (`listing_blueprint_self_review`) when reviewer equa
 `make test-db-migrate` stay schema-only. Tests call populate explicitly. A post-migrate
 pre-populate DB remains empty (P-8).
 
-### OD-3 — Blueprints: catalog existing rows; do not invent versions
+**OD-2a — stored identity, compared before skip.** For a present row, compare:
+
+- Connector: `protocol_module`, `protocol_name`, `fake_name`, `service_module`,
+  `live_adapter_status`, `live_adapter_name` (SQL NULL ↔ Python `None`), and the ordered
+  `tool_names` set/sequence against `DECLARED_CONNECTORS[asset_key]`.
+- Blueprint: `agent_version_id` against the query row's `v.id` (in addition to
+  `asset_key` / `version_label`, which are the lookup).
+- Intake: `domain_label`, `source_ref`, `content_sha256` against `DECLARED_INTAKE` plus
+  `reference_intake_digest` of the file currently on disk.
+
+A mismatch raises `CatalogPopulateError` with a bounded reason
+(`declared_identity_mismatch:<asset_key>`). Frozen children are not rewritten. This slice does
+not bump `version_label`. An operator who needs a new identity registers a new version in a
+later slice.
+
+### OD-3 — Blueprints: catalog the query's result set; do not invent versions
 
 ```python
 SELECT v.id, v.version_label, b.key
@@ -230,7 +266,11 @@ JOIN agent_blueprints b ON b.id = v.blueprint_id
 ORDER BY b.key, v.version_label, v.id
 ```
 
-For each row: `register_blueprint_version(asset_key=b.key, version_label=v.version_label,
+No `LOCK TABLE`. No `FOR UPDATE` on `agent_versions` (those tables are not this slice's to
+re-gate). The claim is: **this call lists the rows that query returned**. A version committed
+after the SELECT is absent from this `PopulateReport` and is listed on a later call (P-18b).
+
+For each returned row: `register_blueprint_version(asset_key=b.key, version_label=v.version_label,
 agent_version_id=v.id)` then `record_review(..., vetting_kind='blueprint_security_review',
 provenance='reviewer_asserted_admin_recorded', outcome='passed',
 reviewer='slice61b.blueprint_review_asserted')` then `list_asset`.
@@ -283,12 +323,15 @@ For each declared connector, read `service_module` as a file path
 quoted_registry_keys(path.read_text(encoding="utf-8")) == frozenset(spec.tool_names)
 ```
 
-A new `_TOOL = "ci.deploy_production"` in a service file fails CI until DECLARED is updated
-**and** a new `version_label` is registered (children of `v1` are freeze-locked). Updating
-DECLARED without a new version while `v1` stays listed fails P-22 (listed row must match
-DECLARED). That is regression evidence. It does not prove the process cannot broker another
-tool. D-8 stays OPEN. The scanner lives in `catalog_declared.py` so the test cannot quietly
-reimplement it.
+A new `_TOOL = "ci.deploy_production"` in a service file fails **P-3** until DECLARED's
+`tool_names` match the file. That is source↔DECLARED regression evidence. It does not, by
+itself, require a `version_label` bump, and P-22 on a fresh database cannot force one:
+changing `_TOOL` and DECLARED together, then populating a new DB, yields a matching `v1`.
+
+If `v1` is **already listed** with the old identity, OD-2a raises on the next populate
+(`declared_identity_mismatch:ci_evidence`) rather than skipping. That is DB↔DECLARED
+reconciliation, not a version-bump mechanism. D-8 stays OPEN. The scanner lives in
+`catalog_declared.py` so the test cannot quietly reimplement it.
 
 ### OD-6 — Isolation and non-authority, unchanged
 
@@ -311,7 +354,7 @@ Populate does not import `app.release.production_autonomy`, `app.intake.readines
 | Modify: `app/ecosystem/__init__.py` | Docstring: catalog is populated by `populate_declared_catalog`; empty until that runs; still does not close the Slice 61 exit |
 | Modify: `tests/ecosystem_catalog_support.py` | `real_connector_specs()` becomes a thin wrapper over `DECLARED_CONNECTORS` (same six keys) so 61a D-9 cannot drift |
 | Create: `tests/test_ecosystem_catalog_populate.py` | Docker-free: P-1…P-7, P-21, P-25, scanner unit tests |
-| Create: `tests/test_ecosystem_catalog_populate_db.py` | DB: P-8…P-20, P-22…P-24, P-26 bit-stability |
+| Create: `tests/test_ecosystem_catalog_populate_db.py` | DB: P-8…P-20, P-22, P-22a/b/c, P-23, P-24, P-26 |
 | Modify: `Makefile` | `catalog-populate` target using `ADMIN_DATABASE_URL` (admin only) |
 | Modify: `.github/workflows/ci.yml` | Rename the pyright step to include 61b; add the new test files and `app/ecosystem/catalog_declared.py` / `catalog_populate.py` / `scripts/populate_catalog.py` to the owned path list (61a paths stay) |
 | Modify: `CLAUDE.md`, `README.md` | Honesty crux in §0.3; no test counts in README |
@@ -409,6 +452,9 @@ stay.
   `reviewer` is `slice61b.blueprint_review_asserted` and whose asset `registered_by` is
   `slice61b.catalog_populate`; `reviewer != registered_by`. Second populate:
   `blueprint_skipped == 2`, `blueprint_listed == 0`.
+- **P-18b** populate once with one version listed; insert a second `agent_versions` row;
+  populate again; `blueprint_listed == 1` for the new row and the first is `blueprint_skipped`.
+  No claim is made that the first call listed a row that did not exist in its SELECT.
 - **P-19** intake: one listed `generic_bounded_counter` / `v1`; `source_ref` equals the OD-4
   path; `domain_label='generic'`; `content_sha256` equals `reference_intake_digest`; vetting
   kind `reference_intake_constraint_attestation`. No catalog table has a body/content column
@@ -416,9 +462,27 @@ stay.
 - **P-20** overwrite the intake file bytes in a tmp copy **without** changing the listed
   digest: a dedicated digest-check test (pure, using the tmp copy) fails. The DB row is not
   mutated; this proves the drift function, not a DB trigger on the filesystem.
-- **P-22** after populate, each listed connector spec+scope row equals `DECLARED_CONNECTORS`
-  field-for-field. A unit-level assertion, queried from the DB, not from the in-memory spec
-  used to insert.
+- **P-22** after a clean populate on a fresh catalog, each declared `(key, v1)` spec+scope row
+  equals `DECLARED_CONNECTORS` field-for-field, queried from the DB. This is a postcondition
+  of a matching populate, not a version-bump enforcer.
+- **P-22a** (adversarial, connector): as admin, `register_connector` for `ci_evidence` / `v1`
+  with OD-1 protocol/fake/adapter but `service_module='app.release.pm_sync_service'` (checker
+  still passes — it does not read `service_module` behaviour); vet and list. Then
+  `populate_declared_catalog` raises `CatalogPopulateError` whose message contains
+  `declared_identity_mismatch:ci_evidence`; the listed row is unchanged (still the wrong
+  service_module); populate does not skip. Disabling the OD-2a comparison (monkeypatch
+  populate to skip-without-compare) makes this test pass the second call — the probe is
+  load-bearing.
+- **P-22b** (adversarial, intake): register+list `generic_bounded_counter` / `v1` with a
+  different `content_sha256` (still well-formed `sha256:` + 64 hex). Populate raises
+  `declared_identity_mismatch:generic_bounded_counter`.
+- **P-22c** (adversarial, blueprint): `register_blueprint` + two `register_version` rows on
+  the same blueprint (`A` with `version_label='v1'`, `C` with `version_label='v2'`).
+  `register_blueprint_version` with `asset_key=b.key`, `version_label='v1'`, but
+  `agent_version_id=C.id` (CatalogAdmin does not check that the catalog label matches the
+  version row's label); vet and list. Populate's query returns `A`. Lookup finds the `v1`
+  catalog row bound to `C`. OD-2a compares `agent_version_id` and raises
+  `declared_identity_mismatch:<key>`. The listed row remains bound to `C`.
 - **P-23** INSERT into `connector_catalog_tool_scope` for listed `ci_evidence` is refused with
   `connector_children_frozen` (admin role). Reuse of 61a OD-13 on a **product** asset, not
   only on probe assets.
@@ -491,3 +555,21 @@ AST broker scan. No live-provider call. No Jira adapter. No agent execution.
 ## 10. Change log
 
 **v1.** First version of the population slice. No prior 61b plan.
+
+**v1 → v2 (three reviewer defects, all accepted).**
+
+1. **SQL-forgery overclaim.** v1 said forging passing vetting rows in SQL is refused, and that
+   assets can only be listed through CatalogAdmin. A PostgreSQL probe showed admin SQL can
+   insert a shape-valid passing `connector_contract_test` and a `listed` row. Fixed: populate
+   **uses** `record_contract_test`; 61a §0.7 is retained — admin SQL can still create
+   shape-valid records. `uaid_app` still cannot. Header, §0.1.4, §0.2, §0.5, OD-2.
+2. **Skip without reconcile.** v1 skipped a listed `(kind, key, version)` without comparing
+   stored identity to DECLARED. P-22 on a fresh DB cannot force a version bump: changing
+   `_TOOL` and DECLARED together still populates a matching `v1`. Fixed: OD-2a field-for-field
+   compare before skip; mismatch raises `declared_identity_mismatch:<key>`. Adversarial
+   P-22a/b/c. P-22 is a clean-populate postcondition, not a bump enforcer. OD-5 wording
+   corrected.
+3. **Concurrent blueprint overclaim.** v1 said every `agent_versions` row present at populate
+   time is listed, with no snapshot. Fixed: the claim is the ordered SELECT's result set; no
+   table lock; a later insert is listed on the next call (P-18b). Header, §0.1.2, §0.4, §0.5,
+   OD-3.
