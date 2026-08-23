@@ -6,6 +6,9 @@ probe-backed verdicts only. Builder never edits this plan.
 
 **Version.** v2 (v1 REJECTED — three defects, all accepted; see §10).
 
+> **APPROVED.** Reviewer GPT-5.6 Sol (`cacd3b79-15df-4d15-899f-1514426cb9a1`) APPROVED v2.
+> Builder may proceed. Builder never edits this plan.
+
 > **This slice does NOT satisfy the roadmap's Slice 61 exit.** It populates the Slice-61a listing
 > mechanism with the declared connectors, the `agent_versions` rows returned by that call's
 > ordered query, and one real reference intake. After this slice the honest status is: *catalog mechanism exists and is

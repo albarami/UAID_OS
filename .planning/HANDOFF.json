@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T16:40:00Z",
+  "timestamp": "2026-08-23T16:50:00Z",
   "source": "slice-61a-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61B-PLAN.md",
   "task": "Slice 61b",
   "total_tasks": null,
-  "status": "slice_61b_plan_v2_awaiting_review",
+  "status": "slice_61b_plan_v2_approved__build",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -144,7 +144,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Sol reviews SLICE-61B-PLAN.md v2 (v1 three defects accepted).",
+  "next_action": "Grok builds Slice 61b from approved v2 plan. Sol reviews code. No interim owner report.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -258,11 +258,17 @@
     "plan": ".planning/SLICE-61B-PLAN.md",
     "version": "v2",
     "migration": "none; Alembic head remains 0060; populate is CatalogAdmin-only, not DDL",
-    "plan_status": "v1 REJECT (3 defects, all accepted); v2 awaiting Sol review",
+    "plan_status": "v2 APPROVE",
     "v1_reject": [
       "Overclaimed SQL-forgery refusal / CatalogAdmin-only listing; admin SQL can insert shape-valid passing+listed rows",
       "Skip listed rows without reconciling stored identity to DECLARED; P-22 cannot force a version bump",
       "Claimed every agent_versions row at populate time is listed, with no snapshot vs concurrent insert"
-    ]
+    ],
+    "plan_verdict": {
+      "verdict": "APPROVE",
+      "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "version": "v2 after v1 REJECT (3 defects, all accepted)",
+      "verbatim": "APPROVE. All three v1 overclaims are removed. OD-2a reconciles connector, blueprint, and intake identities before skipping. P-22a/b/c cover adversarial mismatches; P-22c is implementable because register_blueprint_version does not compare version labels. Blueprint scope is correctly limited to each query result set. D-8/D-9/D-10 remain open. No migration 0061; head remains 0060. All fourteen frozen hashes match."
+    }
   }
 }
