@@ -1,5 +1,6 @@
 .PHONY: dev up down logs test test-db test-db-create test-db-migrate test-db-drop \
-        db-bootstrap-rls-role migrate require-rls-pw fmt catalog-populate
+        db-bootstrap-rls-role migrate require-rls-pw fmt catalog-populate \
+        learning-publish
 
 # --- connection model -------------------------------------------------------
 # Runtime  = non-superuser, RLS-enforced role `uaid_app` (password from env).
@@ -70,6 +71,10 @@ migrate:
 # Admin-path catalog population. Schema-only migrate stays above; this is not DDL.
 catalog-populate:
 	ADMIN_DATABASE_URL="$(ADMIN_DATABASE_URL)" uv run python scripts/populate_catalog.py
+
+# Admin-path cross-project learning publish. Schema-only migrate stays above.
+learning-publish:
+	ADMIN_DATABASE_URL="$(ADMIN_DATABASE_URL)" uv run python scripts/publish_learning.py
 
 test-db-drop:
 	$(PSQL) -U app -d postgres -c "DROP DATABASE IF EXISTS app_test"

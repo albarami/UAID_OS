@@ -23,6 +23,11 @@ from app.models.base import Base
 from app.models.branch_protection_snapshot import BranchProtectionSnapshot
 from app.models.budget import Budget
 from app.models.cost_event import CostEvent
+from app.models.cost_optimizer import CostOptimizerCitation, CostOptimizerRun
+from app.models.cross_project_aggregate import (
+    CrossProjectAggregateBucket,
+    CrossProjectAggregateRun,
+)
 from app.models.cost_forecast import (
     CostForecastDimensionResult,
     CostForecastInputLine,
@@ -198,6 +203,10 @@ __all__ = [
     "CostEvent",
     "Budget",
     "CostForecastPolicyVersion",
+    "CostOptimizerRun",
+    "CostOptimizerCitation",
+    "CrossProjectAggregateRun",
+    "CrossProjectAggregateBucket",
     "CostForecastRun",
     "CostForecastLedgerEventRef",
     "CostForecastInputLine",

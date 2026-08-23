@@ -2,7 +2,7 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 22 (Slice 61b declared-catalog population: files + head remains `0060`; populate is not DDL; D-8/D-9/D-10 still OPEN with owner=Salim). Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
+**Created:** 2026-06-17. **Revision:** Rev 23 (Slice 62 cost learning + tenant-safe publisher delivered with honesty limitations; Alembic head `0061`; Slice 61 exit still OPEN; D-8/D-9/D-10 still OPEN with owner=Salim; go-live unaffected). Rev 22 recorded Slice 61b population. Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
 **Status of this document:** SEQUENCING RECORD — §6 reflects Slice 59 merged as a stabilization-window *assessment* that does **not** close spec §25.4 or §26.6, with Slice 60 as next. Residual self-healing actuators and the stabilization exit stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
@@ -650,7 +650,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Tests.** Learning uses only allowed aggregate signals; no tenant-content crossover; cost routing improves on fixtures.
 - **A5 gate(s) advanced.** None.
 - **Must NOT claim.** Any tenant-content reuse.
-- **Exit.** Cost optimizer + tenant-safe learning; go-live unaffected.
+- **Exit.** **Delivered (bounded):** admin-path 62-row tenant-safe publisher + decision-only tier optimizer under A5 `slice54.v1` / readiness `slice20.v1` / literal `can_go_live_autonomously=False`. Publication threshold is not a privacy proof; consent path unbuilt; no actuated routing; Slice 61 exit and D-8/D-9/D-10 remain OPEN. Go-live unaffected.
 
 #### Slice 63 — Enterprise administration
 - **Goal.** §26.7 enterprise administration (org/tenant admin, RBAC, policy management) over the existing tenant model.
