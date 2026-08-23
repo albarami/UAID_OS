@@ -311,6 +311,36 @@ only — nothing here closes a window:
 - **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
   `can_go_live_autonomously=False`. Residual §26.6 actuators stay open.
 
+## Signed offline auditor bundle (Slice 60, §28.1 — export hardening, closes no spec section)
+`app/release/export_bundle.py` emits a four-file offline bundle for one exact re-audited
+evidence-pack core and its DB-bound Slice-50 release verdict, persists the exact bytes, and
+signs a **detached** manifest of the payload files' hashes with an app-custody Ed25519 key.
+- **What a signature proves.** That the bundle is byte-identical to what UAID emitted, to an
+  auditor holding the operator-pinned trusted public key. It is **not** a human signature, an
+  authority attestation, non-repudiation, or an externally rooted/HSM-held/PKI key. It does not
+  authorize go-live and does not replace evidence (§28 l.2914).
+- **Detached by design.** `evidence_pack.json` and the Slice-49 core stay byte-identical; the
+  signature covers a manifest of hashes, never the pack itself.
+- **No stored validity.** The schema has no `verified`, `valid`, `signature_ok`, `verified_at`,
+  or `public_key_b64` column. Validity is recomputed on every read from the persisted bytes, and
+  the trusted public key is resolved from an operator-configured map by `signing_key_id` — never
+  from the row, so a stored key cannot become its own trust anchor.
+- **Replay defence.** Verification rebinds the signed manifest to its DB record by byte-exact
+  canonical equality, so a validly signed bundle copied onto another record fails.
+- **Total verification.** `verify_export_bundle` returns a closed
+  `(integrity_result, horizon_status)` pair for *any* persisted byte sequence — malformed UTF-8,
+  malformed JSON, wrong shape, oversized, or deeply nested content yields `manifest_invalid`
+  rather than raising. The two axes are independent: expiry is reported separately from
+  cryptographic integrity.
+- **Expiry is declared, not enforced.** Bytes that have left the system cannot be recalled, so
+  `expires_at` is a declared validity horizon carrying the literal limitation
+  `offline_bundle_expiry_is_declared_not_enforced`.
+- **Refused this slice.** OSCAL mapping, scoped links, and temporary auditor accounts.
+- **Persistence.** Migration `0059` adds three tenant-owned, RLS ENABLE+FORCE, append-only
+  tables. Audit records that verification was *attempted*, never that it succeeded.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`.
+
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
 **instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and

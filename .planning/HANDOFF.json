@@ -1,33 +1,36 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T05:05:00Z",
-  "source": "slice-59-closeout",
+  "timestamp": "2026-08-23T11:55:00Z",
+  "source": "slice-60-closeout",
   "partial": false,
   "phase": "Phase 6",
   "phase_name": "Production release & operations",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-59-PLAN.md",
-  "task": "Slice 59",
+  "plan": ".planning/SLICE-60-PLAN.md",
+  "task": "Slice 60",
   "total_tasks": null,
-  "status": "slice_59_merged_non_closing__slice_60_plan_APPROVED_v4_building",
+  "status": "slice_60_merged__signed_offline_auditor_bundle__closes_no_spec_section",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
       "family": "claude",
       "note": "The 2026-08-23 seat ruling names the planner 'Claude Fable 5'. No such model slug is addressable from this session; the Claude options are the main thread and claude-opus-5-thinking-max. Recorded as the actual model rather than the ruling's label. Flagged to the owner, not silently resolved.",
-      "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs."
+      "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs.",
+      "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
       "family": "grok",
       "slug": "cursor-grok-4.6-xhigh",
-      "rationale": "Implements exactly the approved plan. Sub-agents allowed; none approve. Builder never edits the plan."
+      "rationale": "Implements exactly the approved plan. Sub-agents allowed; none approve. Builder never edits the plan.",
+      "agent_id": "b435d91c-0eac-4cdb-a7de-1bc85d4b02e7"
     },
     "reviewer": {
       "model": "GPT-5.6 Sol",
       "family": "gpt",
       "slug": "gpt-5.6-sol-max",
-      "rationale": "Reviews BOTH plan and code diff. Sole approval authority. Probe-backed verdicts only, never prose-only. Different family from both planner and builder."
+      "rationale": "Reviews BOTH plan and code diff. Sole approval authority. Probe-backed verdicts only, never prose-only. Different family from both planner and builder.",
+      "agent_id": "cacd3b79-15df-4d15-899f-1514426cb9a1"
     }
   },
   "completed_tasks": [
@@ -37,7 +40,8 @@
     "Slice 57 docs follow-up merged via PR #105 (squash commit 08c17e06ca22cbe1409806dd2237ca08089e6fa5)",
     "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation",
     "Slice 58 docs follow-up merged via PR #107 (squash commit 33ee561)",
-    "Slice 59 merged via PR #108 (squash commit 15bb587e2adff2f00b95067e0c79eff2290352cc) as NON-CLOSING stabilization-window assessment"
+    "Slice 59 merged via PR #108 (squash commit 15bb587e2adff2f00b95067e0c79eff2290352cc) as NON-CLOSING stabilization-window assessment",
+    "Slice 60 built and reviewed: signed offline auditor bundle (§28.1), migration 0059, closes no spec section"
   ],
   "remaining_tasks": [
     "Slice 60 plan (planner seat) → Sol plan review → build → validate → Sol code review → docs → PR → merge",
@@ -92,7 +96,19 @@
       "verbatim": "APPROVE\n\nThe verifier is now total and fail-closed... Returning `manifest_invalid` before trust/signature checks is correct fail-closed precedence. The ten-value integrity enum and two-value horizon enum are complete and independent. PostgreSQL probes confirmed the strict base64 expression and core `sha256(bytea)` behavior. D-28a/b/c and change-log item 12 accurately cover the v3 correction. ... The builder may proceed.",
       "authored_by_seat": "planner (all four versions; builder never involved)"
     },
-    "code": {"verdict": "PENDING"}
+    "code": {
+      "verdict": "APPROVE",
+      "rounds": "APPROVE after one REJECT (four defects, all accepted and fixed in 6613543)",
+      "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "reject_defects": [
+        "verifier not total: parse_manifest_bytes caught only UnicodeDecodeError/JSONDecodeError, so deeply nested arrays raised RecursionError and a 5000-digit integer raised ValueError; a persisted deep-nested manifest made verify() raise instead of returning manifest_invalid",
+        "production code ran SET CONSTRAINTS ALL DEFERRED in ExportBundleRepository.generate (the builder had reported this as test-support-only), weakening every deferrable constraint in the transaction for no benefit since Slice 60 triggers are already INITIALLY DEFERRED",
+        "forgery probes used the admin db_session fixture (owner role app), so the suite never established what uaid_app can actually forge",
+        "the manifest_digest<->ordinal-3 and signature_b64<->ordinal-4 byte-binding guards were exercised only with triggers disabled via session_replication_role=replica, so they had no trigger-enabled regression coverage"
+      ],
+      "reverify_evidence": "Reviewer re-probed with an expanded corpus (empty, oversized, deep objects, huge exponents, lone surrogates, wrong files[] types) pure and persisted; confirmed current_user=uaid_app with a well-formed row succeeding to exclude RLS-invisibility as a false refusal; and ran mutation probes dropping the triggers to prove both new guard tests are load-bearing.",
+      "upheld_on_first_review": "rebind-after-signature ordering is secure; live redaction-policy import is defensible because rebinding uses the stored signed digest; session_replication_role=replica is admin-only and models privileged storage tampering; cardinality holds via both the ordinal CHECK and the deferred count trigger; the RLS catalog assertion strengthens the pin"
+    }
   },
   "reviewer_verdicts": {
     "plan": {
@@ -118,21 +134,22 @@
     }
   },
   "validation": {
-    "merged_sha": "15bb587e2adff2f00b95067e0c79eff2290352cc",
-    "pr": "#108",
-    "alembic_head": "0058_stabilization",
-    "make_test": "1207 passed / 903 deselected",
-    "make_test_db": "903 passed / 1207 deselected",
-    "pyright": "0 errors on Slice 55/56/57/58/59 owned paths",
-    "frozen_hashes": "all eight plan section-1 hashes unchanged, verified independently by the coordinator after build and after the test-defect fix",
-    "ci": "green on PR #108 (run 32619985339, 2m45s)"
+    "merged_sha": "PENDING",
+    "pr": "PENDING",
+    "alembic_head": "0059_export_bundles",
+    "make_test": "1224 passed / 939 deselected",
+    "make_test_db": "939 passed / 1224 deselected",
+    "pyright": "0 errors on Slice 55/56/57/58/59/60 owned paths",
+    "frozen_hashes": "all ten plan section-1 hashes unchanged, verified independently by the coordinator after build and after the defect fix",
+    "ci": "PENDING"
   },
   "open_questions": [
     "Residual 26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt.",
     "Slice 59 leaves 25.4 open: backup/restore validation, measured exit criteria, closure authority sign-off, and an acting improvement loop are unbuilt. Not a Salim halt.",
-    "Seat-ruling naming: the ruling says 'Claude Fable 5' but no such model slug is addressable. Recorded as the Claude seat with the actual model string. Owner may correct."
+    "Seat-ruling naming: the ruling says 'Claude Fable 5' but no such model slug is addressable. Recorded as the Claude seat with the actual model string. Owner may correct.",
+    "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "BUILD Slice 60 on branch feat/slice-60-export-bundle per the APPROVED v4 plan, then validate, then Sol code review, then docs/PR/merge. Migration is 0059 from head 0058. Then continue to Slices 61-63 under the standing cadence.",
-  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice; Slice 59 ran under the prior seating and was already compliant (planner Claude, builder Grok, reviewer Sol). Slice 59 close-out is this HANDOFF entry, not a user report."
+  "next_action": "Slice 61 under the standing cadence and the 2026-08-23 three-seat ruling. Migration is 0060 from head 0059. Do not claim external assurance, PKI, or compliance certification from Slice 60.",
+  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63."
 }

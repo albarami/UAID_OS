@@ -829,8 +829,46 @@ rejects (agents `8cd454f8-3cdf-43d5-84b8-1b8802e2fcab`, `02b57793-3170-4b0d-bb8f
 independent code APPROVE (same agent, after one REJECT on test quality) with runtime-role SQL
 forgery probes and mutation probes on the repaired tests. Verified suites: `make test` 1207
 passing / 903 deselected; `make test-db` 903 passing / 1207 deselected. Owned pyright paths
-report 0 errors. Merged via PR #108 (squash commit `15bb587`). Next: Slice 60 under the
-standing cadence and the 2026-08-23 three-seat ruling; do not claim stabilization closed.**
+report 0 errors. Merged via PR #108 (squash commit `15bb587`).**
+**Slice 60 adds the SIGNED OFFLINE AUDITOR BUNDLE (§28.1 export hardening; closes NO spec
+section) (`app/release/export_bundle.py` + `export_signing.py` + `export_bundle_service.py` +
+`ExportBundleRepository`/`ExportBundleReadRepository` + migration `0059_export_bundles`,
+contracts `slice60.signed_manifest.v1` / `slice60.bundle_verification.v1` /
+`slice60.redaction_policy.v1`). Three tenant-owned, RLS ENABLE+FORCE, append-only tables
+(`evidence_pack_export_records`, `evidence_pack_export_files`,
+`evidence_pack_manifest_signatures`) for one exact re-audited Slice-49 core + its DB-bound
+Slice-50 verdict: **four persisted files, two manifested**, with a **detached** Ed25519
+signature over a manifest of the payload hashes — `evidence_pack.json` and the core stay
+byte-identical and are never themselves signed. **Three structural forgery defences:** (1) NO
+`verified`/`valid`/`signature_ok`/`verified_at` column — validity is recomputed on every read
+from the persisted `content BYTEA` with DB-derived `byte_count`/`content_sha256`; (2) NO
+`public_key_b64` column — the trusted key is resolved from an operator-configured map by
+`signing_key_id`, so a row can never be its own trust anchor; (3) **manifest rebinding** —
+byte-exact canonical equality between the signed manifest and one reconstructed from the DB
+record, which closes replay of a validly signed bundle onto another record. `verify_export_bundle`
+is **total** over all persisted byte sequences: malformed UTF-8 / malformed JSON / wrong shape /
+oversized (>16 MiB) / deeply nested content returns `manifest_invalid` and never raises. Two
+**independent** result axes — a ten-value `integrity_result` and a two-value `horizon_status`
+(expiry is reported separately from cryptographic integrity). **Honesty crux:** a signature
+proves the bundle is byte-identical to what UAID emitted to a holder of the operator-pinned
+public key. It is NOT a human signature, an authority attestation, non-repudiation, an
+externally-rooted/certified/HSM/PKI key, OSCAL mapping, or compliance certification; the
+declared `expires_at` horizon is **not enforced and not revocable** (limitation
+`offline_bundle_expiry_is_declared_not_enforced`); the audit action records that verification
+was *attempted*, never that it succeeded; and the export never replaces evidence (§28 l.2914) or
+authorizes go-live. Refused this slice: OSCAL, scoped links, temporary auditor accounts, and any
+HTTP route or new credential type. Signing keys are operator env-only. Ten frozen files
+byte-identical; A5 stays `slice54.v1`; readiness stays `slice20.v1`;
+`can_go_live_autonomously` remains the literal `False`. Seats (2026-08-23 ruling): PLANNER =
+this Claude session (all four plan versions; the builder never touched the plan), BUILDER =
+Cursor Grok 4.6 Extra High (`b435d91c-0eac-4cdb-a7de-1bc85d4b02e7`), REVIEWER = GPT-5.6 Sol
+(`cacd3b79-15df-4d15-899f-1514426cb9a1`). Plan APPROVE on v4 after three REJECTs (12 defects,
+all accepted) — the three-reject halt was reported to Salim, who authorized the fourth round;
+code APPROVE after one REJECT (four defects: non-total parser, a production-wide
+`SET CONSTRAINTS ALL DEFERRED`, forgery probes that ran as admin rather than `uaid_app`, and
+byte-binding guards proven only with triggers disabled), re-verified with mutation probes.
+Verified suites: `make test` 1224 passing / 939 deselected; `make test-db` 939 passing / 1224
+deselected. Owned pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1079,6 +1117,24 @@ the admin `app` role only.
   never owner/URL/journeys. **Honesty: this is a recorded assessment, not a closed
   stabilization window; no backup/restore, no go-live, no HTTP, no broker; A5/readiness/
   control-loop/hotfix/incidents untouched.**
+- `app/release/export_bundle.py` — signed offline auditor bundle (Slice 60, §28.1; **closes no
+  spec section**). Pure contracts `slice60.signed_manifest.v1` /
+  `slice60.bundle_verification.v1` / `slice60.redaction_policy.v1`; `export_signing.py` holds
+  the Ed25519 sign/verify and the operator trusted-key map (keys env-only, never stored);
+  `export_bundle_service.py` owns the transaction; `ExportBundleRepository.generate` +
+  `ExportBundleReadRepository.verify` write/read the three tenant-owned, RLS ENABLE+FORCE,
+  append-only tables in migration `0059` (SELECT/INSERT only). Four persisted files, two
+  manifested; the signature is **detached** over a manifest of payload hashes, so
+  `evidence_pack.json` and the Slice-49 core stay byte-identical. No stored validity column and
+  no stored public key — validity is recomputed per read from `content BYTEA` with DB-derived
+  `byte_count`/`content_sha256`, and trust resolves from the operator map by `signing_key_id`.
+  Verification rebinds the signed manifest to its DB record byte-exactly (replay defence) and is
+  **total** — any unparseable/oversized/wrong-shaped bytes return `manifest_invalid` rather than
+  raising. `integrity_result` and `horizon_status` are independent axes. Audit records
+  verification *attempted*, never succeeded. **Honesty: a signature proves byte-identity to what
+  UAID emitted, not a human signature, authority, non-repudiation, PKI rooting, OSCAL, or
+  compliance; the declared expiry is not enforced and not revocable; no HTTP, no new credential
+  type, no broker; A5/readiness/control-loop untouched.**
 - `app/intake/` — document intake sandbox (Slice 9, §16.3). `sandbox.py` (pure): treats
   customer documents as **untrusted data** — `scan(content)` is a **best-effort, deterministic**
   prompt-injection signal returning marker **identifiers** (never raw excerpts; no ML);
@@ -1522,11 +1578,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_ops_stabilization.py`, `test_ops_stabilization_db.py`, `test_ops_stabilization_checks.py`, `test_ops_stabilization_migrate.py`, `test_ops_stabilization_guards.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_ops_stabilization.py`, `test_ops_stabilization_db.py`, `test_ops_stabilization_checks.py`, `test_ops_stabilization_migrate.py`, `test_ops_stabilization_guards.py`, `test_export_bundle.py`, `test_export_bundle_db.py`, `test_export_bundle_checks.py`, `test_export_bundle_guards.py`, `test_export_bundle_migrate.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1207 passing (Docker-free); `make test-db` → 903 passing (DB-backed: tenancy,
+  **`make test` → 1224 passing (Docker-free); `make test-db` → 939 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1632,8 +1688,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1207 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 903 passing
+make test                                  # Docker-free tests (no services) — 1224 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 939 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
