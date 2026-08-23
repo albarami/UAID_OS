@@ -146,7 +146,6 @@ class ExportBundleRepository(TenantScopedRepository):
                 raise ExportBundleError("bundle_file_size_invalid")
         total_bytes = sum(len(item.content) for item in artifacts)
         manifest_digest = digest_bytes(manifest_bytes)
-        await self.session.execute(text("SET CONSTRAINTS ALL DEFERRED"))
         inserted = await self._try_insert_record(
             pack=pack,
             verdict_id=verdict_id,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import inspect
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +15,7 @@ from app.release.evidence_pack import canonical_json_bytes, digest_bytes
 from app.release.export_bundle import (
     LIMITATIONS,
     MANIFESTED_FILES,
+    MAX_BUNDLE_FILE_BYTES,
     SIGNING_KEY_NOT_CONFIGURED,
     SIGNING_KEY_NOT_SELF_CONSISTENT,
     ExportBundleError,
@@ -189,10 +191,16 @@ def test_wrappers_have_no_session_as_of_or_expires_at():
 
 
 def test_parse_manifest_is_total_over_attacker_bytes():
+    nested = b"[" * (sys.getrecursionlimit() + 50) + b"]" * (sys.getrecursionlimit() + 50)
+    huge_int = ("1" * 5000).encode("ascii")
+    oversized = b"x" * (MAX_BUNDLE_FILE_BYTES + 1)
     assert parse_manifest_bytes(b"\xff\xfe") is None
     assert parse_manifest_bytes(b"{not json") is None
     assert parse_manifest_bytes(b"[]") is None
     assert parse_manifest_bytes(b"{}") is None
+    assert parse_manifest_bytes(nested) is None
+    assert parse_manifest_bytes(huge_int) is None
+    assert parse_manifest_bytes(oversized) is None
 
 
 def test_python_strict_base64_rejects_bang_and_newline(monkeypatch):

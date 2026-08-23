@@ -266,6 +266,7 @@ async def insert_raw_bundle(
     signature_b64: str | None = None,
     redaction_policy_digest: str | None = None,
     signed_bytes_digest: str | None = None,
+    manifest_digest: str | None = None,
 ) -> uuid.UUID:
     """Insert one bundle row set, optionally malformed, under deferred constraints."""
     await session.execute(text("SET CONSTRAINTS ALL DEFERRED"))
@@ -298,7 +299,7 @@ async def insert_raw_bundle(
             "cp": seeded["checkpoint_id"] if audit_checkpoint_id is None else audit_checkpoint_id,
             "key": key,
             "bver": BUNDLE_CONTRACT_VERSION,
-            "md": digest_bytes(payload[3]),
+            "md": manifest_digest if manifest_digest is not None else digest_bytes(payload[3]),
             "rver": REDACTION_POLICY_VERSION,
             "rd": (
                 redaction_policy_digest
@@ -362,6 +363,17 @@ async def insert_raw_bundle(
         )
     await session.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
     return record_id
+
+
+async def insert_raw_bundle_as_runtime(rls_engine, seeded: dict, **kwargs) -> uuid.UUID:
+    """Insert one bundle as ``uaid_app`` after the tenant GUC is set."""
+    async with AsyncSession(rls_engine, expire_on_commit=False) as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.current_tenant',:t,true)"),
+                {"t": str(seeded["tenant"])},
+            )
+            return await insert_raw_bundle(session, seeded, **kwargs)
 
 
 def _dummy_files() -> dict[int, bytes]:

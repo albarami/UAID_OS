@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 from sqlalchemy import text
@@ -22,6 +23,7 @@ from tests.export_bundle_support import (
     committed_exportable,
     configure_signing,
     insert_raw_bundle,
+    insert_raw_bundle_as_runtime,
     persist_exportable_pack,
     seed_project,
     unique_key,
@@ -43,130 +45,132 @@ async def _seeded(db_session) -> dict:
 
 
 @pytest.mark.db
-async def test_d5_backdated_as_of_refused(db_session):
-    seeded = await _seeded(db_session)
+async def test_d5_backdated_as_of_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(
-                db_session, seeded, as_of_sql="transaction_timestamp() - INTERVAL '1 day'"
-            )
+        await insert_raw_bundle_as_runtime(
+            rls_engine, seeded, as_of_sql="transaction_timestamp() - INTERVAL '1 day'"
+        )
 
 
 @pytest.mark.db
-async def test_d6_chosen_expires_at_refused(db_session):
-    seeded = await _seeded(db_session)
+async def test_d6_chosen_expires_at_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(
-                db_session,
+        await insert_raw_bundle_as_runtime(
+            rls_engine,
+            seeded,
+            expires_at_sql="transaction_timestamp() + INTERVAL '1 hour'",
+        )
+
+
+@pytest.mark.db
+async def test_d7_scoped_link_mode_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, auditor_access_mode="scoped_link")
+
+
+@pytest.mark.db
+async def test_d8_wrong_core_hash_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, core_content_hash=SHA_A)
+
+
+@pytest.mark.db
+async def test_d8b_wrong_candidate_or_checkpoint_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(
+            rls_engine, seeded, release_candidate_id=seeded["candidate_b"]
+        )
+    async with AsyncSession(admin_engine, expire_on_commit=False) as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.current_tenant',:t,true)"),
+                {"t": str(seeded["tenant"])},
+            )
+            other = await EvidencePackRepository(
+                session, TenantContext(seeded["tenant"])
+            ).record_audit_checkpoint()
+            other_id = other.id
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, audit_checkpoint_id=other_id)
+
+
+@pytest.mark.db
+async def test_d8c_wrong_log_reference_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, immutable_log_reference="ab" * 32)
+
+
+@pytest.mark.db
+async def test_d8d_verdict_of_another_pack_refused(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    async with AsyncSession(admin_engine, expire_on_commit=False) as session:
+        async with session.begin():
+            await session.execute(
+                text("SELECT set_config('app.current_tenant',:t,true)"),
+                {"t": str(seeded["tenant"])},
+            )
+            other = await persist_exportable_pack(
+                session,
                 seeded,
-                expires_at_sql="transaction_timestamp() + INTERVAL '1 hour'",
+                candidate_id=seeded["candidate_b"],
+                frozen_at=seeded["frozen_at_b"],
             )
+            other_verdict = other["verdict"].id
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, release_verdict_id=other_verdict)
 
 
 @pytest.mark.db
-async def test_d7_scoped_link_mode_refused(db_session):
-    seeded = await _seeded(db_session)
+async def test_d10_signed_digest_must_match_parent(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, auditor_access_mode="scoped_link")
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, signed_bytes_digest=SHA_A)
 
 
 @pytest.mark.db
-async def test_d8_wrong_core_hash_refused(db_session):
-    seeded = await _seeded(db_session)
+async def test_d12_file_count_tampering_rejected(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, core_content_hash=SHA_A)
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, files={1: b"a", 2: b"b", 3: b"c"})
+    with pytest.raises(DBAPIError):
+        await insert_raw_bundle_as_runtime(
+            rls_engine,
+            seeded,
+            files={1: b"a", 2: b"b", 3: b"c", 4: os.urandom(64), 5: b"nope"},
+        )
 
 
 @pytest.mark.db
-async def test_d8b_wrong_candidate_or_checkpoint_refused(db_session):
-    seeded = await _seeded(db_session)
+async def test_d12b_total_byte_count_must_match_sum(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, release_candidate_id=seeded["candidate_b"])
-    other = await EvidencePackRepository(
-        db_session, TenantContext(seeded["tenant"])
-    ).record_audit_checkpoint()
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, audit_checkpoint_id=other.id)
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, total_byte_count=1)
 
 
 @pytest.mark.db
-async def test_d8c_wrong_log_reference_refused(db_session):
-    seeded = await _seeded(db_session)
+async def test_d13_wrong_ordinal_file_name_rejected(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, immutable_log_reference="ab" * 32)
+        await insert_raw_bundle_as_runtime(
+            rls_engine,
+            seeded,
+            file_overrides={1: {"file_name": "evidence_pack.manifest.json"}},
+        )
 
 
 @pytest.mark.db
-async def test_d8d_verdict_of_another_pack_refused(db_session):
-    seeded = await _seeded(db_session)
-    other = await persist_exportable_pack(
-        db_session,
-        seeded,
-        candidate_id=seeded["candidate_b"],
-        frozen_at=seeded["frozen_at_b"],
-    )
+async def test_d13b_stored_hash_must_match_content(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, release_verdict_id=other["verdict"].id)
-
-
-@pytest.mark.db
-async def test_d10_signed_digest_must_match_parent(db_session):
-    seeded = await _seeded(db_session)
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, signed_bytes_digest=SHA_A)
-
-
-@pytest.mark.db
-async def test_d12_file_count_tampering_rejected(db_session):
-    seeded = await _seeded(db_session)
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, files={1: b"a", 2: b"b", 3: b"c"})
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(
-                db_session,
-                seeded,
-                files={1: b"a", 2: b"b", 3: b"c", 4: os.urandom(64), 5: b"nope"},
-            )
-
-
-@pytest.mark.db
-async def test_d12b_total_byte_count_must_match_sum(db_session):
-    seeded = await _seeded(db_session)
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, total_byte_count=1)
-
-
-@pytest.mark.db
-async def test_d13_wrong_ordinal_file_name_rejected(db_session):
-    seeded = await _seeded(db_session)
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(
-                db_session,
-                seeded,
-                file_overrides={1: {"file_name": "evidence_pack.manifest.json"}},
-            )
-
-
-@pytest.mark.db
-async def test_d13b_stored_hash_must_match_content(db_session):
-    seeded = await _seeded(db_session)
-    with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(
-                db_session, seeded, file_overrides={1: {"content_sha256": SHA_A}}
-            )
+        await insert_raw_bundle_as_runtime(
+            rls_engine, seeded, file_overrides={1: {"content_sha256": SHA_A}}
+        )
 
 
 @pytest.mark.db
@@ -231,25 +235,47 @@ async def test_d14_append_only_rls_grants_and_no_forbidden_columns(db_session, a
 
 
 @pytest.mark.db
-async def test_d17_zero_signatures_rejected(db_session):
-    seeded = await _seeded(db_session)
+async def test_d17_zero_signatures_rejected(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, include_signature=False)
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, include_signature=False)
 
 
 @pytest.mark.db
-async def test_d18_and_d18b_noncanonical_signatures_rejected(db_session):
-    seeded = await _seeded(db_session)
+async def test_d18_and_d18b_noncanonical_signatures_rejected(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, signature_b64="!" * 88)
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, signature_b64="!" * 88)
     valid = encode_signature_b64(os.urandom(64))
     injected = valid[:40] + "\n" + valid[41:]
     assert len(injected) == 88
     with pytest.raises(DBAPIError):
-        async with db_session.begin_nested():
-            await insert_raw_bundle(db_session, seeded, signature_b64=injected)
+        await insert_raw_bundle_as_runtime(rls_engine, seeded, signature_b64=injected)
+
+
+@pytest.mark.db
+async def test_manifest_digest_must_match_ordinal_3_hash(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    with pytest.raises(DBAPIError, match="manifest_digest must equal ordinal 3 content_sha256"):
+        await insert_raw_bundle_as_runtime(
+            rls_engine, seeded, manifest_digest=SHA_A, signed_bytes_digest=SHA_A
+        )
+
+
+@pytest.mark.db
+async def test_signature_b64_must_equal_ordinal_4_bytes(admin_engine, rls_engine):
+    seeded = await committed_exportable(admin_engine)
+    file_sig = os.urandom(64)
+    other_sig = os.urandom(64)
+    while other_sig == file_sig:
+        other_sig = os.urandom(64)
+    with pytest.raises(DBAPIError, match="signature_b64 must equal ordinal 4 content"):
+        await insert_raw_bundle_as_runtime(
+            rls_engine,
+            seeded,
+            files={1: b'{"pack":true}', 2: b"# preview\n", 3: b'{"not":"manifest"}', 4: file_sig},
+            signature_b64=encode_signature_b64(other_sig),
+        )
 
 
 @pytest.mark.db
@@ -292,7 +318,9 @@ async def test_d28_invalid_file3_is_manifest_invalid_without_raise(admin_engine,
     configure_signing(monkeypatch)
     seeded = await committed_exportable(admin_engine)
     ctx = TenantContext(seeded["tenant"])
-    cases = (b"\xff\xfe", b"{not json", b'{"wrong":"shape"}')
+    nested = b"[" * (sys.getrecursionlimit() + 50) + b"]" * (sys.getrecursionlimit() + 50)
+    huge_int = ("1" * 5000).encode("ascii")
+    cases = (b"\xff\xfe", b"{not json", b'{"wrong":"shape"}', nested, huge_int)
     for index, content in enumerate(cases):
         files = {1: b'{"pack":true}', 2: b"# p\n", 3: content, 4: os.urandom(64)}
         async with AsyncSession(admin_engine, expire_on_commit=False) as session:

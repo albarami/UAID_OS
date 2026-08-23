@@ -323,13 +323,15 @@ def build_manifest_payload(
 
 def parse_manifest_bytes(content: bytes) -> dict[str, Any] | None:
     """Totally parse file-3 bytes. Return the object or ``None``; never raise."""
+    if len(content) > MAX_BUNDLE_FILE_BYTES:
+        return None
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
         return None
     try:
         payload = json.loads(text)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None
