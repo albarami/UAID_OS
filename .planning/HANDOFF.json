@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T13:45:00Z",
+  "timestamp": "2026-08-23T13:50:00Z",
   "source": "slice-60-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61A-PLAN.md",
   "task": "Slice 61a",
   "total_tasks": null,
-  "status": "slice_61a_plan_v3_approved__handing_to_builder",
+  "status": "slice_61a_v3_owner_accepted__build_in_progress",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -17,14 +17,14 @@
       "note": "The 2026-08-23 seat ruling names the planner 'Claude Fable 5'. No such model slug is addressable from this session; the Claude options are the main thread and claude-opus-5-thinking-max. Recorded as the actual model rather than the ruling's label. Flagged to the owner, not silently resolved.",
       "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs.",
       "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work.",
-      "slice_61a_authorship": "Authored the superseded v1-v3 and, after the owner directed a from-scratch narrowing, authored the new SLICE-61A-PLAN.md v1 in full. Builder seat never invoked on any plan version."
+      "slice_61a_authorship": "Authored the superseded v1-v3 and the from-scratch SLICE-61A-PLAN.md v1, v2, and v3 in full. Builder seat never invoked on any plan version. Sol APPROVED v3. Owner accepted the narrowing on 2026-08-23 and directed immediate build."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
       "family": "grok",
       "slug": "cursor-grok-4.6-xhigh",
       "rationale": "Implements exactly the approved plan. Sub-agents allowed; none approve. Builder never edits the plan.",
-      "agent_id": "b435d91c-0eac-4cdb-a7de-1bc85d4b02e7"
+      "agent_id": "0a2a8e08-77fb-404b-90a9-0a02f7a7a608"
     },
     "reviewer": {
       "model": "GPT-5.6 Sol",
@@ -47,8 +47,9 @@
     "Slice 60 merged via PR #110 (squash commit 8e001ca) as SIGNED OFFLINE AUDITOR BUNDLE, closing no spec section"
   ],
   "remaining_tasks": [
-    "Slice 60 plan (planner seat) → Sol plan review → build → validate → Sol code review → docs → PR → merge",
-    "Slices 61-63 continuously after each merge"
+    "Slice 61a build (in progress) → validate → Sol code review → docs → PR → merge",
+    "Slice 61b populate declared catalog (does not close roadmap exit)",
+    "Slices 62-63 continuously after each merge"
   ],
   "blockers": [],
   "human_actions_pending": [],
@@ -68,6 +69,11 @@
       "date": "2026-08-23",
       "ruling": "seat_ruling_reconfirmed_by_owner",
       "text": "Owner re-sent the Slice-60 authorization verbatim after Slice 60 had already merged. No retroactive action was taken and no v5 was produced: Slice 60 v4 was planner work, the reviewer had no outstanding item, and the plan and code were both APPROVED. The substantive ruling is treated as standing and carried forward unchanged to Slice 61a and beyond: PLANNER writes every plan version, BUILDER implements only, REVIEWER holds sole approval on both plan and code, no seat reviews its own output, all three seats recorded every slice, halt rules unchanged."
+    },
+    {
+      "date": "2026-08-23",
+      "ruling": "slice_61a_v3_owner_accepts_narrowing_and_directs_build",
+      "text": "Owner accepted the narrowing: hash/canonical-JSON/rebind layer deleted; typed child rows; provenance renames; permission-scoped claim refused; content_sha256 is drift metadata; round-2 race linearizations and lock-before-load and guard-fires test accepted. PROCEED on Sol APPROVE of v3. Build immediately. Every guard needs a test that shows the guard REFUSING the bad case. Docs must state the DB cannot attribute a payload to the code that produced it. Three roadmap section 12 OPEN entries with owner=Salim: verified permission scoping, real-provider connector testing, automated blueprint security scanning. Then continue 61b/62/63 with no report between slices. IF this line had been REJECT, halt, no v4, split proposal for owner — did not apply; verdict was APPROVE."
     }
   ],
   "decisions": [
@@ -140,7 +146,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Builder (Cursor Grok 4.6 Extra High) implements SLICE-61A-PLAN.md v3 exactly on feat/slice-61a-ecosystem-catalog. Migration 0060 from head 0059. Do not edit the plan. Do not open a PR until code review APPROVE. Add roadmap §12 OPEN D-8, D-9, D-10 with owner=Salim. Docs in the Slice 55-60 non-closing register. Catalog stays empty.",
+  "next_action": "Builder 0a2a8e08 implements v3 with owner addenda (refusal tests on every guard; docs attribution honesty; section 12 D-8/D-9/D-10). Then Sol code review. On code APPROVE, PR and merge, then 61b with no interim owner report.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -219,6 +225,17 @@
         "D-22 clause 7: admin disables freeze and vetting guards only, inserts incomplete connector plus passing-shaped vetting row, re-enables, listing guard stays enabled throughout, listing INSERT refused with listing_connector_children_required. No replica-role."
       ],
       "verbatim": "APPROVE. Both PostgreSQL lock linearizations are now correctly specified; only post-vetting child insertion is forbidden. record_contract_test locks before loading children and running checks. Clause 7 now behaviorally exercises the listing guard. PostgreSQL confirmed disabling one named trigger leaves the listing trigger tgenabled=O; it fired and prevented insertion. No stale race or performed-review/61b-exit overclaims remain outside historical quotations. Frozen hashes match the tree."
+    },
+    "owner": {
+      "verdict": "ACCEPT narrowing; PROCEED on Sol APPROVE of v3",
+      "path_taken": "IF APPROVE — build immediately. Halt/split path did not apply.",
+      "section_12_open_required": [
+        "D-8 verified permission scoping, owner=Salim, App. C l.3012",
+        "D-9 real-provider connector testing, owner=Salim, App. C l.3012",
+        "D-10 automated blueprint security scanning, owner=Salim, App. C l.3010 — the approved plan, after Sol defect 3 which the owner accepted as a round-2 fix, records this as an evidence-backed security-review gate (verified human workflow or scanner). Both the owner-named item and the approved-plan gate are recorded; neither is a silent drop."
+      ],
+      "test_rule": "Every guard in the plan needs a test that shows the guard REFUSING the bad case, not a helper unit test and not a name assertion. Sol rejects any guard without a refusal test.",
+      "docs_rule": "Narrowed guarantee in Slices 55-60 wording, plus: the DB cannot attribute a payload to the code that produced it."
     }
   }
 }
