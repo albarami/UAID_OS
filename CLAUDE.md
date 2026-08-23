@@ -895,6 +895,28 @@ listing clause 1 accepted an FK error; parent cardinality fired the child trigge
 re-verified with mutation probes. Verified suites: `make test`
 1244 passing / 975 deselected; `make test-db` 975 passing / 1244 deselected. Owned
 pyright paths report 0 errors.**
+**Slice 61b populates the declared catalog (closes NO spec section; does **not**
+meet the roadmap Slice 61 exit)** (`app/ecosystem/catalog_declared.py` +
+`catalog_populate.py` + `scripts/populate_catalog.py`; `catalog_reads.get_by_key` /
+`listed_keys`; no migration — head remains `0060`). `populate_declared_catalog`
+writes only through CatalogAdmin (`record_contract_test` / `record_review` /
+`list_asset`). Six release-service connector assets, the `agent_versions` rows
+returned by that call's ordered query, and one reference-intake companion. A
+freshly migrated database is empty until `make catalog-populate` runs. D-8, D-9,
+and D-10 stay OPEN (owner = Salim). **Honesty crux:** UAID populated an append-only catalog of declared connectors, existing agent-blueprint versions,
+and one reference-intake companion. A listing still requires a passing vetting record bound to
+that exact asset row. This is not an endorsement, not proof that a checker ran, not verified
+permission scoping, not a real-provider connector test, not a performed security review, and not
+resistant to an actor with admin write access. The catalog mechanism exists and is populated with
+declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open, waiting
+on §12 D-8, D-9, and D-10. The DB cannot attribute a payload to the code that produced it;
+provenance labels are app-stamped. A freshly migrated database is empty until populate runs.
+A5 stays `slice54.v1`; readiness stays `slice20.v1`;
+`can_go_live_autonomously` remains the literal `False`. Seats: PLANNER = Claude
+(approved v2); BUILDER = Cursor Grok 4.6 Extra High; REVIEWER = GPT-5.6 Sol
+(`cacd3b79-15df-4d15-899f-1514426cb9a1`). Verified suites: `make test`
+1253 passing / 996 deselected; `make test-db` 996 passing / 1253 deselected. Owned
+pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1143,17 +1165,21 @@ the admin `app` role only.
   never owner/URL/journeys. **Honesty: this is a recorded assessment, not a closed
   stabilization window; no backup/restore, no go-live, no HTTP, no broker; A5/readiness/
   control-loop/hotfix/incidents untouched.**
-- `app/ecosystem/` — ecosystem catalog listing mechanism (Slice 61a; **closes no spec
-  section**; does **not** meet the roadmap Slice 61 exit). Pure vocabulary + five-check
-  contract tester + admin-path register/vet/list/delist + tenant adoption records.
-  Migration `0060` is purely additive. **Honesty crux:** UAID maintains an append-only
-  catalog in which a listing requires a passing vetting record bound to that exact asset
-  row. This is not an endorsement, not proof that a checker ran, not verified permission
-  scoping, not a real-provider connector test, not a performed security review, and not
-  resistant to an actor with admin write access. The catalog is empty; Slice 61b populates
-  it and still does not close the roadmap Slice 61 exit, which waits on §12 D-8, D-9, and
-  D-10. The DB cannot attribute a payload to the code that produced it; provenance labels
-  are app-stamped. A5 stays `slice54.v1`; readiness stays `slice20.v1`;
+- `app/ecosystem/` — ecosystem catalog listing mechanism (Slice 61a) plus declared-asset
+  population (Slice 61b; **closes no spec section**; does **not** meet the roadmap Slice 61
+  exit). Pure vocabulary + five-check contract tester + admin-path register/vet/list/delist
+  + tenant adoption records + `populate_declared_catalog`. Migration `0060` is purely
+  additive; head remains `0060` (populate is not DDL). A freshly migrated database is empty
+  until `populate_declared_catalog` / `make catalog-populate` runs. D-8, D-9, and D-10 stay
+  OPEN (owner = Salim). **Honesty crux:** UAID populated an append-only catalog of declared connectors, existing agent-blueprint versions,
+and one reference-intake companion. A listing still requires a passing vetting record bound to
+that exact asset row. This is not an endorsement, not proof that a checker ran, not verified
+permission scoping, not a real-provider connector test, not a performed security review, and not
+resistant to an actor with admin write access. The catalog mechanism exists and is populated with
+declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open, waiting
+on §12 D-8, D-9, and D-10. The DB cannot attribute a payload to the code that produced it;
+provenance labels are app-stamped. A freshly migrated database is empty until populate runs.
+  A5 stays `slice54.v1`; readiness stays `slice20.v1`;
   `can_go_live_autonomously` remains the literal `False`.
 - `app/release/export_bundle.py` — signed offline auditor bundle (Slice 60, §28.1; **closes no**
   spec section**). Pure contracts `slice60.signed_manifest.v1` /
@@ -1620,7 +1646,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1244 passing (Docker-free); `make test-db` → 975 passing (DB-backed: tenancy,
+  **`make test` → 1253 passing (Docker-free); `make test-db` → 996 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1726,8 +1752,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1244 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 975 passing
+make test                                  # Docker-free tests (no services) — 1253 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 996 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

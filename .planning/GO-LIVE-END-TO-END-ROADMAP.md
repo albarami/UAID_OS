@@ -2,7 +2,7 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 21 (Slice 61 split into 61a listing mechanism / 61b population after owner-accepted v3 plan; §12 OPEN D-8/D-9/D-10 recorded with owner=Salim; Alembic head after 61a is `0060`). Rev 20 remains the post–Slice-60 reconciliation.
+**Created:** 2026-06-17. **Revision:** Rev 22 (Slice 61b declared-catalog population: files + head remains `0060`; populate is not DDL; D-8/D-9/D-10 still OPEN with owner=Salim). Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
 **Status of this document:** SEQUENCING RECORD — §6 reflects Slice 59 merged as a stabilization-window *assessment* that does **not** close spec §25.4 or §26.6, with Slice 60 as next. Residual self-healing actuators and the stabilization exit stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
@@ -634,6 +634,8 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Goal.** Register and list the six connectors, existing agent versions, and at least one real reference intake. Population is not the roadmap exit.
 - **Why now.** Follows 61a. Exit still waits on D-8, D-9, and D-10.
 - **Spec grounding.** Same as 61a. Do not claim Appendix C l.3010 / l.3012.
+- **Files.** `app/ecosystem/catalog_declared.py`, `app/ecosystem/catalog_populate.py`, `scripts/populate_catalog.py`, `tests/test_ecosystem_catalog_populate.py`, `tests/test_ecosystem_catalog_populate_db.py`; `catalog_reads.py` gains `get_by_key` / `listed_keys`.
+- **Migration.** none; head remains `0060`. Populate is not DDL.
 - **A5 gate(s) advanced.** None.
 - **Must NOT claim.** The Slice 61 exit. After 61b the honest status is "catalog mechanism exists and is populated with declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open."
 - **Exit.** Populated declared catalog; D-8/D-9/D-10 still OPEN; go-live unaffected. **Does not close the Slice 61 exit.**
