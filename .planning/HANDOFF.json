@@ -1,27 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-22T21:10:00Z",
-  "source": "slice-58-closeout",
+  "timestamp": "2026-08-23T05:05:00Z",
+  "source": "slice-59-closeout",
   "partial": false,
   "phase": "Phase 6",
   "phase_name": "Production release & operations",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-58-PLAN.md",
-  "task": "Slice 58",
+  "plan": ".planning/SLICE-59-PLAN.md",
+  "task": "Slice 59",
   "total_tasks": null,
-  "status": "slice_58_merged_non_closing",
+  "status": "slice_59_merged_non_closing",
   "seats": {
+    "planner": {
+      "model": "Claude seat (main session; identifies as Claude Opus 5)",
+      "family": "claude",
+      "note": "The 2026-08-23 seat ruling names the planner 'Claude Fable 5'. No such model slug is addressable from this session; the Claude options are the main thread and claude-opus-5-thinking-max. Recorded as the actual model rather than the ruling's label. Flagged to the owner, not silently resolved.",
+      "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs."
+    },
     "builder": {
-      "model": "Cursor Grok 4.6",
+      "model": "Cursor Grok 4.6 Extra High",
       "family": "grok",
-      "choice": "Grok continues",
-      "rationale": "Standing seats: Grok builds through Slice 63."
+      "slug": "cursor-grok-4.6-xhigh",
+      "rationale": "Implements exactly the approved plan. Sub-agents allowed; none approve. Builder never edits the plan."
     },
     "reviewer": {
       "model": "GPT-5.6 Sol",
       "family": "gpt",
       "slug": "gpt-5.6-sol-max",
-      "rationale": "Reviewer seat must be a different model family than the builder. Sole approval authority."
+      "rationale": "Reviews BOTH plan and code diff. Sole approval authority. Probe-backed verdicts only, never prose-only. Different family from both planner and builder."
     }
   },
   "completed_tasks": [
@@ -29,57 +35,76 @@
     "Slice 56 docs follow-up merged via PR #103 (squash commit 994aca4d2cabac215b3976acd11a3422b0796fd6)",
     "Slice 57 merged via PR #104 (squash commit 037508c0438ad5c8137521f0acd222e895c4b074)",
     "Slice 57 docs follow-up merged via PR #105 (squash commit 08c17e06ca22cbe1409806dd2237ca08089e6fa5)",
-    "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation"
+    "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation",
+    "Slice 58 docs follow-up merged via PR #107 (squash commit 33ee561)",
+    "Slice 59 merged via PR #PENDING as NON-CLOSING stabilization-window assessment"
   ],
   "remaining_tasks": [
-    "Slice 59 plan → review → build → validate → code review → docs → PR → merge (must not claim self-healing closed)",
-    "Slices 60–63 continuously after each merge"
+    "Slice 60 plan (planner seat) → Sol plan review → build → validate → Sol code review → docs → PR → merge",
+    "Slices 61-63 continuously after each merge"
   ],
   "blockers": [],
   "human_actions_pending": [],
   "salim_gate": {
     "id": "REMOVED",
     "status": "removed_by_owner_ruling",
-    "note": "Slice 59 Salim gate removed. Run 57–63 continuously. Report only at Slice 63 merge or a halt condition.",
+    "note": "Slice 59 Salim gate removed. Run 57-63 continuously. Report only at Slice 63 merge or a halt condition.",
     "released_at": "2026-08-22"
   },
   "rulings": [
-    "The Slice 59 Salim gate is REMOVED. No per-slice reports, no per-slice pauses, no owner gates. Run Slice 57 → 63 continuously.",
-    "Builder = Grok 4.6. Reviewer = GPT-5.6 Sol (different family; sole approval authority).",
-    "pyright is mandatory every slice; cannot run ⇒ log a blocker, never skip silently.",
-    "Hard stops: never weaken tests/CI, never force-push, never edit the spec, never insert budget figures, never commit secrets, never soften go-live or §2.6."
+    "The Slice 59 Salim gate is REMOVED. No per-slice reports, no per-slice pauses, no owner gates. Run Slice 57 -> 63 continuously.",
+    "SEAT RULING 2026-08-23, effective Slice 60 onward, never reseat mid-slice: PLANNER = Claude seat (writes the discussion doc where required and SLICE-N-PLAN.md; full ORIENT re-read of authority docs before every plan). BUILDER = Cursor Grok 4.6 Extra High (implements exactly the approved plan; sub-agents allowed, none approve; builder never edits the plan - plan changes return to the planner seat and go through plan re-review). REVIEWER = GPT-5.6 Sol (reviews BOTH plan and code diff; sole approval authority; probe-backed verdicts only, never prose-only). No seat reviews or approves its own output. Record all three seats in HANDOFF.json every slice.",
+    "pyright is mandatory every slice; cannot run => log a blocker, never skip silently.",
+    "Hard stops: never weaken tests/CI, never force-push, never edit the spec, never insert budget figures, never commit secrets, never soften go-live or 2.6.",
+    "Owner lifted the Slice 59 three-REJECT plan halt on 2026-08-23 and authorized a retry."
   ],
   "decisions": [
     "A5 remains slice54.v1, readiness slice20.v1, can_go_live_autonomously literal False.",
-    "OD-58-1…10 = Option A (plan v3).",
-    "Slice 58 does not close spec §26.6 or the roadmap Slice 58 exit. Residual actuators stay open.",
-    "Gate #10 currentness is the complete production_autonomy conjunction from one coverage_with_run operation.",
-    "One locked snapshot_decisions policy snapshot; seq 5–7 are policy-first."
+    "OD-59-1...10 = Option A (plan v6).",
+    "Slice 59 does not close spec 25.4 or 26.6, and does not satisfy the roadmap Slice 59 exit. Backup/restore validation, measured exit criteria, closure authority sign-off, and the acting improvement loop stay open, as do the Slice 58 residual 26.6 actuators.",
+    "Window status vocabulary is 'open' only; there is no closed state and no closure authority path.",
+    "Seq 5 (support handover) is the ONLY pass path, scoped to 'the latest recorded row says recorded_complete'. Seq 3 (monitoring) and seq 4 (rollback currency) have NO passed value at either the Python or DB layer, because their positive rungs rest on evidence tiers uaid_app can write directly. Seq 1 is not_evaluable (no production coverage clock); seq 6/7/8 are not_observed. all_criteria_passed is structurally unreachable.",
+    "as_of is guard-forced to transaction_timestamp(); freshness limits are recorded and digested for transparency only and gate nothing."
   ],
   "reviewer_verdicts": {
     "plan": {
       "verdict": "APPROVE",
-      "agent": "aab9e2d8-141e-4de2-b992-d0d6555cba97",
-      "verbatim": "APPROVAL: I approve Slice 58 plan v3 and bind OD-58-1…10 exactly as stated. This slice delivers only a hotfix-intent evaluation and does not close §26.6. It performs no git, PR, staging, production, or rollback action; go-live remains literal false and §2.6 remains intact. Implementation must preserve: the complete gate-10 conjunction with exact matching rollback context; one locked `snapshot_decisions` policy snapshot; and policy-first precedence for seq 5–7. Migration `0057` follows verified head `0056`."
+      "agent": "02b57793-3170-4b0d-bb8f-97038c543c59",
+      "version": "v6 (after v1-v5 REJECT; v1-v3 by agent 8cd454f8-3cdf-43d5-84b8-1b8802e2fcab)",
+      "verbatim": "All four requested label corrections are present. Remaining v4/v5 references are accurate historical defect attributions, and the previously reviewed substantive v6 design remains acceptable.\n\nAPPROVE",
+      "reject_history": [
+        "v1: N-day incident streak unproven; mutable policy pointer; incomplete matrices; unsynced clock; unreachable closure refusals; dishonest extension_recorded; unspecified idempotency/race.",
+        "v2: projects.created_at proves age not coverage; polymorphic source_ref; CHECKs cannot prove source eligibility; incomplete matrices; assessor missing from request digest; retry wording.",
+        "v3: seq-3 guard not bound to the declared target; seq-4 guard cannot prove full gate-10 currency; ambiguous freshness source.",
+        "v4: seq-3 binding NULL-unsafe and missing the category filter; as_of and age limit caller-writable; 8+8 counts did not pin unique seqs/keys/derived counters; seq 5 ignored handover latest-wins. Seq-4 pass removal accepted as honest.",
+        "v5: resolver-equivalence argument wrong - 0030_monitoring_evidence.py grants uaid_app INSERT and permits connector_verified under URL CHECKs far weaker than parse_and_validate_status_url, so a forged https://localhost snapshot plus a matching declaration would have satisfied every seq-3 clause. Plus stale version labels."
+      ]
     },
     "code": {
       "verdict": "APPROVE",
-      "agent": "aab9e2d8-141e-4de2-b992-d0d6555cba97",
-      "verbatim": "I independently verified Slice 58 against the approved v3 plan. The exact gate-10 run now comes from one `coverage_with_run` operation; DB guards enforce policy-snapshot and branch-before-PR integrity; real DB tests cover latch behavior, stale latest-wins evidence, old authorization exclusion, and forged writes. Frozen hashes, 0056→0057 migration, CI scope, ruff, pyright, 1,189 unit tests, and 888 DB tests pass. The slice remains non-closing and non-authorizing with no git, deploy, rollback, A5, readiness, or go-live change."
+      "agent": "02b57793-3170-4b0d-bb8f-97038c543c59",
+      "verbatim": "Both repaired DB tests exercise the real stores and passed directly. Mutation probes made each test fail for the intended regression, restoration was verified clean, and commit d971205 changes only the two stated test files.\n\nAPPROVE",
+      "reject_history": [
+        "Round 1 REJECT: (1) the active-latch rung was only monkeypatch-tested; (2) the A5/readiness bit-stability check was tautological (calling pure functions twice). Runtime uaid_app SQL probes in the same round CONFIRMED every required refusal, including 'REJECTED seq3_localhost_pass: P0001 seq 3 cannot be passed' and 'REJECTED seq4_passed: P0001 seq 4 cannot be passed', and catalog output confirming forced RLS with only INSERT,SELECT on all four tables."
+      ]
     }
   },
   "validation": {
-    "merged_sha": "787ddd63160d6b61d1e3189cdd00e45809109e30",
-    "pr": 106,
-    "alembic_head": "0057_self_healing",
-    "make_test": "1189 passed / 888 deselected",
-    "make_test_db": "888 passed / 1189 deselected",
-    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32598439872 — pass"
+    "merged_sha": "PENDING",
+    "pr": "PENDING",
+    "alembic_head": "0058_stabilization",
+    "make_test": "1207 passed / 903 deselected",
+    "make_test_db": "903 passed / 1207 deselected",
+    "pyright": "0 errors on Slice 55/56/57/58/59 owned paths",
+    "frozen_hashes": "all eight plan section-1 hashes unchanged, verified independently by the coordinator after build and after the test-defect fix",
+    "ci": "PENDING"
   },
   "open_questions": [
-    "Residual §26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt."
+    "Residual 26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt.",
+    "Slice 59 leaves 25.4 open: backup/restore validation, measured exit criteria, closure authority sign-off, and an acting improvement loop are unbuilt. Not a Salim halt.",
+    "Seat-ruling naming: the ruling says 'Claude Fable 5' but no such model slug is addressable. Recorded as the Claude seat with the actual model string. Owner may correct."
   ],
   "uncommitted_files": [],
-  "next_action": "ORIENT + PLAN Slice 59 from Alembic head 0057. Do not claim self-healing closed. Do not message Salim.",
-  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Slice 58 close-out is this HANDOFF entry, not a user report. Slice 59 must not treat self-healing as done."
+  "next_action": "ORIENT + PLAN Slice 60 (external-assurance export hardening: OSCAL, signed manifest, auditor access) from Alembic head 0058, under the new three-seat ruling. Do not claim stabilization or self-healing closed. Do not message Salim.",
+  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice; Slice 59 ran under the prior seating and was already compliant (planner Claude, builder Grok, reviewer Sol). Slice 59 close-out is this HANDOFF entry, not a user report."
 }

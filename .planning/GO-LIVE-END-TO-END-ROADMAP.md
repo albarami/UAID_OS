@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 18 (current-state reconciliation after Slice 58 merged as **non-closing**; Salim released 55→56 on 2026-08-22; Slice 59 Salim gate removed).
+**Created:** 2026-06-17. **Revision:** Rev 19 (current-state reconciliation after Slice 59 merged as **non-closing**; Salim released 55→56 on 2026-08-22; Slice 59 Salim gate removed; seat ruling of 2026-08-23 splits planner/builder/reviewer from Slice 60).
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 58 merged as a hotfix-intent evaluation that does **not** close spec §26.6, with Slice 59 as next. Residual self-healing actuators stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
+**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 59 merged as a stabilization-window *assessment* that does **not** close spec §25.4 or §26.6, with Slice 60 as next. Residual self-healing actuators and the stabilization exit stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -592,17 +592,19 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Must NOT claim.** Unapproved production hotfix; §26.6 closed; git/PR/staging/production/rollback execution; Slice 57 `deferred_slice58` rows upgraded into executed hotfixes.
 - **Exit.** **NOT SATISFIED.** Intent evaluation landed; residual §26.6 actuators (diagnosis, patch artifacts, git, GitHub PR, staging/production deploy, production rollback) stay **open**. Slice 59 must **not** treat self-healing as done.
 
-#### Slice 59 — Backup/restore validation + stabilization report + closure authority + continuous-improvement loop
+#### Slice 59 — Stabilization-window assessment (MERGED, NON-CLOSING; originally scoped as backup/restore validation + stabilization report + closure authority + continuous-improvement loop)
 - **Goal.** §25.4 stabilization exit: backup/restore validated, stabilization report, closure authority sign-off (`stabilization_window_policy.yaml`), plus the §25.3 continuous-improvement loop (lessons, recurring-failure patterns, eval/prompt/domain-pack/oracle-gap updates, cost-forecast refresh).
 - **Why now.** Needed after operational signals/incidents exist (S56–S57) and hotfix-*intent* evidence exists (S58 non-closing). Stabilization closure depends on *measured* exit criteria and a closure authority (§25.4). **Do not treat Slice 58 as a closed self-healing loop.**
 - **Spec grounding.** §25.3 (2391–2402), §25.4 (2404–2424); §26.6 "continuous-improvement engine"; `stabilization_window_policy.yaml` (`exit_criteria`, `closure_approver`).
-- **Files.** `app/ops/stabilization.py` + `stabilization_windows` store + improvement-feedback writer.
-- **Migration.** Number from Alembic head at Slice-59 plan time (`0057` is occupied by Slice 58; do not guess). Tentative table: `stabilization_windows`; tenant-owned, RLS, append-only.
-- **Tenant/RLS/FK/audit/immutability.** RLS; closure sign-off verified-identity + audited; report immutable.
-- **Tests.** Exit criteria enforced (zero open critical incidents N days, error budget, backup/restore validated, support handover, rollback valid); closure requires authority; failed exit ⇒ incident/improvement tickets + window extension (§25.4).
-- **A5 gate(s) advanced.** None (operational closure).
-- **Must NOT claim.** Window closure without exit criteria + closure authority.
-- **Exit.** Validated stabilization + closure + improvement loop; the post-go-live system is complete.
+- **DELIVERED (non-closing).** Slice 59 landed a stabilization-window **assessment** only. Window status vocabulary is `open`; there is no closed state and no closure authority path. Backup/restore validation was **not** built.
+- **Files.** `app/ops/stabilization.py` + `stabilization_criteria.py` + `stabilization_db_checks.py` + `stabilization_ddl.py` + `stabilization_service.py`; `app/models/ops_stabilization.py`; `app/repositories/ops_stabilization.py` + `ops_stabilization_reads.py`; additive `resolve_declared_stabilization_window` in `project_repo.py`.
+- **Migration.** `0058_stabilization` from verified head `0057`. Four tenant-owned, RLS ENABLE+FORCE, append-only tables (`ops_stabilization_windows`, `ops_stabilization_criterion_results`, `ops_improvement_results`, `ops_stabilization_closure_attempts`) plus additive `UNIQUE (id, project_id, tenant_id)` on `monitoring_status_snapshots`, `ops_support_handovers`, `intake_findings_reports`.
+- **Tenant/RLS/FK/audit/immutability.** RLS ENABLE+FORCE, SELECT/INSERT only; typed composite FKs (no polymorphic ref); immutable §27.13 policy snapshot with a DB digest function; `as_of` guard-forced to `transaction_timestamp()`; audit is ids/status/counts/digests only.
+- **Honesty boundary (the reason this slice is non-closing).** Only seq 5 (support handover) can be `passed`, and only as "the latest recorded row says complete". Seq 3 (monitoring) and seq 4 (rollback currency) have **no `passed` value at either layer**, because their positive rungs rest on evidence tiers the runtime role can write directly — proven by a direct-SQL forgery test that inserts a `connector_verified` snapshot for `https://localhost/x` with a matching declaration and still cannot produce a pass. Seq 1 is `not_evaluable` (no production coverage clock); seq 6/7/8 stay `not_observed`. `all_criteria_passed` is structurally unreachable.
+- **Tests.** Ladders for all eight criteria and eight improvement classes; direct-SQL forgery refusals for every guarded rung; real `EmergencyControlService` bind/activate driving the `refused_latch_active` closure rung; DB-backed A5/readiness before→assess→after bit-stability; migration round-trip.
+- **A5 gate(s) advanced.** None. A5 stays `slice54.v1`, readiness `slice20.v1`, `can_go_live_autonomously` literal `False`.
+- **Must NOT claim.** Window closure; backup/restore validated; production coverage; monitoring confirmed active or rollback currency proved by this store; that a handover occurred or was authority-signed; §25.4 exited or §26.6 closed.
+- **Exit.** **NOT SATISFIED.** Assessment landed; backup/restore validation, measured exit criteria, closure authority sign-off, and the acting improvement loop stay **open**, as do the residual §26.6 actuators from Slice 58.
 
 ### Track A (cont.) — Phase 7: Scale & ecosystem (§26.7)
 
@@ -660,7 +662,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 > **Current state (2026-08-22): Slice 58 is MERGED AS NON-CLOSING.** PR #106 landed as squash commit `787ddd6`; migration `0057_self_healing` is the Alembic head. UAID records a tenant-owned hotfix-intent evaluation (local A2 plans under one policy snapshot; staging/production/rollback not executed). Spec §26.6 “self-healing/hotfix loop” and the original Slice 58 exit remain **open**. A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-58-PLAN.md`; `app/ops/hotfix.py`; migration `0057`; PR #106).
 
-**Next planned: Slice 59 — backup/restore validation + stabilization report + closure authority + continuous-improvement loop (§25.3 / §25.4), authorized by the standing 56–59 cadence.** Number the Slice-59 migration from Alembic head at plan time (`0057` is occupied). Slice 59 must **not** claim self-healing closed. Owner ruling: no per-slice Salim gate; continue through Slice 63. HALT only on a genuine halt condition.
+**Next planned: Slice 60 — external-assurance export hardening (OSCAL, signed manifest, auditor access), authorized by the standing continuous run to Slice 63.** Number the Slice-60 migration from Alembic head at plan time (`0058` is occupied by Slice 59). Slice 60 must **not** claim stabilization closed, self-healing closed, or go-live authorized. Seat ruling (2026-08-23, effective Slice 60): planner = Claude seat, builder = Cursor Grok 4.6 Extra High, reviewer = GPT-5.6 Sol with sole approval authority and probe-backed verdicts; no seat approves its own output; never reseat mid-slice. Owner ruling: no per-slice Salim gate; continue through Slice 63. HALT only on a genuine halt condition.
 
 ---
 
@@ -893,10 +895,10 @@ Some `.planning/` files retain **pre-implementation status text** conflicting wi
 ## Appendix S — Muhasabah self-audit
 
 - **Unsourced claims removed or cited.** Every claim cites a spec section/line, template/schema, `.planning/` doc, source file, or migration; gate line numbers from `production_autonomy.py`. Ordering not dictated by a single source is **(inference)**; planning choices **(assumption)**.
-- **Assumptions labelled.** Merged Slices 26–58 follow the actual migration chain through `0057`. Slice 59's migration number is taken from Alembic head at plan time — no replacement is assumed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
+- **Assumptions labelled.** Merged Slices 26–59 follow the actual migration chain through `0058`. Slice 60's migration number is taken from Alembic head at plan time — no replacement is assumed. "PASS-capable" means capability after the named slice, not proof that a particular project currently passes; Track-B scheduling was builder discretion (D-6).
 - **No implementation hidden in planning.** This Rev-18 follow-up records Slice 58 as a **non-closing** hotfix-intent evaluation under the standing 56–59 cadence. `.env` remains ignored and unstaged.
 - **No go-live overclaim.** `can_go_live_autonomously`/`a5_satisfied` remain false; Slice 55 records only `decided_not_executed`; Slice 58 does not create git branches, open PRs, deploy, or roll back production, and does not close §26.6. Go-live remains unauthorized.
 - **Scope honesty.** The §26.2 residuals are explicitly classified as **not Appendix-B gates / not §24.1 conditions** (so off the A5 critical path) yet **still scheduled** (Track B) because §26.2/§29 require them — neither hidden nor overstated. Residual §26.6 self-healing actuators remain open after Slice 58.
-- **Residual uncertainty.** Far-term table shapes (S59–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Owner ruling: no Salim gate at Slice 59; continue through Slice 63. Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
+- **Residual uncertainty.** Far-term table shapes (S60–S63) and future migration numbering are directional; each future slice still needs its own PLAN (stated in §5). Owner ruling: no Salim gate at Slice 59; continue through Slice 63. Some gate→phase assignments span two phases (e.g. monitoring §26.3 connector + §26.6 ops) and are noted as such.
 
 — End of roadmap —

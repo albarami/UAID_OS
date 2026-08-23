@@ -824,10 +824,12 @@ Slice 58 residual §26.6 actuators stay open. A5 stays `slice54.v1`; readiness s
 `slice20.v1`; `can_go_live_autonomously` remains the literal `False`;
 `production_autonomy.py` / `readiness.py` / `control_loop.py` / `app/ops/db_checks.py` /
 `app/ops/incidents.py` / `app/ops/hotfix.py` / `app/ops/incident_db_checks.py` /
-`app/ops/hotfix_db_checks.py` are byte-stable. Independent plan APPROVE (v6). Implemented on
-`feat/slice-59-stabilization` (not yet independently code-reviewed or merged). Verified
-suites: `make test` 1207 passing / 901 deselected; `make test-db` 901 passing / 1207
-deselected. Owned pyright paths report 0 errors.**
+`app/ops/hotfix_db_checks.py` are byte-stable. Independent plan APPROVE on v6 after five
+rejects (agents `8cd454f8-3cdf-43d5-84b8-1b8802e2fcab`, `02b57793-3170-4b0d-bb8f-97038c543c59`);
+independent code APPROVE (same agent, after one REJECT on test quality) with runtime-role SQL
+forgery probes and mutation probes on the repaired tests. Verified suites: `make test` 1207
+passing / 903 deselected; `make test-db` 903 passing / 1207 deselected. Owned pyright paths
+report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1523,7 +1525,7 @@ the admin `app` role only.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1207 passing (Docker-free); `make test-db` → 901 passing (DB-backed: tenancy,
+  **`make test` → 1207 passing (Docker-free); `make test-db` → 903 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1630,7 +1632,7 @@ the admin `app` role only.
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 1207 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 901 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 903 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
