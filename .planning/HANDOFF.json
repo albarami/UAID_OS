@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T13:50:00Z",
+  "timestamp": "2026-08-23T16:10:00Z",
   "source": "slice-60-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61A-PLAN.md",
   "task": "Slice 61a",
   "total_tasks": null,
-  "status": "slice_61a_v3_owner_accepted__build_in_progress",
+  "status": "slice_61a_code_approved__opening_pr",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -146,7 +146,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Builder 0a2a8e08 implements v3 with owner addenda (refusal tests on every guard; docs attribution honesty; section 12 D-8/D-9/D-10). Then Sol code review. On code APPROVE, PR and merge, then 61b with no interim owner report.",
+  "next_action": "Open PR, wait for CI, squash-merge, then Slice 61b with no interim owner report.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -236,6 +236,18 @@
       ],
       "test_rule": "Every guard in the plan needs a test that shows the guard REFUSING the bad case, not a helper unit test and not a name assertion. Sol rejects any guard without a refusal test.",
       "docs_rule": "Narrowed guarantee in Slices 55-60 wording, plus: the DB cannot attribute a payload to the code that produced it."
+    },
+    "code": {
+      "verdict": "APPROVE after one REJECT (two non-load-bearing tests, fixed in b82d032)",
+      "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "builder": "0a2a8e08-77fb-404b-90a9-0a02f7a7a608",
+      "rounds": "APPROVE after one REJECT",
+      "reject_defects": [
+        "test_d21 accepted listing_vetting_asset_mismatch OR a composite-FK error; disabling catalog_listings_guard still passed",
+        "test_d16 inserted four child rows so catalog_vetting_check_results_shape_match still refused when the parent trigger was disabled"
+      ],
+      "reverify": "Both repaired tests pass with guards enabled and fail when their named trigger is disabled. Triggers restored tgenabled=O. make test 1244 passed; make test-db 975 passed. Ruff and pyright clean. Commit b82d032 changes only the intended test file.",
+      "verbatim": "APPROVE. Both tests pass with guards enabled. Both fail when their named trigger is disabled. Triggers restored with tgenabled=O. make test 1244 passed. make test-db 975 passed. Ruff and pyright clean. Commit changes only the intended test file."
     }
   }
 }

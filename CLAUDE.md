@@ -886,7 +886,13 @@ review, and not resistant to an actor with admin write access. The catalog is em
 61b populates it and still does not close the roadmap Slice 61 exit, which waits on §12 D-8,
 D-9, and D-10. The DB cannot attribute a payload to the code that produced it; provenance
 labels are app-stamped. A5 stays `slice54.v1`; readiness stays `slice20.v1`;
-`can_go_live_autonomously` remains the literal `False`. Verified suites: `make test`
+`can_go_live_autonomously` remains the literal `False`. Seats: PLANNER = this Claude
+session (from-scratch v1–v3; builder never touched the plan), BUILDER = Cursor Grok 4.6
+Extra High (`0a2a8e08-77fb-404b-90a9-0a02f7a7a608`), REVIEWER = GPT-5.6 Sol
+(`cacd3b79-15df-4d15-899f-1514426cb9a1`). Plan APPROVE on v3 after two REJECTs on the
+from-scratch line. Code APPROVE after one REJECT (two tests were not load-bearing:
+listing clause 1 accepted an FK error; parent cardinality fired the child trigger),
+re-verified with mutation probes. Verified suites: `make test`
 1244 passing / 975 deselected; `make test-db` 975 passing / 1244 deselected. Owned
 pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
