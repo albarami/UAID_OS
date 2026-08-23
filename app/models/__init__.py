@@ -118,6 +118,11 @@ from app.models.evidence_pack import (
     EvidencePackSectionResult,
     EvidencePackSourceRef,
 )
+from app.models.evidence_pack_export import (
+    EvidencePackExportFile,
+    EvidencePackExportRecord,
+    EvidencePackManifestSignature,
+)
 from app.models.release_finding import ReleaseFinding
 from app.models.release_finding_event import ReleaseFindingEvent
 from app.models.release_candidate import ReleaseCandidate
@@ -250,6 +255,9 @@ __all__ = [
     "EvidencePack",
     "EvidencePackSourceRef",
     "EvidencePackSectionResult",
+    "EvidencePackExportRecord",
+    "EvidencePackExportFile",
+    "EvidencePackManifestSignature",
     "RiskAcceptanceRecord",
     "RiskAcceptanceEvent",
     "ReleaseFinding",
