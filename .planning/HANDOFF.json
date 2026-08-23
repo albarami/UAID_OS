@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-59-PLAN.md",
   "task": "Slice 59",
   "total_tasks": null,
-  "status": "slice_59_merged_non_closing",
+  "status": "slice_59_merged_non_closing__slice_60_plan_HALTED_three_consecutive_rejects",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -43,7 +43,23 @@
     "Slice 60 plan (planner seat) → Sol plan review → build → validate → Sol code review → docs → PR → merge",
     "Slices 61-63 continuously after each merge"
   ],
-  "blockers": [],
+  "blockers": [
+    {
+      "id": "SLICE-60-PLAN-HALT",
+      "kind": "halt_condition_reached",
+      "condition": "three consecutive plan REJECTs (v1, v2, v3)",
+      "plan": ".planning/SLICE-60-PLAN.md",
+      "current_version": "v4 (v3 defect fixed; NO fourth review round opened, NO build started)",
+      "reviewer_agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "reject_history": [
+        "v1 REJECT (8 defects): self-hashing manifest fixed point; attacker-controlled trust anchor via stored public_key_b64; no persisted bundle bytes so verification could not run; unenforced cardinality/lineage incl. a guard rule referencing a nonexistent evidence_packs.immutable_log_reference column; forgeable bundle_verified audit claim; uq_ep_id_project_tenant already exists at 0048:329; base64 length CHECK proves nothing; unworkable REPEATABLE READ race handling.",
+        "v2 REJECT (3 defects): signed manifest not rebound to its export record, permitting a direct-SQL replay that refreshes the declared horizon without the private key; base64 normalization stripped newlines from BOTH sides, which the reviewer disproved on real PostgreSQL 16 by inserting a newline-injected 88-char signature that decoded to 64 bytes and was accepted; a single closed enum cannot hold both 'verified' and 'expired_declared_horizon' while the plan required reporting them together.",
+        "v3 REJECT (1 defect): the verifier is not total over attacker-writable bytes. content is arbitrary BYTEA, so uaid_app can commit a file 3 that is invalid UTF-8 / malformed JSON / wrong-shaped while satisfying every hash, count, signature-byte and base64 invariant; step 3 would then raise instead of returning a closed result. Reviewer explicitly recorded that EVERYTHING ELSE now holds: rebinding closes replay without circularity, the trusted-key map is not row-controlled, the PostgreSQL base64 and sha256(bytea) checks are correct, and the two result axes are properly independent."
+      ],
+      "fix_applied_awaiting_authorization": "v4 adds §2.1.3 total fail-closed parsing, the manifest_invalid result value, and probes D-28a/b/c.",
+      "owner_decision_needed": "Authorize a fourth plan review round (as Salim did for the Slice 59 three-REJECT halt on 2026-08-23), or redirect the Slice 60 scope."
+    }
+  ],
   "human_actions_pending": [],
   "salim_gate": {
     "id": "REMOVED",
@@ -105,6 +121,6 @@
     "Seat-ruling naming: the ruling says 'Claude Fable 5' but no such model slug is addressable. Recorded as the Claude seat with the actual model string. Owner may correct."
   ],
   "uncommitted_files": [],
-  "next_action": "ORIENT + PLAN Slice 60 (external-assurance export hardening: OSCAL, signed manifest, auditor access) from Alembic head 0058, under the new three-seat ruling. Do not claim stabilization or self-healing closed. Do not message Salim.",
+  "next_action": "HALTED at the Slice 60 plan gate on three consecutive REJECTs. Do NOT open a fourth review round and do NOT start the build without Salim's authorization. The v4 plan (.planning/SLICE-60-PLAN.md) already contains the fix for the sole remaining v3 defect; the reviewer recorded that everything else holds.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice; Slice 59 ran under the prior seating and was already compliant (planner Claude, builder Grok, reviewer Sol). Slice 59 close-out is this HANDOFF entry, not a user report."
 }
