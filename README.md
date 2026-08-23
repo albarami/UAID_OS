@@ -364,6 +364,28 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
 - **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
   `can_go_live_autonomously=False`.
 
+## Cost learning (Slice 62 — does not close Slice 61)
+`app/ecosystem/learning.py` + `cost_optimizer.py` add an admin-path tenant-safe
+cross-project publisher and a tenant-path decision-only cost optimizer. The
+publisher writes a 62-row global snapshot; a bucket is `published` only when
+`n_projects >= 3 AND n_tenants >= 2` (a **publication threshold, not a privacy
+proof**). Runtime `uaid_app` cannot SELECT the base bucket table. The optimizer
+outputs one of five tiers (`cost_efficient`, `mid_quality`, `high_quality`,
+`frontier`, `hold`), never a model id. No HTTP, no LLM, no broker change.
+Consent artifacts stay unbuilt. Slice 62 **does not** meet the Slice 61 exit.
+D-8, D-9, and D-10 stay OPEN (owner = Salim). A freshly migrated database has
+no aggregates until `make learning-publish`.
+- **Honesty crux.** UAID recorded a tenant-owned model-tier recommendation from a declared task class, the
+calling project's own budget/spend, optional recorded routing flags, and — when a bucket
+clears a 3-project / 2-tenant publication threshold — anonymized aggregate counts that
+contain no tenant identifiers and no tenant content. This is not actuated model routing,
+not a provider quote, not proof of future spend, not production latency, not a privacy
+proof against reconstruction, not tenant-content sharing, and not go-live authority. A
+freshly migrated database has no published aggregates until the admin publisher runs.
+Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`.
+
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
 **instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and

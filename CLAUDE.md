@@ -917,6 +917,35 @@ A5 stays `slice54.v1`; readiness stays `slice20.v1`;
 (`cacd3b79-15df-4d15-899f-1514426cb9a1`). Verified suites: `make test`
 1253 passing / 1000 deselected; `make test-db` 1000 passing / 1253 deselected. Owned
 pyright paths report 0 errors.**
+**Slice 62 adds the TENANT-SAFE CROSS-PROJECT LEARNING PUBLISHER + DECISION-ONLY
+COST OPTIMIZER** (`app/ecosystem/learning.py` + `learning_sql.py` +
+`learning_publish.py` + `cost_optimizer.py` + `LearningRepository` /
+`CostOptimizerRepository` + migration `0061_cost_learning`,
+`ruleset_version="slice62.v1"`). Admin-path `publish_cross_project_aggregates`
+writes global append-only `cross_project_aggregate_runs` + exactly 62
+`cross_project_aggregate_buckets`; `published` is GENERATED
+`(n_projects >= 3 AND n_tenants >= 2)`; counts are re-derived by
+`learning_expected_counts`. Runtime `uaid_app` has no SELECT on the base bucket
+table — SELECT only on the security-barrier view
+`cross_project_published_buckets`. Tenant-path `CostOptimizerRepository.recommend`
+writes `cost_optimizer_runs` + `cost_optimizer_citations` and outputs a **tier**,
+not a model id. No HTTP, no LLM, no broker change. Slice 62 implements the
+§17.5 / App. C l.3009 allowed/forbidden split for the seven named classes, with
+the k-threshold labelled a **publication threshold, not a privacy proof**, and
+the consent path **unbuilt**. It does **not** meet the Slice 61 exit; D-8 / D-9 /
+D-10 stay OPEN (owner = Salim). A freshly migrated database has no aggregates
+until `make learning-publish`. **Honesty crux:** UAID recorded a tenant-owned model-tier recommendation from a declared task class, the
+calling project's own budget/spend, optional recorded routing flags, and — when a bucket
+clears a 3-project / 2-tenant publication threshold — anonymized aggregate counts that
+contain no tenant identifiers and no tenant content. This is not actuated model routing,
+not a provider quote, not proof of future spend, not production latency, not a privacy
+proof against reconstruction, not tenant-content sharing, and not go-live authority. A
+freshly migrated database has no published aggregates until the admin publisher runs.
+Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
+A5 stays `slice54.v1`; readiness stays `slice20.v1`;
+`can_go_live_autonomously` remains the literal `False`. Verified suites:
+`make test` 1270 passing / 1022 deselected; `make test-db` 1022 passing / 1270
+deselected. Owned pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1167,18 +1196,22 @@ the admin `app` role only.
   control-loop/hotfix/incidents untouched.**
 - `app/ecosystem/` — ecosystem catalog listing mechanism (Slice 61a) plus declared-asset
   population (Slice 61b; **closes no spec section**; does **not** meet the roadmap Slice 61
-  exit). Pure vocabulary + five-check contract tester + admin-path register/vet/list/delist
+  exit) plus Slice 62 tenant-safe learning + decision-only cost optimizer. Catalog:
+  pure vocabulary + five-check contract tester + admin-path register/vet/list/delist
   + tenant adoption records + `populate_declared_catalog`. Migration `0060` is purely
-  additive; head remains `0060` (populate is not DDL). A freshly migrated database is empty
-  until `populate_declared_catalog` / `make catalog-populate` runs. D-8, D-9, and D-10 stay
-  OPEN (owner = Salim). **Honesty crux:** UAID populated an append-only catalog of declared connectors, existing agent-blueprint versions,
-and one reference-intake companion. A listing still requires a passing vetting record bound to
-that exact asset row. This is not an endorsement, not proof that a checker ran, not verified
-permission scoping, not a real-provider connector test, not a performed security review, and not
-resistant to an actor with admin write access. The catalog mechanism exists and is populated with
-declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open, waiting
-on §12 D-8, D-9, and D-10. The DB cannot attribute a payload to the code that produced it;
-provenance labels are app-stamped. A freshly migrated database is empty until populate runs.
+  additive. A freshly migrated database is empty until `populate_declared_catalog` /
+  `make catalog-populate` runs. Slice 62 (`learning.py` / `cost_optimizer.py`,
+  migration `0061`): admin publisher writes a 62-row global snapshot; tenant
+  optimizer recommends a tier only. A freshly migrated database has no aggregates
+  until `make learning-publish`. D-8, D-9, and D-10 stay OPEN (owner = Salim).
+  **Honesty crux:** UAID recorded a tenant-owned model-tier recommendation from a declared task class, the
+calling project's own budget/spend, optional recorded routing flags, and — when a bucket
+clears a 3-project / 2-tenant publication threshold — anonymized aggregate counts that
+contain no tenant identifiers and no tenant content. This is not actuated model routing,
+not a provider quote, not proof of future spend, not production latency, not a privacy
+proof against reconstruction, not tenant-content sharing, and not go-live authority. A
+freshly migrated database has no published aggregates until the admin publisher runs.
+Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
   A5 stays `slice54.v1`; readiness stays `slice20.v1`;
   `can_go_live_autonomously` remains the literal `False`.
 - `app/release/export_bundle.py` — signed offline auditor bundle (Slice 60, §28.1; **closes no**
@@ -1646,7 +1679,7 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1253 passing (Docker-free); `make test-db` → 1000 passing (DB-backed: tenancy,
+  **`make test` → 1270 passing (Docker-free); `make test-db` → 1022 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1728,12 +1761,13 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
     on `/api/v2/heartbeat`.
   `make down` stops them; data persists in volumes `uaid_os_{pgdata,redisdata,chromadata}`.
 - `Makefile` (`test`, `test-db`, `test-db-create/migrate/drop`, `db-bootstrap-rls-role`,
-  `migrate`, `require-rls-pw`, `up/down/dev/fmt`), `alembic.ini`, `.gitignore`,
-  `.env.example`, `.python-version`. `make test-db` fails closed if `RLS_DB_PASSWORD` is unset.
+  `migrate`, `require-rls-pw`, `up/down/dev/fmt`, `catalog-populate`, `learning-publish`),
+  `alembic.ini`, `.gitignore`, `.env.example`, `.python-version`. `make test-db` fails closed
+  if `RLS_DB_PASSWORD` is unset.
   The DB admin `psql` is parameterized via `PSQL` (default: `docker exec … uaid_os-postgres-1`;
   CI overrides with `PSQL=psql` to use a service container over TCP).
 - `.github/workflows/ci.yml` — GitHub Actions CI on PRs + pushes to `main`: `uv sync`,
-  `ruff check`, scoped `pyright` on Slice 55/56/57/58/59 owned paths (mandatory; a slice that cannot
+  `ruff check`, scoped `pyright` on Slice 55/56/57/58/59/60/61a/61b/62 owned paths (mandatory; a slice that cannot
   run it logs a HANDOFF blocker), `make test` (Docker-free), and `make test-db` against a
   `postgres:16` **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real
   `.env`/secrets. Full-repo pyright currently reports 3051 pre-existing errors and is not
@@ -1752,11 +1786,12 @@ provenance labels are app-stamped. A freshly migrated database is empty until po
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1253 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1000 passing
+make test                                  # Docker-free tests (no services) — 1270 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1022 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
+make learning-publish                      # admin-path 62-row aggregate snapshot (not DDL)
 ```
 `make test` runs `pytest -m "not db"` (Docker-free). `make test-db` bootstraps the
 `uaid_app` role (needs `RLS_DB_PASSWORD`), creates+migrates `app_test` **as admin**,
