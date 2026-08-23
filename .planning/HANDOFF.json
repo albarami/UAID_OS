@@ -1,15 +1,15 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T16:10:00Z",
-  "source": "slice-60-closeout",
+  "timestamp": "2026-08-23T16:25:00Z",
+  "source": "slice-61a-closeout",
   "partial": false,
   "phase": "Phase 6",
   "phase_name": "Production release & operations",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-61A-PLAN.md",
-  "task": "Slice 61a",
+  "plan": ".planning/SLICE-61B-PLAN.md",
+  "task": "Slice 61b",
   "total_tasks": null,
-  "status": "slice_61a_code_approved__opening_pr",
+  "status": "slice_61b_plan_v1_awaiting_review",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -44,11 +44,11 @@
     "Slice 58 docs follow-up merged via PR #107 (squash commit 33ee561)",
     "Slice 59 merged via PR #108 (squash commit 15bb587e2adff2f00b95067e0c79eff2290352cc) as NON-CLOSING stabilization-window assessment",
     "Slice 60 built and reviewed: signed offline auditor bundle (§28.1), migration 0059, closes no spec section",
-    "Slice 60 merged via PR #110 (squash commit 8e001ca) as SIGNED OFFLINE AUDITOR BUNDLE, closing no spec section"
+    "Slice 60 merged via PR #110 (squash commit 8e001ca) as SIGNED OFFLINE AUDITOR BUNDLE, closing no spec section",
+    "Slice 61a merged via PR #111 (squash commit 17e7fc9de7b044cf0ab98b8e27dfd679e1d72674) as EMPTY ECOSYSTEM CATALOG LISTING MECHANISM, closing no spec section; catalog empty; D-8/D-9/D-10 OPEN"
   ],
   "remaining_tasks": [
-    "Slice 61a build (in progress) → validate → Sol code review → docs → PR → merge",
-    "Slice 61b populate declared catalog (does not close roadmap exit)",
+    "Slice 61b plan review (Sol) then populate declared catalog (does not close roadmap exit)",
     "Slices 62-63 continuously after each merge"
   ],
   "blockers": [],
@@ -130,14 +130,12 @@
     }
   },
   "validation": {
-    "merged_sha": "8e001ca",
-    "pr": "#110",
-    "alembic_head": "0059_export_bundles",
-    "make_test": "1224 passed / 939 deselected",
-    "make_test_db": "939 passed / 1224 deselected",
-    "pyright": "0 errors on Slice 55/56/57/58/59/60 owned paths",
-    "frozen_hashes": "all ten plan section-1 hashes unchanged, verified independently by the coordinator after build and after the defect fix",
-    "ci": "green on PR #110 (run 32637957017, 2m45s)"
+    "merged_sha": "17e7fc9de7b044cf0ab98b8e27dfd679e1d72674",
+    "pr": "#111",
+    "alembic_head": "0060_ecosystem_catalog",
+    "make_test": "1244 passed / 975 deselected (Sol re-review of 61a)",
+    "make_test_db": "975 passed / 1244 deselected (Sol re-review of 61a)",
+    "ci": "green on PR #111 (run 32650618993, 2m58s)"
   },
   "open_questions": [
     "Residual 26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt.",
@@ -146,7 +144,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Open PR, wait for CI, squash-merge, then Slice 61b with no interim owner report.",
+  "next_action": "Sol reviews SLICE-61B-PLAN.md v1. On APPROVE, Grok builds. No interim owner report.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -247,7 +245,19 @@
         "test_d16 inserted four child rows so catalog_vetting_check_results_shape_match still refused when the parent trigger was disabled"
       ],
       "reverify": "Both repaired tests pass with guards enabled and fail when their named trigger is disabled. Triggers restored tgenabled=O. make test 1244 passed; make test-db 975 passed. Ruff and pyright clean. Commit b82d032 changes only the intended test file.",
-      "verbatim": "APPROVE. Both tests pass with guards enabled. Both fail when their named trigger is disabled. Triggers restored with tgenabled=O. make test 1244 passed. make test-db 975 passed. Ruff and pyright clean. Commit changes only the intended test file."
+      "verbatim": "APPROVE. Both tests pass with guards enabled. Both fail when their named trigger is disabled. Triggers restored with tgenabled=O. make test 1244 passed. make test-db 975 passed. Ruff and pyright clean. Commit changes only the intended test file.",
+      "merged": {
+        "pr": "#111",
+        "sha": "17e7fc9de7b044cf0ab98b8e27dfd679e1d72674",
+        "ci": "https://github.com/albarami/UAID_OS/actions/runs/32650618993"
+      }
     }
+  },
+  "slice_61b": {
+    "scope": "Populate the Slice-61a listing mechanism with six declared connector assets, existing agent_versions (zero after fresh migrate; do not invent hashes), and one real reference intake. CI scope-literal regression is regression evidence, not D-8. Closes no spec section. Does not close the roadmap Slice 61 exit.",
+    "plan": ".planning/SLICE-61B-PLAN.md",
+    "version": "v1",
+    "migration": "none; Alembic head remains 0060; populate is CatalogAdmin-only, not DDL",
+    "plan_status": "awaiting Sol review"
   }
 }
