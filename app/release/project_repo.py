@@ -248,3 +248,25 @@ async def has_declared_jira_credential(
         and e.get("reference_name") == _JIRA_REFERENCE_NAME
         for e in refs
     )
+
+
+async def resolve_declared_stabilization_window(
+    session: AsyncSession, context: TenantContext, project_id: uuid.UUID
+) -> tuple[uuid.UUID, dict[str, object]] | None:
+    """Return ``(category_id, policy_snapshot)`` from declared file 22, or ``None``.
+
+    Reads ``operations_observability_support.data.stabilization_window`` only.
+    Template YAML is never parsed. Missing or invalid declarations fail closed.
+    """
+    from app.ops.stabilization import StabilizationError, validate_window_policy
+
+    cat = await IntakeCategoryRepository(session, context).get_category(
+        project_id, _MONITORING_CATEGORY
+    )
+    if cat is None or cat.status != "declared" or not isinstance(cat.data, dict):
+        return None
+    try:
+        policy = validate_window_policy(cat.data.get("stabilization_window"))
+    except StabilizationError:
+        return None
+    return cat.id, policy

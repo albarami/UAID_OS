@@ -283,6 +283,34 @@ staging/production, or roll back production, and it does **not** close the self-
   `can_go_live_autonomously=False`. Residual §26.6 actuators stay open. Slice 59 must
   **not** treat self-healing as done.
 
+## Stabilization-window assessment (Slice 59, §25.3 / §25.4 — does not close §25.4 or §26.6)
+`app/ops/stabilization.py` records a tenant-owned assessment of the post-launch stabilization
+window against an immutable §27.13 policy snapshot. The window status vocabulary is `open`
+only — nothing here closes a window:
+- **One pass path.** Of the eight §25.4 exit criteria, only support handover (seq 5) can be
+  `passed`, and it proves only that the *latest recorded* handover row says
+  `recorded_complete` — never that a handover occurred or was signed by an authority.
+- **What deliberately cannot pass.** Monitoring (seq 3) and rollback currency (seq 4) mirror
+  the gate #11 and gate #10 ladders but stop short of `passed` at both the Python and DB
+  layers, because their positive rungs rest on evidence tiers the runtime role can write
+  directly. Incident coverage (seq 1) is `not_evaluable` — no production coverage clock
+  exists — and backup/restore, p95 latency, and post-launch security alerts stay
+  `not_observed`. `all_criteria_passed` is therefore structurally unreachable.
+- **Clock and bindings.** `as_of` is DB-generated `transaction_timestamp()`, so no recorded
+  row can carry a backdated clock. The window is bound to the currently declared monitoring
+  target, and criterion rows carry typed FKs to the exact snapshot, rollback run, or handover
+  they cite.
+- **Closure.** `attempt_closure` always persists a refusal (`refused_latch_active` →
+  `refused_unauthenticated` → `refused_same_actor` → `refused_incomplete_criteria`) and never
+  changes window status. Follow-up is `required_not_executed`; an extension exists only via an
+  explicit `extends_window_id`.
+- **Persistence.** Migration `0058` adds four tenant-owned, RLS ENABLE+FORCE, append-only
+  tables plus additive `UNIQUE (id, project_id, tenant_id)` on `monitoring_status_snapshots`,
+  `ops_support_handovers`, and `intake_findings_reports`. Audit is ids/status/counts/digests
+  only — never owner, journeys, or the monitoring URL.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`. Residual §26.6 actuators stay open.
+
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
 **instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and

@@ -66,6 +66,12 @@ from app.models.run_checkpoint_write import RunCheckpointWrite
 from app.models.run_step import RunStep
 from app.models.tenant_api_key import TenantApiKey
 from app.models.ops_hotfix import OpsHotfixPlan, OpsSelfHealingResult, OpsSelfHealingRun
+from app.models.ops_stabilization import (
+    OpsImprovementResult,
+    OpsStabilizationClosureAttempt,
+    OpsStabilizationCriterionResult,
+    OpsStabilizationWindow,
+)
 from app.models.ops_incident import (
     OpsIncident,
     OpsIncidentActionEvaluation,
@@ -152,6 +158,10 @@ __all__ = [
     "OpsHotfixPlan",
     "OpsSelfHealingResult",
     "OpsSelfHealingRun",
+    "OpsStabilizationWindow",
+    "OpsStabilizationCriterionResult",
+    "OpsImprovementResult",
+    "OpsStabilizationClosureAttempt",
     "OpsObservationRun",
     "OpsSignalResult",
     "Tenant",
