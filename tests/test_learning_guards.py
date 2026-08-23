@@ -111,23 +111,15 @@ async def test_p_forge_counts_and_mutation() -> None:
             await session.begin()
             assert await trigger_enabled(session, _COUNTS) == "O"
             await set_trigger(session, "cross_project_aggregate_buckets", _COUNTS, enabled=False)
-            run_id = await _parent(session)
-            await session.execute(
-                text(
-                    "INSERT INTO cross_project_aggregate_buckets ("
-                    "run_id,signal_class,bucket_key,n_events,n_projects,n_tenants,"
-                    "metric_sum,metric_unit) VALUES ("
-                    ":r,'anonymized_cost_and_latency_benchmarks',"
-                    "'cost:model_inference',3,3,2,3,'usd')"
-                ),
-                {"r": run_id},
-            )
-            await set_constraints_immediate(session, _COUNTS)
-            await session.rollback()
+            run_id = await _parent(session, published=1)
+            n = await _insert_universe(session, run_id, live_cost=(3, 3, 2, 3))
+            assert n == 62
+            await set_constraints_immediate(session, _CARD_RUN, _CARD_BUCK, _PUB)
+            await session.commit()
             await session.begin()
             await set_trigger(session, "cross_project_aggregate_buckets", _COUNTS, enabled=True)
             assert await trigger_enabled(session, _COUNTS) == "O"
-            await session.rollback()
+            await session.commit()
 
 
 @pytest.mark.db

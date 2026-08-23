@@ -105,6 +105,21 @@ async def test_p9_unpub_view_p10_fn_revoke() -> None:
                     )
                 )
         async with scoped(rls, ctx) as session:
+            run_id = (
+                await session.execute(text("SELECT id FROM cross_project_aggregate_runs"))
+            ).scalar_one()
+            with pytest.raises((ProgrammingError, DBAPIError)):
+                await session.execute(
+                    text(
+                        "INSERT INTO cross_project_aggregate_buckets ("
+                        "run_id,signal_class,bucket_key,n_events,n_projects,n_tenants,"
+                        "metric_sum,metric_unit) VALUES ("
+                        ":r,'anonymized_cost_and_latency_benchmarks',"
+                        "'cost:model_inference',0,0,0,NULL,'usd')"
+                    ),
+                    {"r": run_id},
+                )
+        async with scoped(rls, ctx) as session:
             with pytest.raises((ProgrammingError, DBAPIError)):
                 await session.execute(
                     text(

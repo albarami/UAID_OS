@@ -431,8 +431,25 @@ async def test_p_overlay_shape_and_append_only() -> None:
                     {"t": seeded["t1"], "p": seeded["p1"], "r": bad, "b": rework},
                 )
                 await set_constraints_immediate(session, _PARENT, _ROW)
+        for component in ("ci_cd", "tool_execution"):
+            for tenant_id, project_id in seeded["pairs"]:
+                await record_cost(admin, tenant_id, project_id, component=component, amount="1")
+        extra = await _publish_real(admin)
         async with scoped(rls, ctx) as session:
-            with pytest.raises((IntegrityError, DBAPIError)):
+            wrong = dict(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT bucket_key, id FROM cross_project_published_buckets "
+                            "WHERE run_id=:r AND bucket_key IN "
+                            "('cost:ci_cd','cost:tool_execution')"
+                        ),
+                        {"r": extra.run_id},
+                    )
+                ).all()
+            )
+            assert set(wrong) == {"cost:ci_cd", "cost:tool_execution"}
+            with pytest.raises((IntegrityError, DBAPIError), match="overlay citation shape"):
                 bad = await insert_optimizer_sql(
                     session,
                     tenant_id=seeded["t1"],
@@ -442,16 +459,22 @@ async def test_p_overlay_shape_and_append_only() -> None:
                     citation_count=2,
                     clamped="cost_efficient",
                     base="mid_quality",
-                    aggregate_run_id=report.run_id,
-                    published_bucket_count=report.published_bucket_count,
+                    aggregate_run_id=extra.run_id,
+                    published_bucket_count=extra.published_bucket_count,
                 )
-                await session.execute(
-                    text(
-                        "INSERT INTO cost_optimizer_citations "
-                        "(tenant_id,project_id,run_id,bucket_id) VALUES (:t,:p,:r,:b)"
-                    ),
-                    {"t": seeded["t1"], "p": seeded["p1"], "r": bad, "b": rework},
-                )
+                for key in ("cost:ci_cd", "cost:tool_execution"):
+                    await session.execute(
+                        text(
+                            "INSERT INTO cost_optimizer_citations "
+                            "(tenant_id,project_id,run_id,bucket_id) VALUES (:t,:p,:r,:b)"
+                        ),
+                        {
+                            "t": seeded["t1"],
+                            "p": seeded["p1"],
+                            "r": bad,
+                            "b": wrong[key],
+                        },
+                    )
                 await set_constraints_immediate(session, _PARENT, _ROW)
         async with AsyncSession(admin) as session:
             async with session.begin():
