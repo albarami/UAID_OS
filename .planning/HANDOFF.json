@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-23T16:50:00Z",
+  "timestamp": "2026-08-23T19:00:00Z",
   "source": "slice-61a-closeout",
   "partial": false,
   "phase": "Phase 6",
@@ -9,7 +9,7 @@
   "plan": ".planning/SLICE-61B-PLAN.md",
   "task": "Slice 61b",
   "total_tasks": null,
-  "status": "slice_61b_plan_v2_approved__build",
+  "status": "slice_61b_code_approved__opening_pr",
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -144,7 +144,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Grok builds Slice 61b from approved v2 plan. Sol reviews code. No interim owner report.",
+  "next_action": "Open PR, wait for CI, squash-merge, then Slice 62 with no interim owner report.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -269,6 +269,17 @@
       "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
       "version": "v2 after v1 REJECT (3 defects, all accepted)",
       "verbatim": "APPROVE. All three v1 overclaims are removed. OD-2a reconciles connector, blueprint, and intake identities before skipping. P-22a/b/c cover adversarial mismatches; P-22c is implementable because register_blueprint_version does not compare version labels. Blueprint scope is correctly limited to each query result set. D-8/D-9/D-10 remain open. No migration 0061; head remains 0060. All fourteen frozen hashes match."
+    },
+    "code": {
+      "verdict": "APPROVE after one REJECT",
+      "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
+      "builder": "f0f232a0-097b-4d2c-a206-11fa9f2a2517",
+      "head": "44dcb92",
+      "reject_defects": [
+        "new listings reused latest_vetting so populate could cite a direct-SQL passing record without calling record_contract_test",
+        "missing spec raised NoResultFound instead of declared_identity_mismatch"
+      ],
+      "reverify": "Mutation probes fail for vetting reuse, scalar_one(), and unbounded empty scope. P-16 and P-22a remain load-bearing. make test 1253 passed; make test-db 1000 passed. Triggers tgenabled=O. Frozen hashes match. Head 0060. Docs non-closing."
     }
   }
 }

@@ -29,7 +29,8 @@ bootstraps the non-superuser `uaid_app` role (needs `RLS_DB_PASSWORD`), then
 creates+migrates the dedicated `app_test` database **as admin** (schema built by
 Alembic — never `create_all`), then runs `-m db` with the runtime `uaid_app`
 connection. Helper targets: `make test-db-create`, `make test-db-migrate`,
-`make test-db-drop`, `make db-bootstrap-rls-role`.
+`make test-db-drop`, `make db-bootstrap-rls-role`, `make catalog-populate`
+(admin-only population of the declared catalog; `make migrate` stays schema-only).
 
 ## Endpoints
 - Liveness:  http://localhost:8000/health/live   (200 `{"status":"alive"}`, no dependency calls)
@@ -341,18 +342,22 @@ signs a **detached** manifest of the payload files' hashes with an app-custody E
 - **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
   `can_go_live_autonomously=False`.
 
-## Ecosystem catalog listing mechanism (Slice 61a — closes no spec section)
+## Ecosystem catalog (Slice 61a mechanism + Slice 61b population — closes no spec section)
 `app/ecosystem/` is a global append-only listing mechanism for connectors, agent-blueprint
 versions, and reference intakes. A listing is impossible without a passing vetting record of
 the required kind bound to that exact asset row. Connector spec and tool-scope children
-freeze at first vetting. **The catalog stays empty.** Slice 61b populates it and still does
-**not** close the roadmap Slice 61 exit.
-- **Honesty crux.** UAID maintains an append-only catalog in which a listing requires a
-  passing vetting record bound to that exact asset row. This is not an endorsement, not
-  proof that a checker ran, not verified permission scoping, not a real-provider connector
-  test, not a performed security review, and not resistant to an actor with admin write
-  access. The catalog is empty; Slice 61b populates it and still does not close the roadmap
-  Slice 61 exit, which waits on §12 D-8, D-9, and D-10.
+freeze at first vetting. Slice 61b populates declared assets via `populate_declared_catalog`
+/ `make catalog-populate` (admin session, CatalogAdmin only; Alembic head remains `0060`).
+A freshly migrated database is empty until that runs. Slice 61b **closes no spec section**
+and **does not** meet the roadmap Slice 61 exit. D-8, D-9, and D-10 stay OPEN (owner = Salim).
+- **Honesty crux.** UAID populated an append-only catalog of declared connectors, existing agent-blueprint versions,
+and one reference-intake companion. A listing still requires a passing vetting record bound to
+that exact asset row. This is not an endorsement, not proof that a checker ran, not verified
+permission scoping, not a real-provider connector test, not a performed security review, and not
+resistant to an actor with admin write access. The catalog mechanism exists and is populated with
+declared assets; Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open, waiting
+on §12 D-8, D-9, and D-10. The DB cannot attribute a payload to the code that produced it;
+provenance labels are app-stamped. A freshly migrated database is empty until populate runs.
 - **Provenance is app-stamped.** The database cannot attribute a payload to the code that
   produced it. Labels record which admin-path function stamped the row, not that a checker
   ran or a review was performed.
