@@ -465,7 +465,10 @@ async def test_evidence_pack_catalog_rls_privileges_and_preservation_pins(admin_
             )
         ).all()
         assert rls == [
+            ("evidence_pack_export_files", True, True),
+            ("evidence_pack_export_records", True, True),
             ("evidence_pack_generation_runs", True, True),
+            ("evidence_pack_manifest_signatures", True, True),
             ("evidence_pack_section_results", True, True),
             ("evidence_pack_source_refs", True, True),
             ("evidence_packs", True, True),

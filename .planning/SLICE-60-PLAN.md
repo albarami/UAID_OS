@@ -6,10 +6,11 @@ Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority, probe-backed verdic
 **Version.** v4 (v1 REJECTED — eight defects; v2 REJECTED — three; v3 REJECTED — one; all twelve
 accepted and fixed, none argued down; see §7 for the change log).
 
-> **HALT — awaiting owner decision.** Three consecutive plan REJECTs (v1/v2/v3) is a standing
-> halt condition. The v3 defect is fixed below, but **no fourth review round was opened and no
-> build was started**. Salim's authorization is required to resume. The reviewer's v3 verdict
-> recorded that everything except the total-parsing defect now holds.
+> **APPROVED.** The three-consecutive-REJECT halt (v1/v2/v3) was reported to Salim, who
+> authorized a fourth review round on 2026-08-23 with halt rules otherwise unchanged, and
+> confirmed the seat ruling — v1–v4 are planner-seat work; the builder seat never touched this
+> plan. The reviewer **APPROVED v4**: "The verifier is now total and fail-closed … The builder
+> may proceed." Build may start.
 **Alembic head at plan time.** `0058` (`migrations/versions/0058_stabilization.py`,
 `revision="0058"`, probe-confirmed). This slice's migration is **`0059`**, `down_revision="0058"`.
 
