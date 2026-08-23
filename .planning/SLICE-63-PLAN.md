@@ -4,11 +4,22 @@
 BUILDER = Cursor Grok 4.6 Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority on
 plan and code, probe-backed verdicts only. **The builder never edits this plan.**
 
-**Version.** **v3.** Sol REJECTED v1 and v2; **consecutive plan REJECT count = 2, accepted in
-full** (all four v2 defects accepted, none argued down — see §10). Owner (Salim) authorized
-Slice 63 with no further owner gate (2026-08-24). **Halt rule: one more consecutive REJECT
-stops this line; there is no v4 without the owner.** Every claim v2 was rejected for is now
-backed by a live PostgreSQL 16 result recorded in §0.1 facts 13–16.
+**Version.** **v4.** Sol REJECTED v1, v2, and v3. The v3 REJECT
+(`369abc89-7144-4f42-b810-72f6ec367a64`) found that the four writer-function mutations at
+§5.2.a remained **masked by a neighbouring trigger** (`admin_policy_changes_guard`), so
+`P-writer-no-existing-policy` did not close v2 defect 3. **The owner (Salim, 2026-08-24) ruled
+that all three rejects were correct against the standard he had set, and that the standard
+itself was wrong for overlapping guards.** He amended it (the **overlapping-guard probe pair**,
+now §5.0 rule 8), authorized v4, and **reset the consecutive plan REJECT count to 0**. v4
+changes **only** what that amendment requires: §5.0 gains rule 8, the five §5.2.a rows the
+amendment covers become named **pairs** in the new §5.2.a.1, and §10 records it. Every v1 and v2
+defect stays closed as accepted and is not re-litigated; no new scope, no new table, no HTTP, no
+go-live flip, no D-8/D-9/D-10 close. **Halt rule: one REJECT of v4 halts this line — there is
+no v5 without the owner.** Every claim v2 was rejected for is still backed by the live
+PostgreSQL 16 results in §0.1 facts 13–16, and **which** rows overlap was **measured live** on
+PostgreSQL 16.14 while writing v4 (§5.2.a.1, C1–C7) rather than assumed — including the two
+findings recorded against the plan's own interest: one case has a **second** neighbour inside the
+writer function itself, and the GUC case's real neighbour is **RLS**, not the ledger trigger.
 
 > **This slice closes NO spec section and does NOT satisfy the roadmap Slice 61 exit.**
 > D-8, D-9, and D-10 stay **OPEN** (owner = Salim). Slice 63 is the last scheduled slice:
@@ -1067,7 +1078,9 @@ operator grants a role.
 
 ### 5.0 The owner test standard (applies to every probe in §5.2)
 
-Sol's Slice-62 finding is carried forward, and v2 adds rules 4–6 to close defect 4.
+Sol's Slice-62 finding is carried forward, v2 adds rules 4–6 to close defect 4, v3 adds rule 7,
+and **v4 adds rule 8 — the owner's amended standard for overlapping guards (ruling 2026-08-24)**.
+Rules 1–3 are the single-guard bar and are unchanged.
 
 1. **The mutation must actually be able to commit if the guard were absent.** Each refusal
    probe pairs with an explicit mutation — `ALTER TABLE … DISABLE TRIGGER <exact name>`,
@@ -1117,6 +1130,31 @@ Sol's Slice-62 finding is carried forward, and v2 adds rules 4–6 to close defe
    If a guard cannot be reached without dismantling so much that the probe stops being
    evidence, the honest move is to delete the claim, not to keep a probe whose absent-guard
    mutation cannot commit.
+8. **Overlapping guards are proven by a named PROBE PAIR** (v4, owner ruling 2026-08-24).
+   Rules 1–3 above are the **single-guard** bar and stand unchanged. When a **neighbouring
+   constraint independently refuses the same mutation** — i.e. removing the target guard alone
+   still leaves the statement refused, by a different object or a different clause — one probe
+   is not enough. The target guard is proven by **two named halves**, both of which must be in
+   this plan with their expected outcomes:
+   - **`<probe>/reachable`** — the **target guard AND every independently-refusing neighbour
+     are disabled** ⇒ the mutation **COMMITS**, and the probe asserts the **harm** the target
+     guard exists to prevent actually happened (the row that should not exist, the column that
+     should not have moved). This establishes that the mutation is genuinely reachable and that
+     nothing else was blocking it.
+   - **`<probe>/own-reason`** — the **neighbour is disabled, the target guard is ENABLED** ⇒ the
+     mutation is **REFUSED**, and the raised error is the **target guard's own** (its exact
+     `RAISE` text and SQLSTATE, or its own constraint name). This proves the target guard is
+     sufficient on its own, with no neighbour able to be mistaken for it.
+
+   **A single probe that disables only the target while a neighbour still refuses the statement
+   proves nothing and is not acceptable** — it is exactly the v3 defect. Each pair must name:
+   the **target** (the specific clause, constraint, or trigger), the **neighbour(s)**, exactly
+   **what is disabled in each half**, the **expected SQLSTATE / `RAISE` text** (or COMMIT plus
+   the asserted harm), and the **restore + re-assert**. Whether a neighbour independently
+   refuses is a **measured** fact, not an assumption: a row is converted to a pair only on a
+   live PostgreSQL 16 result, and a row the neighbour does **not** independently refuse stays
+   single-guard under rules 1–3 (§5.2.a.1 records both outcomes). A "neighbour" may be another
+   object (a trigger, a UNIQUE, a privilege, RLS) **or another clause of the same function**.
 
 Global: use `DISABLE TRIGGER` / `DROP CONSTRAINT` / `DISABLE ROW LEVEL SECURITY` /
 `CREATE OR REPLACE FUNCTION` on the **named** object only; never
@@ -1162,19 +1200,219 @@ Unless stated, the statement under test is executed **as `uaid_app` inside `tena
 
 #### 5.2.a Policy write lock and monotonic tighten (defects 1 and 2)
 
+**Restructured in v4 (owner ruling 2026-08-24).** Five of this section's rows are
+**overlapping-guard** cases under the new §5.0 rule 8 and have moved to **§5.2.a.1** as named
+probe **pairs**: `P-writer-requires-allowed-action`, `P-writer-requires-policy-kind`,
+`P-writer-guc-unset`, `P-writer-no-existing-policy`, and `P-tighten-changes-level`. The table
+below keeps only the rows that stay single-guard under §5.0 rules 1–3: the two privilege
+denials (single-guard per the owner's ruling, not measured) and the four rows a **live
+measurement** shows the neighbour does **not** independently refuse — the UNIQUE-constraint
+spend and the three monotonicity cases.
+
 | Probe | Guard under test | Refusal payload (otherwise fully valid) | Mutation that must commit |
 |---|---|---|---|
 | **P-priv/autonomy_policies/INSERT** | privilege: `uaid_app` has no INSERT on `autonomy_policies` | as `uaid_app`, a well-formed INSERT for its own tenant/project ⇒ `42501` naming `autonomy_policies` | `GRANT INSERT ON public.autonomy_policies TO uaid_app`; the same INSERT commits (RLS passes: the GUC is set); `REVOKE INSERT`, re-assert `42501` |
 | **P-priv/autonomy_policies/UPDATE** | privilege: no UPDATE | as `uaid_app`, `UPDATE autonomy_policies SET autonomy_level=5` on its own admin-seeded row ⇒ `42501` | `GRANT UPDATE …`; the same UPDATE commits; `REVOKE UPDATE`, re-assert. No other guard exists on this table, so the grant alone is the whole mutation |
-| **P-writer-requires-allowed-action** | `admin_write_autonomy_policy` step 3 | call the function with an `admin_actions` id whose `decision='refused_insufficient_role'` (same tenant + project, policy kind, unspent) ⇒ `RAISE 'admin_action_not_allowed'` | `CREATE OR REPLACE FUNCTION public.admin_write_autonomy_policy(...)` with **only** the `decision='allowed'` clause removed; the same call commits and the policy row changes; restore the original body from `guards_sql.py` and assert `pg_get_functiondef` matches |
-| **P-writer-requires-policy-kind** | step 4 | an `allowed` action whose `action_kind` is set by admin to a non-policy value ⇒ `RAISE 'admin_action_not_policy_kind'`. Because `ck_admin_actions_*` bind the kinds, the setup writes the row as admin with the kind CHECK dropped for that statement only, and says so (§5.0 rule 4) | `CREATE OR REPLACE` with the kind clause removed; the same call commits; restore |
-| **P-writer-spends-action-atomically** (renames v2's P-writer-requires-unspent-action; absorbs v2's P-change-action-reuse) | `uq_admin_policy_changes_action`, the sole spend authority (§OD-11 step 3.8) | one **allowed** action; call the writer once (asserting it returned both ids and the policy moved to level 2); call it again with the **same** `admin_action_id` and a different level ⇒ `RAISE 'admin_action_already_spent'`, **and** the policy row still reads level 2 and `admin_policy_changes` still holds exactly one row for that action — the refused replay unwound its own policy write (fact 0.1.14) | `ALTER TABLE public.admin_policy_changes DROP CONSTRAINT uq_admin_policy_changes_action`; the identical second call now **commits**, the policy moves again, and a second ledger row appears for the same action — i.e. the authorization is replayable exactly when this constraint is absent. The mutated half runs inside a transaction that is **rolled back**, which restores the constraint and removes the forged ledger row together (the table is DELETE-blocked, so a rollback is the only clean undo); the probe then re-asserts the constraint in `pg_constraint` and re-asserts the refusal |
-| **P-writer-guc-unset** (new in v3, defect 3) | §OD-11 step 3.1, the refusal to infer a tenant | **Setup discloses (§5.0 rule 4)** that RLS is disabled on `autonomy_policies`, `admin_actions`, and `admin_policy_changes` for this case only, because RLS is the outer layer that would refuse any GUC-less write regardless; with an allowed action seeded and **no** `app.current_tenant` set, the call ⇒ `RAISE 'tenant_guc_unset'` | `CREATE OR REPLACE FUNCTION public.admin_write_autonomy_policy(...)` with step 3.1 replaced by the tempting fallback — take the tenant from the action row — and nothing else changed; the same GUC-less call then **commits** and writes a policy for a tenant the caller never proved (measured live while writing this plan: fact 0.1.13's harness, `pol_rows = 1`). Restore the body, re-enable + re-FORCE RLS on all three tables, re-assert both the `RAISE` and `relforcerowsecurity` |
-| **P-writer-no-existing-policy** (new in v3, defect 3) | §OD-11 step 3.6, `no_existing_policy` | a project with **no** `autonomy_policies` row and an allowed `tighten_autonomy_overrides` action; call with a non-empty monotone map ⇒ `RAISE 'no_existing_policy'`. Nothing else can fire: monotonicity is vacuously satisfied against an absent row, so this clause is the only refusal | `CREATE OR REPLACE` with **only** the existence clause removed; the same call then commits and *creates* a policy row by "tightening" — the exact harm the clause prevents (a tighten that is really a first-time grant of a level nobody set); restore |
+| **P-writer-spends-action-atomically** (renames v2's P-writer-requires-unspent-action; absorbs v2's P-change-action-reuse) | `uq_admin_policy_changes_action`, the sole spend authority (§OD-11 step 3.8) | one **allowed** action; call the writer once (asserting it returned both ids and the policy moved to level 2); call it again with the **same** `admin_action_id` and a different level ⇒ `RAISE 'admin_action_already_spent'`, **and** the policy row still reads level 2 and `admin_policy_changes` still holds exactly one row for that action — the refused replay unwound its own policy write (fact 0.1.14) | `ALTER TABLE public.admin_policy_changes DROP CONSTRAINT uq_admin_policy_changes_action`; the identical second call now **commits**, the policy moves again, and a second ledger row appears for the same action — i.e. the authorization is replayable exactly when this constraint is absent. The mutated half runs inside a transaction that is **rolled back**, which restores the constraint and removes the forged ledger row together (the table is DELETE-blocked, so a rollback is the only clean undo); the probe then re-asserts the constraint in `pg_constraint` and re-asserts the refusal. **Measured single-guard (v4, probe C7):** with `uq_admin_policy_changes_action` dropped and `admin_policy_changes_guard` still **enabled**, the replay **committed** and a second ledger row appeared for the same action (`chg_rows = 2`) — the neighbour does **not** independently refuse it, because the replay action is `set_autonomy_policy` (so the guard's tighten clause is inapplicable) and the policy upsert precedes the ledger INSERT (so the guard's level clause is satisfied). This row therefore stays single-guard under §5.0 rules 1–3, as the owner's ruling directs |
 | **P-tighten-relax-empty-map** | §OD-12 monotonicity | stored `overrides = {"run_tests": {"allow": false}}` at level 2; an **allowed** `tighten_autonomy_overrides` action; call with `p_autonomy_level=2`, `p_overrides='{}'` ⇒ `RAISE 'tighten_would_relax_overrides'` | `CREATE OR REPLACE` with the monotonic clause removed; the same call commits and `overrides` becomes `{}` (Sol's exact re-enable case); restore and re-assert the refusal |
 | **P-tighten-relax-drops-disable** | same | stored `{"run_tests": {"allow": false}}` → `{"run_tests": {"min_level": 3}}` (key kept, disable dropped) ⇒ same `RAISE` | same |
 | **P-tighten-relax-lowers-min-level** | same | stored `{"deploy_staging": {"min_level": 4}}` → `{"deploy_staging": {"min_level": 3}}` ⇒ same `RAISE` | same |
-| **P-tighten-changes-level** | §OD-11 step 7 | stored level 2; allowed tighten action; call with `p_autonomy_level=3` and a monotone map ⇒ `RAISE 'tighten_may_not_change_level'` | `CREATE OR REPLACE` with the level-equality clause removed; the same call commits; restore |
+
+**Why the three `P-tighten-relax-*` rows stay single-guard (measured, v4 probe C6).** With the
+monotonic clause removed and `admin_policy_changes_guard` still **enabled**, the relaxing call
+**committed** (`pol_rows = 1`, `chg_rows = 1`, `overrides` became `{}`): the requested level
+equals the stored level, so the guard's level clause and its tighten clause are both satisfied
+and the guard has nothing to say about the override map. The neighbour does not independently
+refuse these, so per the owner's ruling they are **not** converted.
+
+#### 5.2.a.1 Overlapping-guard probe pairs (v4, §5.0 rule 8)
+
+**Why this subsection exists.** Sol's v3 REJECT
+(`369abc89-7144-4f42-b810-72f6ec367a64`) found that §5.2.a's four writer-function mutations
+"remain masked by `admin_policy_changes_guard`": removing the writer clause alone still left the
+statement refused, by the ledger guard, so those mutations never demonstrated a reachable
+mutation and `P-writer-no-existing-policy` did not close v2 defect 3. The owner ruled the
+finding correct and the standard incomplete, and amended it — §5.0 rule 8. Each case below is
+therefore **two named probes**, and neither half alone is acceptable.
+
+**Which rows overlap was measured, not assumed.** Measured 2026-08-24 against the live
+`postgres:16` container `uaid_os-postgres-1` (**PostgreSQL 16.14**) in a throwaway database
+(`s63v4_tmp`, created and dropped in the same session, no app database touched), whose schema
+reproduces the §OD-11 step-3 writer body and the §3.3:938–944 `admin_policy_changes_guard`
+clauses in shape, each mutation expressed as the removal of the named clause(s) only. Results:
+
+| Case | Target clause | Target disabled, neighbour(s) ENABLED | Target **and** neighbour(s) disabled | Verdict |
+|---|---|---|---|---|
+| C1 | writer step 3.3 `decision='allowed'` | REFUSED — the guard's own decision clause | **COMMITTED** (`pol_rows=1 chg_rows=1`) | **pair** |
+| C2 | writer step 3.4 `action_kind IN (…)` | REFUSED — the guard's own kind clause | **COMMITTED** (`pol_rows=1 chg_rows=1`) | **pair** |
+| C3 | writer step 3.1 GUC clause | **COMMITTED** — the guard stayed silent | **COMMITTED** (`pol_rows=1 chg_rows=1`) | **pair by ruling**; the ledger guard is **not** an independent refuser here (the RLS layer is — see the pair) |
+| C4 | writer step 3.6 `no_existing_policy` | REFUSED **twice over**: first `tighten_may_not_change_level` (the writer's *own* next clause, because `previous_autonomy_level` is NULL), then, with that also removed, the guard's tighten clause | **COMMITTED** (`pol_rows=1 chg_rows=1`) | **pair, two neighbours** |
+| C5 | writer step 3.6 `tighten_may_not_change_level` | REFUSED — the guard's own tighten clause | **COMMITTED** (`pol_rows=1 chg_rows=1`) | **pair** |
+| C6 | writer step 3.6 monotonic clause | **COMMITTED** — guard silent | n/a | single-guard, **not** converted (§5.2.a) |
+| C7 | `uq_admin_policy_changes_action` | **COMMITTED** (`chg_rows=2`) — guard silent | n/a | single-guard, **not** converted (§5.2.a) |
+
+C4 is a finding beyond the REJECT's own wording and is load-bearing: an implementation that
+removes **only** the existence clause is still refused by the writer's next clause, so the
+`/reachable` half must remove both. Every measurement above is a harness result, not a claim
+about the real `0062` objects; **the builder must reproduce each pair against the real objects**,
+and a pair that does not reproduce is a defect to report, never a licence to drop a half.
+
+**Conventions for all five pairs.**
+
+- The call under test is `SELECT * FROM public.admin_write_autonomy_policy(...)` executed **as
+  `uaid_app`** (it holds `EXECUTE`); only the setup, the trigger disable, and the seeding run as
+  admin. Every payload is otherwise fully valid: same tenant, same project, unspent action, a
+  real `autonomy_policies` row where the case calls for one.
+- "Disable the neighbour" means exactly
+  `ALTER TABLE public.admin_policy_changes DISABLE TRIGGER admin_policy_changes_guard`, and
+  nothing wider. "Disable the target" means
+  `CREATE OR REPLACE FUNCTION public.admin_write_autonomy_policy(...)` with **only** the named
+  clause(s) removed and the rest of the body byte-identical to `guards_sql.py`. Never
+  `SET CONSTRAINTS ALL DEFERRED`, never `session_replication_role`.
+- Every `RAISE EXCEPTION '<text>'` in both the writer and the guard carries SQLSTATE **`P0001`**
+  (plpgsql's default `raise_exception`), so **the message text is the discriminator**. The
+  builder gives the four `admin_policy_changes_guard` clauses message texts **distinct** from the
+  writer's (an `admin_policy_change_*` prefix), so that a `/own-reason` assertion on the writer's
+  text cannot be satisfied by the guard even if a future edit re-enables it.
+- Both halves are pure DDL mutations, so each runs inside a transaction that is **rolled back**
+  (§5.0 global rule). After restore, every pair re-asserts:
+  `pg_get_functiondef('public.admin_write_autonomy_policy'::regproc)` equals the
+  `guards_sql.py` text; `tgenabled = 'O'` for `admin_policy_changes_guard`; and the **unmutated**
+  call is refused again with the target's own message. A rollback is never accepted as a
+  substitute for proving the restore (A-triggers-enabled is the backstop).
+- Where the rest of this plan cites a converted probe by its base name — `P-writer-guc-unset`,
+  `P-writer-requires-allowed-action`, `P-writer-requires-policy-kind`,
+  `P-writer-no-existing-policy`, `P-tighten-changes-level` (§0.2, §0.4, §OD-2, §OD-11, §5.3, §9)
+  — that name now denotes **the pair**, and **both halves are required** for the claim it backs.
+
+---
+
+**Pair 1 — `P-writer-requires-allowed-action`** (was §5.2.a row 3; measured C1)
+
+- **Target guard:** the `decision = 'allowed'` clause of `admin_write_autonomy_policy`
+  (§OD-11 step 3.3), whose refusal is `admin_action_not_allowed`.
+- **Neighbour:** `admin_policy_changes_guard` on `public.admin_policy_changes`
+  (§3.3:938–944), **decision clause** — it re-reads the referenced `admin_actions` row and
+  refuses a ledger row citing a non-`allowed` action.
+- **Shared payload:** an `admin_actions` row with `decision='refused_insufficient_role'`,
+  `action_kind='set_autonomy_policy'`, same tenant + project, **unspent**; a real
+  `autonomy_policies` row at level 2; `app.current_tenant` set.
+
+| Half | Disabled | Expected |
+|---|---|---|
+| **`/reachable`** | the writer's `decision='allowed'` clause **and** `admin_policy_changes_guard` | **COMMITS.** Asserted harm: the `autonomy_policies` row's `autonomy_level`/`overrides` moved, **and** an `admin_policy_changes` row now exists citing an action that was **refused** — a policy changed on a refused authorization, with a ledger that endorses it (measured: `pol_rows=1 chg_rows=1`) |
+| **`/own-reason`** | `admin_policy_changes_guard` **only**; the writer clause **ENABLED** (production body) | **REFUSED** with SQLSTATE `P0001` and message exactly `admin_action_not_allowed`. With the guard off, the guard's own decision message cannot appear, so the refusal is provably the writer's |
+
+- **Restore + re-assert:** roll back both halves; assert `pg_get_functiondef` matches
+  `guards_sql.py` and `tgenabled='O'`; re-run the unmutated call and assert
+  `admin_action_not_allowed` again.
+
+---
+
+**Pair 2 — `P-writer-requires-policy-kind`** (was §5.2.a row 4; measured C2)
+
+- **Target guard:** the `action_kind IN ('set_autonomy_policy','tighten_autonomy_overrides')`
+  clause (§OD-11 step 3.4), refusal `admin_action_not_policy_kind`.
+- **Neighbour:** `admin_policy_changes_guard`, **kind clause** (§3.3:941).
+- **Shared payload:** an `allowed` `admin_actions` row whose `action_kind` is a **non-policy**
+  value; a real policy row at level 2; GUC set. **Setup layer disclosed (§5.0 rule 4):** the
+  `ck_admin_actions_*` kind CHECK binds the vocabulary, so the row is written **as admin** with
+  that named CHECK dropped for that one statement and re-added immediately — this is stated in
+  the docstring, and the dropped CHECK is *not* the object under test in either half.
+
+| Half | Disabled | Expected |
+|---|---|---|
+| **`/reachable`** | the writer's kind clause **and** `admin_policy_changes_guard` | **COMMITS.** Asserted harm: an authorization for a **non-policy** action moved a policy and produced a ledger row (measured: `pol_rows=1 chg_rows=1`) |
+| **`/own-reason`** | `admin_policy_changes_guard` **only**; the writer's kind clause **ENABLED** | **REFUSED**, `P0001`, message exactly `admin_action_not_policy_kind` |
+
+- **Restore + re-assert:** roll back; re-add the `ck_admin_actions_*` kind CHECK and assert it
+  is back in `pg_constraint`; assert the function body and `tgenabled='O'`; re-assert the
+  refusal.
+
+---
+
+**Pair 3 — `P-writer-guc-unset`** (was §5.2.a row 6; measured C3)
+
+- **Target guard:** §OD-11 step 3.1 — the refusal to **infer** a tenant
+  (`v_tenant := NULLIF(current_setting('app.current_tenant', true), '')::uuid`; NULL ⇒
+  `tenant_guc_unset`). The function must never fall back to the tenant on the action row.
+- **Neighbours, honestly named:**
+  1. **RLS** on `public.autonomy_policies`, `public.admin_actions`, and
+     `public.admin_policy_changes` — the real independent refuser here, because with no
+     `app.current_tenant` the `tenant_isolation` policy refuses every one of those reads and
+     writes regardless of the writer's own clause. This is the layer v3 already disclosed and
+     disabled in setup under §5.0 rule 4, and it stays disabled in **both** halves.
+  2. `admin_policy_changes_guard`. **Measured (C3): with RLS out of the way, this trigger did
+     NOT independently refuse the fallback-mutated call — it committed.** The pair still
+     disables it in the `/reachable` half, per the owner's ruling that all four writer-function
+     mutations be pairs; the plan does not claim the trigger blocks this case.
+- **Shared payload:** an `allowed`, policy-kind, unspent action; a real policy row at level 2;
+  **no** `app.current_tenant` set; RLS disabled (and un-FORCEd) on the three tables in setup,
+  disclosed in the docstring.
+
+| Half | Disabled | Expected |
+|---|---|---|
+| **`/reachable`** | RLS on the three tables (setup) **and** the writer's step 3.1 clause — replaced by the tempting fallback "take the tenant from the action row", nothing else changed — **and** `admin_policy_changes_guard` | **COMMITS.** Asserted harm: a policy row exists for a tenant the caller **never proved** it holds, plus a ledger row endorsing it (measured: `pol_rows=1 chg_rows=1`; consistent with fact 0.1.13's harness) |
+| **`/own-reason`** | RLS on the three tables (setup) **and** `admin_policy_changes_guard`; the writer's step 3.1 clause **ENABLED** | **REFUSED**, `P0001`, message exactly `tenant_guc_unset` — with both neighbours out of the way, the refusal can only be the writer's own GUC clause |
+
+- **Restore + re-assert:** roll back; then `ENABLE ROW LEVEL SECURITY` **and**
+  `FORCE ROW LEVEL SECURITY` on all three tables and assert `relrowsecurity` **and**
+  `relforcerowsecurity` are true for each; assert the function body and `tgenabled='O'`;
+  re-assert `tenant_guc_unset`.
+
+---
+
+**Pair 4 — `P-writer-no-existing-policy`** (was §5.2.a row 7 — **the row named in the v3
+REJECT**; measured C4)
+
+- **Target guard:** §OD-11 step 3.6's existence clause — a `tighten_autonomy_overrides` action
+  requires a stored `autonomy_policies` row — refusal `no_existing_policy`.
+- **Neighbours, both measured, both independent:**
+  1. **The writer's own next clause**, `tighten_may_not_change_level`: with no stored row
+     `v_previous_level` is NULL, so `IS DISTINCT FROM p_autonomy_level` is true and this clause
+     refuses on its own. **This is why v3's "only the existence clause removed" mutation could
+     not commit even before the trigger was reached** — the neighbour is inside the same
+     function.
+  2. `admin_policy_changes_guard`'s **tighten clause** (§3.3:943–944), which requires
+     `previous_autonomy_level = new_autonomy_level`: with the derived
+     `previous_autonomy_level` NULL, it refuses.
+- **Shared payload:** a project with **no** `autonomy_policies` row; an `allowed`
+  `tighten_autonomy_overrides` action, same tenant + project, unspent; a call with
+  `p_autonomy_level` set and a non-empty monotone map (monotonicity is vacuously satisfied
+  against an absent row, so the monotonic clause is never the refuser in either half).
+
+| Half | Disabled | Expected |
+|---|---|---|
+| **`/reachable`** | **both** writer clauses — the existence clause **and** `tighten_may_not_change_level` — **and** `admin_policy_changes_guard` | **COMMITS.** Asserted harm: a policy row is **created** by "tightening" — a first-time grant of an autonomy level nobody ever set, with a ledger row whose `previous_autonomy_level` is NULL endorsing it (measured: `pol_rows=1 chg_rows=1`). This is exactly the harm the existence clause prevents |
+| **`/own-reason`** | `admin_policy_changes_guard` **and** the writer's `tighten_may_not_change_level` clause; the **existence clause ENABLED** | **REFUSED**, `P0001`, message exactly `no_existing_policy`. Measured consistency: with everything enabled the same payload also yields `no_existing_policy` (C4 first row), because the existence clause is evaluated first — so the pair proves both that the clause fires in production order and that it is sufficient with both neighbours removed |
+
+- **Restore + re-assert:** roll back; assert the function body equals `guards_sql.py` (both
+  clauses back) and `tgenabled='O'`; re-assert `no_existing_policy` on the unmutated call.
+
+---
+
+**Pair 5 — `P-tighten-changes-level`** (was §5.2.a row 11; **converted in v4** because measured
+C5 shows the neighbour independently refuses it, exactly as the owner anticipated)
+
+- **Target guard:** §OD-11 step 3.6's level-equality clause — a tighten may not move
+  `autonomy_level` — refusal `tighten_may_not_change_level`.
+- **Neighbour:** `admin_policy_changes_guard`'s tighten clause (§3.3:943–944),
+  `previous_autonomy_level = new_autonomy_level`. With the writer clause removed, the policy is
+  upserted to the new level and the ledger row carries `previous=2, new=3`, which the guard
+  refuses on its own. **Measured, so this row is converted; the three `P-tighten-relax-*` rows,
+  measured not to overlap (C6), are not.**
+- **Shared payload:** a stored policy at level 2 with
+  `overrides = {"run_tests": {"allow": false}}`; an `allowed` `tighten_autonomy_overrides`
+  action, same tenant + project, unspent; the call passes `p_autonomy_level = 3` with the **same
+  (monotone) map**, so the monotonic clause cannot be the refuser.
+
+| Half | Disabled | Expected |
+|---|---|---|
+| **`/reachable`** | the writer's level-equality clause **and** `admin_policy_changes_guard` | **COMMITS.** Asserted harm: a "tighten" **raised** the project's autonomy level from 2 to 3 — a widening of authority under a restriction-only action kind — and the ledger recorded `previous=2, new=3` as if that were legitimate (measured: `pol_rows=1 chg_rows=1`, stored level now 3) |
+| **`/own-reason`** | `admin_policy_changes_guard` **only**; the writer's level-equality clause **ENABLED** | **REFUSED**, `P0001`, message exactly `tighten_may_not_change_level` |
+
+- **Restore + re-assert:** roll back; assert the function body and `tgenabled='O'`; re-assert
+  the refusal, and assert the stored `autonomy_level` is still 2.
 
 #### 5.2.b `admin_actions` authority — trigger layer (§OD-5, defect 6)
 
@@ -1467,7 +1705,9 @@ go-live or §2.6. No Slice 64.
   P-writer-spends-action-atomically, and P-tighten-relax-empty-map (the three proofs the v1
   and v2 rejections turned on) before the feature code.
 - Every guard in §3 and §OD-11/§OD-12/§OD-13 has a named probe in §5.2 and must satisfy all
-  **seven** §5.0 conditions. A probe whose mutation cannot commit is a defect, not a pass; if a
+  **eight** §5.0 conditions. Where §5.0 rule 8 applies, **both halves** of the §5.2.a.1 pair
+  must land — a lone `/own-reason` half is the v3 defect and a lone `/reachable` half proves no
+  guard. A probe whose mutation cannot commit is a defect, not a pass; if a
   guard genuinely cannot carry a load-bearing probe, demote it to §5.3 and say so — do not
   dress an assertion as a refusal.
 - All forgery/privilege probes run as **`uaid_app`** via `rls_engine`, except those that must
@@ -1623,3 +1863,50 @@ it down; the results are facts 0.1.13–0.1.16 and each is a test the builder mu
    7**, which also re-specifies parent-row DELETE cases to seed unreferenced rows so an FK
    `RESTRICT` can never stand in for the guard, and states plainly that a probe whose
    absent-guard mutation cannot commit must be deleted rather than kept.
+
+**v4.** Sol REJECT #3 (`369abc89-7144-4f42-b810-72f6ec367a64`) accepted: §5.2.a's four
+writer-function mutations remained **masked by `admin_policy_changes_guard`**, so
+`P-writer-no-existing-policy` did not close v2 defect 3. **The owner (Salim, 2026-08-24) ruled
+that all three rejects were correct against the standard he had set, and that the standard was
+wrong for overlapping guards.** He amended the standing test bar, authorized v4, and **reset the
+consecutive plan REJECT count to 0**. v4 carries out that amendment and **nothing else** — no
+new scope, no new table, no HTTP, no go-live flip, no D-8/D-9/D-10 close, and no re-litigation
+of any v1 or v2 defect (all stay closed as accepted). One defect, accepted in full:
+
+1. **Overlapping guards were proven by single probes that could not commit.** Accepted. §5.0
+   gains **rule 8**: when a neighbouring constraint independently refuses the same mutation, the
+   target guard is proven by a named **PROBE PAIR** — `/reachable` (target **and** every
+   independently-refusing neighbour disabled ⇒ the mutation **COMMITS**, with the prevented harm
+   asserted) and `/own-reason` (neighbour disabled, target **ENABLED** ⇒ refused with the
+   target's own `RAISE` text and SQLSTATE). Rules 1–3, the single-guard bar, are unchanged, and
+   the plan states plainly that a single probe disabling only the target while a neighbour still
+   refuses **proves nothing**. Which rows overlap was **measured**, not assumed: a live
+   PostgreSQL 16.14 harness (`uaid_os-postgres-1`, throwaway database created and dropped in the
+   same session, no app database touched) reproduced the §OD-11 step-3 writer body and the
+   §3.3:938–944 guard clauses and ran each mutation with the neighbour both enabled and
+   disabled. The results are tabulated at §5.2.a.1 (C1–C7). Five rows moved out of the §5.2.a
+   table into **§5.2.a.1** as named pairs — **`P-writer-requires-allowed-action`**,
+   **`P-writer-requires-policy-kind`**, **`P-writer-guc-unset`**,
+   **`P-writer-no-existing-policy`** (the row the REJECT named), and — newly converted, exactly
+   as the owner anticipated — **`P-tighten-changes-level`**, because the ledger guard's
+   `previous_autonomy_level = new_autonomy_level` clause independently refuses a moved level
+   (measured C5). Two findings beyond the REJECT's wording are recorded rather than smoothed
+   over: (a) `P-writer-no-existing-policy` has **two** independent neighbours, the second being
+   the writer's **own** next clause `tighten_may_not_change_level` (with no stored row the
+   derived previous level is NULL), so the `/reachable` half must remove both — measured C4; and
+   (b) for `P-writer-guc-unset` the ledger guard is **not** an independent refuser at all once
+   RLS is out of the way (measured C3) — the real neighbour is **RLS on the three tables**, which
+   v3 already disclosed and disabled in setup, so the pair names RLS as neighbour 1 and disables
+   the trigger only because the ruling directs it, claiming nothing more. **Four** rows were
+   measured **not** to overlap and therefore stay single-guard under rules 1–3, each with its
+   measurement recorded: **`P-writer-spends-action-atomically`** (C7 — with
+   `uq_admin_policy_changes_action` dropped the replay commits and a second ledger row appears
+   while the guard is enabled) and the three **`P-tighten-relax-*`** rows (C6 — with the
+   monotonic clause removed the relaxing call commits while the guard is enabled). The two
+   `P-priv/autonomy_policies/*` rows stay single-guard per the ruling. §9's probe bar moves from
+   seven conditions to **eight** and requires **both** halves of every pair. Every harness
+   result is labelled a harness result: the builder must reproduce each pair against the real
+   `0062` objects, and a pair that does not reproduce is a defect to report, never a licence to
+   drop a half.
+
+**Halt rule for v4.** If Sol REJECTS v4, this line **halts**: there is no v5 without the owner.
