@@ -14,7 +14,7 @@ never an agent's claim.
 The authoritative design is `docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`
 (~3,000 lines). Build to that spec. Section references below (§) point into it.
 
-## Current status (2026-08-22)
+## Current status (2026-08-23)
 **Phase 1 (§26.1) — Slices 1, 1b, 2, 3, 4, 5, 6, 7, 8a, 8b, 9, 10 merged + D4
 API-key hardening; tagged `v0.1.0` / `v0.1.1`. Phase 2 (§26.2) — Slices 11 (canonical
 intake spine), 12 (deterministic build-readiness auditor, originally R2-capped), 13 (deterministic
@@ -804,6 +804,30 @@ Slice 59 must **not** treat self-healing as done. A5 stays `slice54.v1`; readine
 REJECT). Verified suites: `make test` 1189 passing / 888 deselected; `make test-db` 888
 passing / 1189 deselected. Owned pyright paths report 0 errors. Merged via PR #106 (squash
 commit `787ddd6`). Next: Slice 59 under the standing cadence; do not claim self-healing closed.**
+**Slice 59 adds the DETERMINISTIC STABILIZATION-WINDOW ASSESSMENT (does **not** close §25.4 /
+§26.6) (`app/ops/stabilization.py` + `stabilization_criteria.py` + `stabilization_service.py` +
+`OpsStabilizationRepository` + migration `0058_stabilization`, `ruleset_version="slice59.v1"`).
+Four tenant-owned append-only tables (`ops_stabilization_windows`,
+`ops_stabilization_criterion_results`, `ops_improvement_results`,
+`ops_stabilization_closure_attempts`) plus additive `UNIQUE (id, project_id, tenant_id)` on
+`monitoring_status_snapshots`, `ops_support_handovers`, and `intake_findings_reports`. Window
+status vocabulary is `open` only. Only seq 5 (latest-wins recorded handover says
+`recorded_complete`) can be `passed`; seq 3 and seq 4 have **no `passed` value** (Python
+vocabulary + DB CHECK/guard). Seq 1/2 stay `not_evaluable`; seq 6/7/8 stay `not_observed`.
+`as_of` is DB-generated `transaction_timestamp()`. Closure always persists a refusal
+(latch → unauthenticated → same-actor → incomplete) and never changes window status. Follow-up
+is `required_not_executed`; an extension exists only via explicit `extends_window_id`.
+**Honesty crux:** UAID recorded a tenant-owned stabilization-window assessment against an
+immutable §27.13 policy snapshot. This does not prove production coverage, monitoring
+adequacy, rollback currency, that a handover occurred, or that backup/restore was validated.
+Slice 58 residual §26.6 actuators stay open. A5 stays `slice54.v1`; readiness stays
+`slice20.v1`; `can_go_live_autonomously` remains the literal `False`;
+`production_autonomy.py` / `readiness.py` / `control_loop.py` / `app/ops/db_checks.py` /
+`app/ops/incidents.py` / `app/ops/hotfix.py` / `app/ops/incident_db_checks.py` /
+`app/ops/hotfix_db_checks.py` are byte-stable. Independent plan APPROVE (v6). Implemented on
+`feat/slice-59-stabilization` (not yet independently code-reviewed or merged). Verified
+suites: `make test` 1207 passing / 901 deselected; `make test-db` 901 passing / 1207
+deselected. Owned pyright paths report 0 errors.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1041,6 +1065,17 @@ the admin `app` role only.
   plan refs. **Honesty: this is recorded intent, not a healed system; no git/PR/deploy/
   rollback execution; residual §26.6 actuators stay open; no HTTP; no broker; A5/readiness/
   control-loop untouched.**
+- `app/ops/stabilization.py` — stabilization-window assessment (Slice 59, §25.3 / §25.4;
+  **does not close §25.4 or §26.6**). Pure contracts `slice59.stabilization.v1` /
+  `slice59.improvement_inventory.v1`. `stabilization_service.py` public wrappers own
+  REPEATABLE READ `tenant_scope` for assess (no caller `session`/`as_of`) and READ COMMITTED
+  for closure. `OpsStabilizationRepository` writes the four tenant-owned, RLS ENABLE+FORCE,
+  append-only tables in migration `0058` (SELECT/INSERT only) plus additive UNIQUE targets
+  on monitoring snapshots, support handovers, and findings reports. Only seq 5 can pass;
+  seq 3/4 have no `passed` status. Audit is ids/status/counts/digests/result_code only —
+  never owner/URL/journeys. **Honesty: this is a recorded assessment, not a closed
+  stabilization window; no backup/restore, no go-live, no HTTP, no broker; A5/readiness/
+  control-loop/hotfix/incidents untouched.**
 - `app/intake/` — document intake sandbox (Slice 9, §16.3). `sandbox.py` (pure): treats
   customer documents as **untrusted data** — `scan(content)` is a **best-effort, deterministic**
   prompt-injection signal returning marker **identifiers** (never raw excerpts; no ML);
@@ -1484,11 +1519,11 @@ the admin `app` role only.
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_ops_stabilization.py`, `test_ops_stabilization_db.py`, `test_ops_stabilization_checks.py`, `test_ops_stabilization_migrate.py`, `test_ops_stabilization_guards.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1189 passing (Docker-free); `make test-db` → 888 passing (DB-backed: tenancy,
+  **`make test` → 1207 passing (Docker-free); `make test-db` → 901 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1575,7 +1610,7 @@ the admin `app` role only.
   The DB admin `psql` is parameterized via `PSQL` (default: `docker exec … uaid_os-postgres-1`;
   CI overrides with `PSQL=psql` to use a service container over TCP).
 - `.github/workflows/ci.yml` — GitHub Actions CI on PRs + pushes to `main`: `uv sync`,
-  `ruff check`, scoped `pyright` on Slice 55/56/57/58 owned paths (mandatory; a slice that cannot
+  `ruff check`, scoped `pyright` on Slice 55/56/57/58/59 owned paths (mandatory; a slice that cannot
   run it logs a HANDOFF blocker), `make test` (Docker-free), and `make test-db` against a
   `postgres:16` **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real
   `.env`/secrets. Full-repo pyright currently reports 3051 pre-existing errors and is not
@@ -1594,8 +1629,8 @@ the admin `app` role only.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1189 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 888 passing
+make test                                  # Docker-free tests (no services) — 1207 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 901 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
