@@ -4,10 +4,11 @@
 BUILDER = Cursor Grok 4.6 Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority on
 plan and code, probe-backed verdicts only. **The builder never edits this plan.**
 
-**Version.** **v2.** Sol REJECTED v1; **consecutive plan REJECT count = 1, accepted in full**
-(all six defects accepted, none argued down — see §10). Owner (Salim) authorized Slice 63
-with no further owner gate (2026-08-24). Halt rule unchanged: three consecutive REJECTs on
-this plan line ⇒ stop, no v4 without the owner.
+**Version.** **v3.** Sol REJECTED v1 and v2; **consecutive plan REJECT count = 2, accepted in
+full** (all four v2 defects accepted, none argued down — see §10). Owner (Salim) authorized
+Slice 63 with no further owner gate (2026-08-24). **Halt rule: one more consecutive REJECT
+stops this line; there is no v4 without the owner.** Every claim v2 was rejected for is now
+backed by a live PostgreSQL 16 result recorded in §0.1 facts 13–16.
 
 > **This slice closes NO spec section and does NOT satisfy the roadmap Slice 61 exit.**
 > D-8, D-9, and D-10 stay **OPEN** (owner = Salim). Slice 63 is the last scheduled slice:
@@ -20,7 +21,7 @@ isolation controls (l.1698–1714); §17.3 tenant boundary rule (l.1716–1718);
 "authorization" + "role-based access control" (l.1550–1568); §16.6 audit; §5/§2.6 (the
 policy object being managed). **A5 / readiness / go-live are untouched.**
 
-**Alembic.** Live head **re-verified for v2**: `uv run alembic heads` → **`0061 (head)`**
+**Alembic.** Live head **re-verified for v3**: `uv run alembic heads` → **`0061 (head)`**
 (`migrations/versions/0061_cost_learning.py`, `revision="0061"`, `down_revision="0060"`), run
 on branch `feat/slice-63-enterprise-admin` at plan time. This slice adds **migration `0062`**,
 file `migrations/versions/0062_enterprise_admin.py`, `revision="0062"`,
@@ -29,17 +30,20 @@ file `migrations/versions/0062_enterprise_admin.py`, `revision="0062"`,
 - **four new tables** (each with its own PK/UNIQUE/CHECK/FK/trigger set);
 - **one new column** on an existing table (`organizations.status`);
 - **two new functions**: `public.admin_write_autonomy_policy(...)` (SECURITY DEFINER, owned by
-  the new NOLOGIN role `policy_admin_writer`) and the pure helper
+  the new NOLOGIN role `policy_admin_writer`; it performs the policy write **and** spends the
+  authorization in one call, §OD-11 as revised for defect 1) and the pure helper
   `public.admin_overrides_is_monotonic(jsonb, jsonb)`;
 - **one function DROP+recreate**, same signature (`resolve_tenant_api_key`);
 - **one privilege NARROWING on an existing table** —
-  `REVOKE INSERT, UPDATE ON public.autonomy_policies FROM uaid_app` (§OD-11, defect 1).
+  `REVOKE INSERT, UPDATE ON public.autonomy_policies FROM uaid_app` (§OD-11, v2 defect 1).
   This is the one place Slice 63 changes an existing `uaid_app` grant, and it **removes**
   privilege; `SELECT` is untouched so every existing read path is unaffected;
 - **grant additions**: to `policy_admin_writer`, `SELECT, INSERT, UPDATE ON
-  autonomy_policies` plus `SELECT ON admin_actions, admin_policy_changes` (the rows its
-  function must read); `SELECT ON tenants, organizations` to `api_key_resolver`;
-  `EXECUTE ON audit_append` to `CURRENT_USER`.
+  autonomy_policies`, `SELECT ON admin_actions`, and `SELECT, INSERT ON
+  admin_policy_changes` (it now writes the ledger row itself — v3 defect 1);
+  `SELECT ON tenants, organizations` to `api_key_resolver`;
+  `EXECUTE ON audit_append` to `CURRENT_USER`. On the four **new** tables `uaid_app` is
+  granted `SELECT` everywhere and `INSERT` **only** on `admin_actions`.
 
 **No existing table gains a UNIQUE, and no existing constraint or trigger is dropped, and no
 `uaid_app` privilege is widened anywhere.** **Re-verify the head before writing the file**;
@@ -151,10 +155,44 @@ mechanism, no weakening of the old one. Three bounded pieces:
     ADMIN creds (`app`)** in a rolled-back outer transaction (e.g.
     `tests/test_emergency_controls.py:491`). `app` is `rolsuper=t rolbypassrls=t` and owns
     `autonomy_policies` (verified live), so the revoke does not affect admin-path sites — only
-    the new required argument does. §OD-14's helper must therefore have two modes.
+    the loss of `upsert` does. §OD-14 (v3) resolves those sites **on their own connection**.
 12. **A5 is `slice54.v1`; readiness is `slice20.v1`; `can_go_live_autonomously` is the
     literal `False`** (`app/release/production_autonomy.py:71,119`;
     `app/intake/readiness.py:45`). Slice 63 must not move any of them.
+
+The next four facts were **executed against the live PostgreSQL 16 container** (`app_test`,
+role `app`) while writing v3, each in a rolled-back transaction on throwaway schemas, because
+v2 was rejected for asserting three of them without proof. They are the load-bearing evidence
+for §OD-11, §OD-14, §5.2.a and §5.2.g, and the builder must reproduce each as a real test.
+
+13. **A non-owner `SECURITY DEFINER` function is RLS-confined, and it works on the caller's
+    own uncommitted transaction.** With a `FORCE ROW LEVEL SECURITY` table, a
+    `NOLOGIN NOSUPERUSER NOBYPASSRLS` owner role, and a `tenant_isolation` policy keyed on
+    `current_setting('app.current_tenant', true)`: called from a **superuser** session inside
+    one open transaction, after `set_config(..., true)`, the function **read a row the same
+    transaction had just inserted and not committed**, and wrote successfully. With the GUC
+    set to a different tenant the same call refused (the action row was invisible), and with
+    the GUC unset it refused. This is why §OD-14 needs **no second connection** for
+    admin-session tests, and why "RLS still applies inside the definer function" is a
+    measured fact, not an inference.
+14. **Ledger-backed spend is atomic and rolls the policy write back.** In the same harness, a
+    function that upserted the policy and then inserted a ledger row protected by
+    `UNIQUE(admin_action_id)` refused the second call for the same action id, and the policy
+    column **retained its first value** (the caller saw `level=3`, not the replay's `2`) —
+    the plpgsql exception path unwound the whole call. This is the defect-1 design, measured.
+15. **`TRUNCATE <parent>` never reaches a BEFORE TRUNCATE trigger when an inbound FK exists.**
+    Live: `ERROR: cannot truncate a table referenced in a foreign key constraint` (SQLSTATE
+    `0A000`), exactly what Sol observed. Truncating parent **and** child in one explicitly
+    ordered statement **does** reach the trigger (`RAISE` observed, naming the parent), and
+    with both truncate triggers disabled the same statement **commits** (`rows_left = 0`).
+    With only the *child's* trigger disabled in setup, the surviving `RAISE` provably comes
+    from the **parent's** trigger. §5.2.g is rebuilt on this.
+16. **`DROP TABLE <parent>` alone also fails** — `cannot drop table … because other objects
+    depend on it` (SQLSTATE `2BP01`, dependent constraint named). The populated-downgrade
+    mutation must therefore be the ordered children-first sequence, not a single drop
+    (§5.2.i). Separately, `uaid_app` holds **only `SELECT`** on `organizations` and `tenants`
+    (live `information_schema.table_privileges`), so the `organizations.status` CHECK can only
+    be probed on the owner path.
 
 ### 0.2 Load-bearing claim
 
@@ -163,7 +201,10 @@ it holds `SELECT` and no `INSERT`/`UPDATE`/`DELETE`, so no repository, service, 
 executed as `uaid_app` can change a project's autonomy level or override map except by calling
 `public.admin_write_autonomy_policy`, which fails closed unless handed an `admin_actions` row
 that is `allowed`, of a policy kind, in the caller's own tenant and project, and **not already
-spent** by an `admin_policy_changes` row. For `tighten_autonomy_overrides` it additionally
+spent** by an `admin_policy_changes` row. **The write and the spend are the same database
+call** (v3): that one function upserts the policy *and* inserts the ledger row, so there is no
+Python-side sequence to interleave, abandon, or replay, and `uaid_app` holds no `INSERT` on the
+ledger table either. For `tighten_autonomy_overrides` it additionally
 refuses any override map that is not monotonically at least as restrictive as the map the row
 **currently** holds, so an empty map cannot re-enable a disabled action. Because the definer
 role `policy_admin_writer` is neither the table owner nor `BYPASSRLS`, and
@@ -181,7 +222,9 @@ exists at all. An unauthenticated actor can only be recorded as
 
 **Ledger fidelity.** An `admin_policy_changes` row exists only if it references such an
 `allowed` policy-kind action (spent once) and records the autonomy level the referenced
-`autonomy_policies` row actually holds. A `tenant_admin_events` role event is composite-FK
+`autonomy_policies` row actually holds; its `previous_autonomy_level` and `override_key_count`
+are derived by the function from the rows themselves, never accepted from a caller.
+A `tenant_admin_events` role event is composite-FK
 bound to the exact grant row's `(id, tenant_id, principal_subject, admin_role)`, so it cannot
 name a principal or role the grant does not carry. A bearer key whose tenant or organization
 is `suspended` does not resolve.
@@ -207,7 +250,9 @@ go-live authority, not an RLS bypass for `uaid_app`, not a human signature, not 
 Slice 61, and not closing D-8/D-9/D-10. What the database enforces is that the runtime role
 holds no INSERT or UPDATE on `autonomy_policies` at all, so its only policy-write path is a
 SECURITY DEFINER function that refuses without an allowed, unspent, same-tenant admin action —
-and which refuses a "tighten" that would relax the currently stored override map, including an
+one that spends that authorization in the same call and transaction as the write, so a policy
+can neither change without a ledger row nor be changed twice on one authorization — and which
+refuses a "tighten" that would relax the currently stored override map, including an
 empty map; that the runtime role cannot record an allowed admin action without a real active
 same-tenant role grant it has no privilege to create, and cannot record a lesser refusal while
 a sufficient higher grant is active; and that a suspended tenant's or organization's bearer key
@@ -226,8 +271,15 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
   write a policy at all except through `admin_write_autonomy_policy`
   (P-priv/autonomy_policies/INSERT, P-priv/autonomy_policies/UPDATE)."
 - "`admin_write_autonomy_policy` refuses without an `allowed` (P-writer-requires-allowed-action),
-  policy-kind (P-writer-requires-policy-kind), unspent (P-writer-requires-unspent-action)
-  same-tenant admin action."
+  policy-kind (P-writer-requires-policy-kind), unspent (P-writer-spends-action-atomically)
+  same-tenant admin action, and refuses to infer the tenant when the GUC is unset
+  (P-writer-guc-unset)."
+- "The policy write and the spending of its authorization are **one** database call: the same
+  function that upserts the policy inserts the `admin_policy_changes` row, and a second call
+  with the same `admin_action_id` is refused with the policy left unchanged
+  (P-writer-spends-action-atomically, A-writer-returns-both-ids). `uaid_app` cannot insert a
+  ledger row at all (P-priv/admin_policy_changes/INSERT), and no `upsert` method survives on
+  the policy repository (A-no-ungated-upsert)."
 - "`tighten_autonomy_overrides` is monotonic against the **currently stored** override map: an
   empty map (P-tighten-relax-empty-map), a map that drops a disable
   (P-tighten-relax-drops-disable), one that lowers a `min_level`
@@ -252,7 +304,8 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
   also binds the admin/owner role (P-allow-no-grant-as-admin)."
 - "An `admin_policy_changes` row requires an `allowed` policy-kind action
   (P-change-refused-action), the real current autonomy level (P-change-level-mismatch), and an
-  unspent authorization (P-change-action-reuse)."
+  unspent authorization (P-writer-spends-action-atomically) — and those guards bind the owner
+  path too, since the runtime role cannot insert one at all."
 - "A bearer key belonging to a `suspended` tenant does not resolve, and neither does one
   whose organization is `suspended` (P-suspend-tenant-blocks, P-suspend-org-blocks);
   reinstatement restores resolution (P-reinstate-restores)."
@@ -332,14 +385,14 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
 
 **Seventeen** frozen files (v1 had eighteen).
 
-### 1.1 Deliberately UN-FROZEN in v2, stated explicitly (defect 1)
+### 1.1 Deliberately UN-FROZEN, stated explicitly (v2 defect 1)
 
-Sol's defect 1 cannot be fixed without touching the Slice-3 write path, so v1's freeze of it
+Sol's v1 defect 1 cannot be fixed without touching the Slice-3 write path, so v1's freeze of it
 is lifted **on the record**:
 
 | File | SHA-256 **before** Slice 63 | Why un-frozen | What may change |
 |---|---|---|---|
-| `app/repositories/autonomy_policies.py` | `9b563f6a8780da4a60cd1a57de377df6f3510a221d656564c115b89812288317` | Its `upsert` writes `autonomy_policies` via the ORM as `uaid_app`; after §OD-11's REVOKE that privilege is gone, so the method must route through `admin_write_autonomy_policy` or it is dead code that raises | **Only** `upsert` (signature gains a required `admin_action_id`, body calls the definer function). `decision_for`, `snapshot_decisions`, and every read stay behaviourally identical, and the `actor`-is-untrusted docstring stays |
+| `app/repositories/autonomy_policies.py` | `9b563f6a8780da4a60cd1a57de377df6f3510a221d656564c115b89812288317` | Its `upsert` writes `autonomy_policies` via the ORM as `uaid_app`; after §OD-11's REVOKE that privilege is gone, so the method can only raise | **`upsert` is DELETED** (v3, defect 1). It is not re-signatured: the gated write now also writes the ledger, which is not a policy-repository responsibility, and a surviving `upsert` is a name a future caller would reach for. `decision_for`, `snapshot_decisions`, and every read stay behaviourally identical, and the `actor`-is-untrusted docstring on the reads stays |
 | `scripts/bootstrap_rls_role.sql` | `7a611e198d1efff926646dcbfaebe95782e9de0d8ed3d2c20fd4c38bbccc9c61` | Needs the new NOLOGIN `policy_admin_writer` role | One additive idempotent `DO $$` block + one `ALTER ROLE`, in the `audit_writer` shape (`:41-48`). No change to `uaid_app`, `audit_writer`, or `api_key_resolver` |
 
 **Builder duty:** publish the **post-change** SHA-256 of both files in the PR body and in the
@@ -395,13 +448,14 @@ project's own extra tightening back toward the matrix, is an *admin* action.
 **v1 defect (Sol defect 2), accepted:** v1 asserted that `tighten_autonomy_overrides` was
 "strictly safety-increasing" because `validate_overrides` is tighten-only. That was wrong.
 `validate_overrides` validates each override *against the code MATRIX*, not against the stored
-row, and the frozen `upsert` **replaces** the whole map. Sol's live probe is correct: both
+row, and the Slice-3 `upsert` **replaced** the whole map. Sol's live probe is correct: both
 `{"run_tests": {"allow": false}}` and `{}` validate, and applying `{}` re-enables `run_tests`.
 Monotonicity is therefore enforced in the DB by §OD-12, against the current stored map — never
 against a caller-supplied "previous" snapshot, which a caller could simply lie about.
 
 `tighten_autonomy_overrides` on a project with no existing policy row is refused
-(`no_existing_policy`) — there is no stored map to be monotonic against.
+(`no_existing_policy`) — there is no stored map to be monotonic against, and without the clause
+a "tighten" would silently *create* a policy at a level nobody set (P-writer-no-existing-policy).
 
 ### OD-3 — Decision vocabulary: a total partition of the real grant state
 
@@ -573,45 +627,69 @@ lock — because fact 0.1.9 shows **no product path breaks**.
    **no write path at all** to the table.
 2. New NOLOGIN role `policy_admin_writer` (bootstrap script, §Alembic), granted exactly what
    its one function needs and nothing more: `SELECT, INSERT, UPDATE ON
-   public.autonomy_policies` (no DELETE) and `SELECT ON public.admin_actions,
-   public.admin_policy_changes` (steps 2/5 below read them). It gets no grant on
-   `admin_role_grants`, `tenant_admin_events`, `tenant_api_keys`, or anything else. Because
-   the role is `NOBYPASSRLS` and not the owner of any of those tables, **every one of those
-   reads is itself RLS-confined to the caller's tenant** — the GUC is transaction-local and
-   `SECURITY DEFINER` does not change it — so the function cannot see, let alone spend,
-   another tenant's admin action.
+   public.autonomy_policies` (no DELETE), `SELECT ON public.admin_actions`, and
+   `SELECT, INSERT ON public.admin_policy_changes` (it writes the ledger itself, step 3.9).
+   It gets no grant on `admin_role_grants`, `tenant_admin_events`, `tenant_api_keys`, or
+   anything else. Because the role is `NOBYPASSRLS` and not the owner of any of those tables,
+   **every one of those reads and writes is itself RLS-confined to the caller's tenant** — the
+   GUC is transaction-local and `SECURITY DEFINER` does not change it — so the function cannot
+   see, let alone spend, another tenant's admin action. Fact 0.1.13 measured all three halves
+   of this (confinement, cross-tenant refusal, unset-GUC refusal).
 3. `CREATE FUNCTION public.admin_write_autonomy_policy(p_admin_action_id uuid,
-   p_project_id uuid, p_autonomy_level smallint, p_overrides jsonb) RETURNS uuid`,
+   p_project_id uuid, p_autonomy_level smallint, p_overrides jsonb,
+   OUT o_autonomy_policy_id uuid, OUT o_admin_policy_change_id uuid)`,
    `LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog` (all names
    `public.`-qualified, the `0026` discipline), `ALTER FUNCTION ... OWNER TO
    policy_admin_writer`, `REVOKE ALL ... FROM PUBLIC`, `GRANT EXECUTE ... TO uaid_app`.
+   **It returns both ids because it performs both writes** (defect 1); Python calls it as
+   `SELECT * FROM public.admin_write_autonomy_policy(...)` and never writes either table.
    Body, fail-closed in order, each failure a distinct `RAISE` message:
    1. `v_tenant := NULLIF(current_setting('app.current_tenant', true), '')::uuid`;
-      NULL ⇒ `RAISE 'tenant_guc_unset'`.
+      NULL ⇒ `RAISE 'tenant_guc_unset'`. The function **never** falls back to a tenant read
+      off the action row — probed by P-writer-guc-unset.
    2. load `admin_actions` by `id = p_admin_action_id AND tenant_id = v_tenant AND
       project_id = p_project_id`; missing ⇒ `no_such_admin_action`.
    3. `decision = 'allowed'` else `admin_action_not_allowed`.
    4. `action_kind IN ('set_autonomy_policy','tighten_autonomy_overrides')` else
       `admin_action_not_policy_kind`.
-   5. no `admin_policy_changes` row references it, else `admin_action_already_spent`.
-   6. `SELECT ... FOR UPDATE` the current `autonomy_policies` row for
-      `(v_tenant, p_project_id)`.
-   7. `action_kind='tighten_autonomy_overrides'` ⇒ the row must exist
+   5. `SELECT id, autonomy_level, overrides ... FOR UPDATE` the current `autonomy_policies`
+      row for `(v_tenant, p_project_id)`; `v_previous_level` is its level, or NULL if absent.
+   6. `action_kind='tighten_autonomy_overrides'` ⇒ the row must exist
       (`no_existing_policy`), `p_autonomy_level` must equal the stored level
       (`tighten_may_not_change_level`), and
       `public.admin_overrides_is_monotonic(stored, p_overrides)` must be true
       (`tighten_would_relax_overrides`) — §OD-12.
-   8. `INSERT ... ON CONFLICT (tenant_id, project_id) DO UPDATE SET autonomy_level,
-      overrides, updated_at = now() RETURNING id`.
+   7. `INSERT ... ON CONFLICT (tenant_id, project_id) DO UPDATE SET autonomy_level,
+      overrides, updated_at = now() RETURNING id INTO o_autonomy_policy_id`.
+   8. **Spend the authorization in the same function, same transaction.** `INSERT INTO
+      public.admin_policy_changes (tenant_id, project_id, admin_action_id,
+      autonomy_policy_id, previous_autonomy_level, new_autonomy_level, override_key_count)`
+      … `RETURNING id INTO o_admin_policy_change_id`, wrapped in
+      `BEGIN … EXCEPTION WHEN unique_violation THEN RAISE EXCEPTION
+      'admin_action_already_spent' … END`. `uq_admin_policy_changes_action` is the **sole**
+      spend authority — there is deliberately **no** separate "already spent?" `SELECT`,
+      because a pre-check would mask the constraint and could not carry a load-bearing
+      mutation (§5.0 rule 1). `previous_autonomy_level` and `override_key_count`
+      (`jsonb_object_keys` cardinality) are **derived here**, never accepted from the caller,
+      so the ledger cannot be falsified even by the one privileged caller.
+   9. Ordering is load-bearing in one direction: the policy upsert must precede the ledger
+      INSERT, because `admin_policy_changes_guard` (§3.3) requires `new_autonomy_level` to
+      equal the **stored** policy level. Fact 0.1.14 measured the consequence that matters —
+      a refused spend unwinds the policy write, so there is no window in which a policy is
+      changed without a ledger row.
 4. **RLS still applies inside the definer function.** `policy_admin_writer` is neither the
    owner of `autonomy_policies` nor `BYPASSRLS`, the table is `FORCE ROW LEVEL SECURITY`, and
    `0004`'s `tenant_isolation` policy has no `TO` clause (so it applies to that role too).
    The GUC is transaction-local and unaffected by `SECURITY DEFINER`, so the write is confined
    to the caller's tenant with no policy change. The composite FK
    `(project_id, tenant_id) → projects` on `admin_actions` is the second half.
-5. The function is the **only** writer. `AutonomyPolicyRepository.upsert` (un-frozen, §1.1)
-   gains a required `admin_action_id` and calls it; `app/admin/policy_admin.py` is the only
-   caller that mints the action. A caller cannot express an ungated write.
+5. The function is the **only** runtime writer of **either** table.
+   `AutonomyPolicyRepository.upsert` is **deleted** (§1.1) rather than re-pointed, and
+   `uaid_app` holds no `INSERT` on `admin_policy_changes` (§3.3), so the ledger row can only
+   come from inside the function. `app/admin/policy_admin.py` is the only caller, and it mints
+   the `admin_actions` row first. **There is no Python-side sequence a caller can interleave,
+   abandon, or replay:** the write and the spend are one statement to the caller. A second
+   call with the same `admin_action_id` refuses — P-writer-spends-action-atomically.
 
 **What this does not lock:** an operator with DB-owner credentials still writes the table
 directly (§0.5), and the matrix floor stays in Python (§0.2). Both are named, not claimed.
@@ -685,27 +763,66 @@ privilege, and the `db_session` sites lose the signature. Named files (20):
 `test_monitoring_evidence.py`, `test_emergency_controls.py`, `test_deploy_evidence.py`,
 `test_ci_evidence.py`, `tests/ops_stabilization_support.py`, `tests/ops_hotfix_support.py`.
 
-**The remedy — wrap the callers through the new path, do not weaken it.**
-`tests/admin_support.py` gains one helper:
+**The remedy (v3, defect 2): the service takes a session, and the helper never opens a second
+connection.** v2 said the helper would seed the grant "via its own short-lived admin engine"
+for runtime-mode sites while acknowledging in the same sentence that a second connection cannot
+see an uncommitted fixture. Sol is right that this cannot work, and the acknowledgement did not
+make it work. **The chosen path is (a): the SECURITY DEFINER function is called on the caller's
+own session.** Fact 0.1.13 proves that works, including for rows the caller has not committed.
+
+Two shape changes make it possible:
+
+1. `app/admin/policy_admin.py` exposes `apply_policy_change(session, ctx, *, …)` — it
+   **accepts** a session and owns no transaction. A thin
+   `apply_policy_change_in_scope(ctx, *, …)` wrapper opens `tenant_scope` for real runtime
+   callers, so production ergonomics are unchanged. This is the repository convention
+   (`AutonomyPolicyRepository(session, ctx)`), not a test affordance.
+2. `tests/admin_support.py` gains one helper:
 
 ```
 async def seed_gated_policy(*, session, ctx, project_id, autonomy_level,
                             overrides=None, session_is_admin=False,
+                            admin_engine=None,
                             principal="test:tenant_admin") -> PolicyChangeResult
 ```
 
-which (a) ensures an **active `tenant_admin` grant** for `principal` in `ctx.tenant_id` —
-committed via its own short-lived admin engine built from `TEST_ADMIN_URL` when
-`session_is_admin=False`, or inserted on the caller's own session when `session_is_admin=True`
-(fact 0.1.11: `db_session` is the admin connection inside one rolled-back transaction, so a
-second connection could not see its uncommitted tenant); then (b) calls the **production**
-`app/admin/policy_admin.apply_policy_change(...)` with a `TenantContext` carrying an
-`AuthenticatedActor` whose `principal_subject == principal`; then (c) asserts the returned
+It **builds no engine of its own** in either mode — v2's "short-lived admin engine from
+`TEST_ADMIN_URL`" is deleted outright.
+
+- **Admin-session sites** (`session_is_admin=True`, the `db_session` fixture — fact 0.1.11):
+  everything happens **on that one session, in that one transaction**. The helper runs
+  `SELECT set_config('app.current_tenant', <ctx.tenant_id>, true)`, INSERTs the active
+  `tenant_admin` grant directly (the admin role has the privilege), and calls
+  `apply_policy_change(session, ctx, …)`. The definer function executes on the same
+  connection and therefore sees the fixture's uncommitted tenant, project, and grant. **No
+  second engine, no commit of a rolled-back fixture, no bypass.** This is exactly the sequence
+  measured in fact 0.1.13.
+- **Runtime-scope sites** (`session_is_admin=False`, the `tenant_scope` majority): `uaid_app`
+  has no `INSERT` on `admin_role_grants` by design, so the grant is seeded through the
+  **existing `admin_engine` fixture**, which the caller passes in — not through an engine the
+  helper builds. That fixture is the repo's established seeding path and it **commits**: these
+  sites' tenants and projects are created inside `async with admin_engine.begin()` blocks that
+  have already exited (verified in `tests/conftest.py:162-169` and, as one representative call
+  site, `tests/test_ci_evidence.py:160-162`), so the committed-tenant precondition holds by
+  construction rather than by hope. The helper still **states and enforces** it: with
+  `session_is_admin=False` and no `admin_engine`, or with a tenant the admin connection cannot
+  see, it raises `SeedPreconditionError("gated policy seeding in runtime mode needs the "
+  "admin_engine fixture and an already-committed tenant; seed before entering tenant_scope, "
+  "or pass session_is_admin=True")`. It never falls back, never skips, and never writes the
+  policy another way, so a site that trips it is a loud failure the builder must convert — not
+  a silent pass. **No claim is made anywhere that a second connection can see an uncommitted
+  fixture.**
+
+Both modes then call the **production** `apply_policy_change` with a `TenantContext` carrying
+an `AuthenticatedActor` whose `principal_subject == principal`, and assert the returned
 decision is `allowed`. Call sites become a one-line substitution.
 
 The helper must not have a bypass branch, and A-helper-uses-production-path asserts
-`tests/admin_support.py` contains no direct `autonomy_policies` INSERT/UPDATE and no call to
-`admin_write_autonomy_policy` other than through `apply_policy_change`.
+`tests/admin_support.py` contains no direct `autonomy_policies` or `admin_policy_changes`
+INSERT/UPDATE and no call to `admin_write_autonomy_policy` other than through
+`apply_policy_change`. **Builder duty:** run the migrated suite before writing anything else
+in §OD-14 — the helper working on both fixture shapes is the gate on this remedy, and
+A-suite-green is where it is proven.
 
 **Ordering rule this exposes:** `apply_policy_change` calls the frozen
 `validate_overrides` **before** recording anything. A malformed or matrix-relaxing override map
@@ -741,8 +858,10 @@ both a `char_length BETWEEN 1 AND n` CHECK **and** a `btrim(col) <> ''` non-blan
   **`uq_admin_role_grants_identity`** — the §OD-13 FK target.
 - Grants: `GRANT SELECT ON public.admin_role_grants TO uaid_app` — **no INSERT/UPDATE/DELETE.**
 - Guard trigger `admin_role_grants_guard` (function `admin_role_grants_guard()`), BEFORE
-  INSERT OR UPDATE: INSERT ⇒ `status='active'`; UPDATE ⇒ only `status` and `updated_at` may
-  change, and only `active→revoked` (one-way).
+  INSERT OR UPDATE: INSERT ⇒ `status='active'` (a grant is **born active**; history is made by
+  revoking, never by inserting a pre-revoked row) → **P-grant-insert-status** (new in v3,
+  defect 3); UPDATE ⇒ only `status` and `updated_at` may change, and only `active→revoked`
+  (one-way) → P-grant-update-widen.
 - Append-only pair, **DELETE and TRUNCATE only** — UPDATE is legal on this table, so no
   BEFORE-UPDATE block is installed (that would contradict revoke):
   `admin_role_grants_no_delete` (BEFORE DELETE, FOR EACH ROW) and
@@ -792,7 +911,14 @@ both a `char_length BETWEEN 1 AND n` CHECK **and** a `btrim(col) <> ''` non-blan
   `admin_actions_no_truncate` (BEFORE TRUNCATE, FOR EACH STATEMENT) over
   `admin_actions_block_dml()`; grant is `SELECT, INSERT` only.
 
-### 3.3 `admin_policy_changes` — tenant-owned, append-only; `uaid_app` `SELECT, INSERT`
+### 3.3 `admin_policy_changes` — tenant-owned, append-only; `uaid_app` **SELECT only**
+
+**Changed in v3 (defect 1):** `uaid_app` is **not** granted `INSERT`. The only writer is
+`admin_write_autonomy_policy`, which inserts this row in the same call and same transaction as
+the policy write; `policy_admin_writer` holds `SELECT, INSERT`. That is what makes the spend
+atomic rather than a Python convention — and it means the three guard-trigger probes below run
+on the owner path (§9), because the runtime role cannot reach the trigger at all
+(P-priv/admin_policy_changes/INSERT proves that outer layer).
 
 `id`, `tenant_id`, `project_id`, `admin_action_id UUID NOT NULL`,
 `autonomy_policy_id UUID NOT NULL`,
@@ -804,7 +930,11 @@ both a `char_length BETWEEN 1 AND n` CHECK **and** a `btrim(col) <> ''` non-blan
   tenant_id)`; `(autonomy_policy_id, project_id, tenant_id) → autonomy_policies(id,
   project_id, tenant_id)` (target `uq_autonomy_policies_id_proj_tenant`, fact 0.1.5).
 - `UNIQUE (admin_action_id)` named **`uq_admin_policy_changes_action`** — one authorization is
-  spent exactly once, and the same constraint is what §OD-11 step 3.5 reads.
+  spent exactly once. This constraint **is** the spend mechanism of §OD-11 step 3.8: the writer
+  inserts and translates `unique_violation` into `admin_action_already_spent`, so there is no
+  separate pre-check to drift from it.
+- `previous_autonomy_level` and `override_key_count` are derived inside the writer, never
+  supplied by a caller (§OD-11 step 3.8).
 - Guard trigger `admin_policy_changes_guard` (function `admin_policy_changes_guard()`)
   BEFORE INSERT:
   - the referenced `admin_actions` row has `decision='allowed'` and
@@ -813,7 +943,7 @@ both a `char_length BETWEEN 1 AND n` CHECK **and** a `btrim(col) <> ''` non-blan
   - `action_kind='tighten_autonomy_overrides'` ⇒
     `previous_autonomy_level = new_autonomy_level` (level untouched, §OD-2).
 - Append-only: `admin_policy_changes_no_update_delete` + `admin_policy_changes_no_truncate`
-  over `admin_policy_changes_block_dml()`; grant `SELECT, INSERT`.
+  over `admin_policy_changes_block_dml()`; `uaid_app` grant is `SELECT` only.
 
 ### 3.4 `tenant_admin_events` — tenant-owned, append-only; `uaid_app` **SELECT only**
 
@@ -849,9 +979,10 @@ RESTRICT`,
 ### 3.5 Additive changes to existing objects
 
 1. `organizations.status TEXT NOT NULL DEFAULT 'active'` + CHECK
-   `status IN ('active','suspended')`. Existing rows become `'active'`.
-   `app/models/organization.py` gains the mapped column. No grant change (`uaid_app` already
-   has SELECT).
+   `status IN ('active','suspended')`, named **`ck_organizations_status_valid`** so a probe can
+   target it → **P-org-status-check** (new in v3, defect 3). Existing rows become `'active'`.
+   `app/models/organization.py` gains the mapped column. No grant change — and per fact 0.1.16
+   `uaid_app` has **only** `SELECT` here, so this CHECK is probed on the owner path (§9).
 2. `resolve_tenant_api_key(text)` DROP + recreate per §OD-7; `GRANT SELECT ON public.tenants,
    public.organizations TO api_key_resolver`.
 3. `GRANT EXECUTE ON FUNCTION public.audit_append(text,text,text,jsonb) TO CURRENT_USER`
@@ -859,9 +990,9 @@ RESTRICT`,
 4. **The policy write lock (§OD-11):** assert `policy_admin_writer` exists (fail closed
    naming `make db-bootstrap-rls-role`); `REVOKE INSERT, UPDATE ON public.autonomy_policies
    FROM uaid_app`; `GRANT SELECT, INSERT, UPDATE ON public.autonomy_policies TO
-   policy_admin_writer` and `GRANT SELECT ON public.admin_actions,
-   public.admin_policy_changes TO policy_admin_writer` (after those tables are created, so
-   this step runs last); create `admin_overrides_is_monotonic` and
+   policy_admin_writer`, `GRANT SELECT ON public.admin_actions TO policy_admin_writer`, and
+   `GRANT SELECT, INSERT ON public.admin_policy_changes TO policy_admin_writer` (after those
+   tables are created, so this step runs last); create `admin_overrides_is_monotonic` and
    `admin_write_autonomy_policy` with their owner/revoke/grant matrix.
 
 Nothing else is altered. `tenants`, `tenant_api_keys`, `projects`, `audit_logs`, and
@@ -876,10 +1007,14 @@ restored) and `REVOKE SELECT ON public.tenants, public.organizations FROM api_ke
 (c) `REVOKE EXECUTE ON FUNCTION public.audit_append(...) FROM CURRENT_USER`; (d) drop
 `admin_write_autonomy_policy` and `admin_overrides_is_monotonic`, `REVOKE SELECT, INSERT,
 UPDATE ON public.autonomy_policies FROM policy_admin_writer`, `REVOKE SELECT ON
-public.admin_actions, public.admin_policy_changes FROM policy_admin_writer`, and **restore
+public.admin_actions FROM policy_admin_writer`, `REVOKE SELECT, INSERT ON
+public.admin_policy_changes FROM policy_admin_writer`, and **restore
 `GRANT SELECT, INSERT, UPDATE ON public.autonomy_policies TO uaid_app`** (the `0004` state,
-asserted by A-downgrade-grants); (e) drop the guards/triggers; (f) drop the four tables
-(children first);
+asserted by A-downgrade-grants); (e) drop the guards/triggers; (f) drop the four tables in
+this **exact order** — `admin_policy_changes`, `tenant_admin_events`, then `admin_actions`,
+`admin_role_grants` — because both remaining tables are FK parents and a single
+`DROP TABLE` on either fails with SQLSTATE `2BP01` (fact 0.1.16). This order is the mutation
+P-downgrade-populated must execute, so it is named here rather than left as "children first";
 (g) drop `organizations.status`. Empty-database `0062 → 0061 → 0062` must succeed. The role
 `policy_admin_writer` is **not** dropped (bootstrap-owned, like `audit_writer`).
 
@@ -895,14 +1030,14 @@ asserted by A-downgrade-grants); (e) drop the guards/triggers; (f) drop the four
 | `app/admin/guards_sql.py` | the four `plpgsql` guard bodies, the four `_block_dml` bodies, and the two §OD-11/§OD-12 function bodies as strings |
 | `app/admin/ddl.py` | `install_admin_guards()` / `drop_admin_guards()` / `populated_downgrade_sql()` / resolver replace + restore / **policy-lock grant matrix** / grant matrix |
 | `app/admin/tenant_admin.py` | **operator path** (admin session): `suspend_tenant`, `reinstate_tenant`, `suspend_organization`, `reinstate_organization`, `grant_admin_role`, `revoke_admin_role` — each sets the tenant GUC, writes the row + `tenant_admin_events`, and calls `audit_append` (§OD-8/§OD-9) |
-| `app/admin/policy_admin.py` | **runtime service**: `apply_policy_change(...) -> PolicyChangeResult`; owns `tenant_scope`, calls frozen `validate_overrides` first (§OD-14), loads grants, pure-evaluates, records `admin_actions` (allowed **and** refused), on allowed calls `AutonomyPolicyRepository.upsert(admin_action_id=…)` then writes `admin_policy_changes`, audits both |
+| `app/admin/policy_admin.py` | **runtime service**: `apply_policy_change(session, ctx, …) -> PolicyChangeResult` (takes a session, §OD-14) + `apply_policy_change_in_scope(ctx, …)` which owns `tenant_scope`; calls frozen `validate_overrides` first (§OD-14), loads grants, pure-evaluates, records `admin_actions` (allowed **and** refused), and on allowed makes **one** call to `admin_write_autonomy_policy` — which returns both ids — then audits |
 | `app/models/admin_rbac.py` | `AdminRoleGrant`, `AdminAction` |
-| `app/models/admin_policy.py` | `AdminPolicyChange`, `TenantAdminEvent` |
-| `app/repositories/admin.py` | `AdminGrantRepository` (tenant read), `AdminActionRepository` (insert + reads), `AdminPolicyChangeRepository` |
+| `app/models/admin_policy.py` | `AdminPolicyChange`, `TenantAdminEvent` (both **read-only** ORM models for the runtime role, in the `app/models/audit_log.py` spirit: the ledger is written by the definer function, never the ORM) |
+| `app/repositories/admin.py` | `AdminGrantRepository` (tenant read), `AdminActionRepository` (insert + reads), `AdminPolicyChangeRepository` (**reads plus the single `SELECT * FROM public.admin_write_autonomy_policy(...)` call site** — the one place in the codebase that invokes the gated writer) |
 | `scripts/admin_roles.py` | operator CLI, argparse subcommands `grant`, `revoke`, `suspend-tenant`, `reinstate-tenant`, `suspend-org`, `reinstate-org`; prints ids/status only, never a key or an override value; uses `ADMIN_DATABASE_URL` |
 | `migrations/versions/0062_enterprise_admin.py` | additive + the one §OD-11 narrowing; imports the CHECK strings and DDL helpers (the `0061` import pattern) |
 
-**Edited (not new):** `app/repositories/autonomy_policies.py` (`upsert` only, §1.1),
+**Edited (not new):** `app/repositories/autonomy_policies.py` (`upsert` **deleted**, §1.1),
 `scripts/bootstrap_rls_role.sql` (`policy_admin_writer`, §1.1),
 `app/models/organization.py` (`status`), and the twenty test files of §OD-14.
 
@@ -913,9 +1048,12 @@ Tests (new): `tests/test_admin_rbac.py` (pure), `tests/test_admin_rbac_db.py`,
 tenants + projects + keys + grants, and `seed_gated_policy`, §OD-14).
 
 `policy_admin.apply_policy_change` refuses **before** touching the policy: on any
-non-`allowed` decision it records the refusal action + audit and returns without calling
-`upsert`. Insert order inside one transaction: `admin_actions` →
-`upsert(admin_action_id=…)` → `admin_policy_changes`.
+non-`allowed` decision it records the refusal action + audit and never calls the writer.
+The order inside one transaction is now only **two** Python steps — `INSERT admin_actions`,
+then `SELECT * FROM public.admin_write_autonomy_policy(...)` — because the policy upsert and
+the `admin_policy_changes` spend both happen **inside** that one call (§OD-11 step 3.8, v3
+defect 1). Python cannot write the policy without spending the action, cannot spend without
+writing the policy, and cannot replay a spent action.
 
 No `Makefile` target is added; the operator CLI is invoked as
 `uv run python -m scripts.admin_roles <subcommand> …`. `make migrate` /
@@ -963,11 +1101,32 @@ Sol's Slice-62 finding is carried forward, and v2 adds rules 4–6 to close defe
    parametrized with one named case per (table, statement) or (table, privilege) pair, and
    each case's mutation targets **that** table's **that**-statement trigger / that table's
    RLS / that exact grant. One UPDATE trigger may not stand in for nine assertions.
+7. **A referential obstacle is never allowed to stand in for the guard** (v3, defect 4). On a
+   table that is an FK **parent**, an inbound reference can pre-empt the guard entirely, so
+   the probe must remove the obstacle rather than mistake it for a refusal:
+   - **TRUNCATE.** `TRUNCATE <parent>` alone raises SQLSTATE `0A000` *before* any BEFORE
+     TRUNCATE trigger fires (fact 0.1.15), so such a probe is false in both directions. The
+     statement under test is instead the **explicitly ordered multi-table** `TRUNCATE
+     <parent>, <child>`, with the **child's** truncate trigger disabled in setup (rule 4) so
+     the surviving `RAISE` provably belongs to the parent, and the mutation additionally
+     disables the parent's trigger — measured to commit.
+   - **DELETE / UPDATE.** Parent-row cases seed a row with **no referencing child**, so an FK
+     `RESTRICT` can never masquerade as the append-only trigger or the privilege denial.
+   - **DROP TABLE.** A single `DROP TABLE <parent>` fails with `2BP01` (fact 0.1.16); any
+     drop-based mutation must be the named children-first sequence of §3.6(f).
+   If a guard cannot be reached without dismantling so much that the probe stops being
+   evidence, the honest move is to delete the claim, not to keep a probe whose absent-guard
+   mutation cannot commit.
 
 Global: use `DISABLE TRIGGER` / `DROP CONSTRAINT` / `DISABLE ROW LEVEL SECURITY` /
 `CREATE OR REPLACE FUNCTION` on the **named** object only; never
 `SET CONSTRAINTS ALL DEFERRED`, never a session-wide `session_replication_role`, and always
-restore in a `finally`. `TRUNCATE` cases run inside a transaction that is rolled back.
+restore in a `finally`. `TRUNCATE` cases run inside a transaction that is rolled back. Where
+the mutation is **pure DDL** (drop a constraint, disable a trigger, disable RLS, replace a
+function body), restoring by rolling back the enclosing transaction is preferred over an
+explicit `finally`, because PostgreSQL DDL is transactional and a rollback cannot leak a
+half-restored object; the probe must still **re-assert the guard's presence and its refusal
+afterwards**, so a rollback is never a substitute for proving the restore.
 
 ### 5.1 Pure probes
 
@@ -1009,7 +1168,9 @@ Unless stated, the statement under test is executed **as `uaid_app` inside `tena
 | **P-priv/autonomy_policies/UPDATE** | privilege: no UPDATE | as `uaid_app`, `UPDATE autonomy_policies SET autonomy_level=5` on its own admin-seeded row ⇒ `42501` | `GRANT UPDATE …`; the same UPDATE commits; `REVOKE UPDATE`, re-assert. No other guard exists on this table, so the grant alone is the whole mutation |
 | **P-writer-requires-allowed-action** | `admin_write_autonomy_policy` step 3 | call the function with an `admin_actions` id whose `decision='refused_insufficient_role'` (same tenant + project, policy kind, unspent) ⇒ `RAISE 'admin_action_not_allowed'` | `CREATE OR REPLACE FUNCTION public.admin_write_autonomy_policy(...)` with **only** the `decision='allowed'` clause removed; the same call commits and the policy row changes; restore the original body from `guards_sql.py` and assert `pg_get_functiondef` matches |
 | **P-writer-requires-policy-kind** | step 4 | an `allowed` action whose `action_kind` is set by admin to a non-policy value ⇒ `RAISE 'admin_action_not_policy_kind'`. Because `ck_admin_actions_*` bind the kinds, the setup writes the row as admin with the kind CHECK dropped for that statement only, and says so (§5.0 rule 4) | `CREATE OR REPLACE` with the kind clause removed; the same call commits; restore |
-| **P-writer-requires-unspent-action** | step 5 | run one full allowed change, then call the function again with the **same** `admin_action_id` ⇒ `RAISE 'admin_action_already_spent'` | `CREATE OR REPLACE` with the spent-check removed; the second call commits; restore |
+| **P-writer-spends-action-atomically** (renames v2's P-writer-requires-unspent-action; absorbs v2's P-change-action-reuse) | `uq_admin_policy_changes_action`, the sole spend authority (§OD-11 step 3.8) | one **allowed** action; call the writer once (asserting it returned both ids and the policy moved to level 2); call it again with the **same** `admin_action_id` and a different level ⇒ `RAISE 'admin_action_already_spent'`, **and** the policy row still reads level 2 and `admin_policy_changes` still holds exactly one row for that action — the refused replay unwound its own policy write (fact 0.1.14) | `ALTER TABLE public.admin_policy_changes DROP CONSTRAINT uq_admin_policy_changes_action`; the identical second call now **commits**, the policy moves again, and a second ledger row appears for the same action — i.e. the authorization is replayable exactly when this constraint is absent. The mutated half runs inside a transaction that is **rolled back**, which restores the constraint and removes the forged ledger row together (the table is DELETE-blocked, so a rollback is the only clean undo); the probe then re-asserts the constraint in `pg_constraint` and re-asserts the refusal |
+| **P-writer-guc-unset** (new in v3, defect 3) | §OD-11 step 3.1, the refusal to infer a tenant | **Setup discloses (§5.0 rule 4)** that RLS is disabled on `autonomy_policies`, `admin_actions`, and `admin_policy_changes` for this case only, because RLS is the outer layer that would refuse any GUC-less write regardless; with an allowed action seeded and **no** `app.current_tenant` set, the call ⇒ `RAISE 'tenant_guc_unset'` | `CREATE OR REPLACE FUNCTION public.admin_write_autonomy_policy(...)` with step 3.1 replaced by the tempting fallback — take the tenant from the action row — and nothing else changed; the same GUC-less call then **commits** and writes a policy for a tenant the caller never proved (measured live while writing this plan: fact 0.1.13's harness, `pol_rows = 1`). Restore the body, re-enable + re-FORCE RLS on all three tables, re-assert both the `RAISE` and `relforcerowsecurity` |
+| **P-writer-no-existing-policy** (new in v3, defect 3) | §OD-11 step 3.6, `no_existing_policy` | a project with **no** `autonomy_policies` row and an allowed `tighten_autonomy_overrides` action; call with a non-empty monotone map ⇒ `RAISE 'no_existing_policy'`. Nothing else can fire: monotonicity is vacuously satisfied against an absent row, so this clause is the only refusal | `CREATE OR REPLACE` with **only** the existence clause removed; the same call then commits and *creates* a policy row by "tightening" — the exact harm the clause prevents (a tighten that is really a first-time grant of a level nobody set); restore |
 | **P-tighten-relax-empty-map** | §OD-12 monotonicity | stored `overrides = {"run_tests": {"allow": false}}` at level 2; an **allowed** `tighten_autonomy_overrides` action; call with `p_autonomy_level=2`, `p_overrides='{}'` ⇒ `RAISE 'tighten_would_relax_overrides'` | `CREATE OR REPLACE` with the monotonic clause removed; the same call commits and `overrides` becomes `{}` (Sol's exact re-enable case); restore and re-assert the refusal |
 | **P-tighten-relax-drops-disable** | same | stored `{"run_tests": {"allow": false}}` → `{"run_tests": {"min_level": 3}}` (key kept, disable dropped) ⇒ same `RAISE` | same |
 | **P-tighten-relax-lowers-min-level** | same | stored `{"deploy_staging": {"min_level": 4}}` → `{"deploy_staging": {"min_level": 3}}` ⇒ same `RAISE` | same |
@@ -1044,13 +1205,19 @@ name so it cannot be a neighbour.
 
 #### 5.2.d `admin_policy_changes` and `admin_role_grants` lifecycle
 
+The three `admin_policy_changes_guard` cases run **as admin** (§9): after v3's defect-1 change
+`uaid_app` holds no `INSERT` on that table, so a runtime attempt would prove the grant, not the
+trigger — and that outer layer is proven separately by P-priv/admin_policy_changes/INSERT.
+These probes exist because the guard must also bind the **owner** path, which the definer
+function cannot police.
+
 | Probe | Guard under test | Refusal payload | Mutation that must commit |
 |---|---|---|---|
 | **P-change-refused-action** | `admin_policy_changes_guard` | reference an `admin_actions` row with `decision='refused_insufficient_role'`; every FK/CHECK satisfied and `new_autonomy_level` equal to the real policy level ⇒ `RAISE` on the decision clause | `DISABLE TRIGGER admin_policy_changes_guard`; same INSERT commits; restore |
 | **P-change-level-mismatch** | same | referenced action is `allowed`; the real level is 3; record `new_autonomy_level=2` (in range, so the 0–5 CHECK cannot mask it) ⇒ `RAISE` on the level clause | same |
 | **P-change-tighten-level-moved** | same | `tighten_autonomy_overrides`, `previous_autonomy_level=2`, `new_autonomy_level=3` where the policy really holds 3 (level clause passes) ⇒ `RAISE` on the tighten clause | same |
-| **P-change-action-reuse** | `uq_admin_policy_changes_action` | commit one valid change; INSERT a second row for the **same** `admin_action_id`, differing only in `id`, every guard clause satisfied ⇒ violation names `uq_admin_policy_changes_action` | `DROP CONSTRAINT uq_admin_policy_changes_action`; the second row commits; re-add |
-| **P-grant-update-widen** | `admin_role_grants_guard` | as **admin**: UPDATE a revoked grant back to `status='active'` ⇒ `RAISE`; and UPDATE `admin_role` on an active grant ⇒ `RAISE` (two cases, one trigger) | `DISABLE TRIGGER admin_role_grants_guard`; each same UPDATE commits; restore |
+| **P-grant-insert-status** (new in v3, defect 3) | `admin_role_grants_guard`, INSERT clause | as **admin**, INSERT an otherwise perfectly valid grant with `status='revoked'` ⇒ `RAISE` on the born-active clause. The `status` CHECK **permits** `'revoked'`, so it cannot be the refuser, and no FK/UNIQUE is touched | `ALTER TABLE public.admin_role_grants DISABLE TRIGGER admin_role_grants_guard`; the identical INSERT commits, creating a grant with no `role_granted` history — which is why the clause exists; restore, assert `tgenabled='O'`, re-assert the `RAISE` |
+| **P-grant-update-widen** | `admin_role_grants_guard`, UPDATE clause | as **admin**: UPDATE a revoked grant back to `status='active'` ⇒ `RAISE`; and UPDATE `admin_role` on an active grant ⇒ `RAISE` (two cases, one trigger) | `DISABLE TRIGGER admin_role_grants_guard`; each same UPDATE commits; restore |
 
 #### 5.2.e `tenant_admin_events` fidelity (defect 5)
 
@@ -1065,18 +1232,23 @@ name so it cannot be a neighbour.
 
 #### 5.2.f Privilege matrix — one case per (table, privilege), §5.0 rule 5
 
-Family **P-priv/`<table>`/`<privilege>`**, all executed as `uaid_app` via `rls_engine`, each
+Family **P-priv/`<table>`/`<privilege>`**, **13 cases** in v3 (12 in v2, plus
+`admin_policy_changes/INSERT`), all executed as `uaid_app` via `rls_engine`, each
 asserting SQLSTATE `42501` naming that table, each mutation granting **that** privilege on
 **that** table (plus, where noted, disabling the one named trigger that would otherwise mask
 the commit), then re-running the identical statement, then `REVOKE` + re-assert:
+
+Per §5.0 rule 7, every seeded row in this family is an **unreferenced** row, so no FK
+`RESTRICT` can be mistaken for a privilege denial on the two parent tables.
 
 | Case | Statement | Extra mutation needed to reach commit |
 |---|---|---|
 | `admin_role_grants/INSERT` | INSERT a well-formed active grant (throwaway principal, so the residue is inert — the table is DELETE-blocked by design and must not be cleaned up by DELETE) | none |
 | `admin_role_grants/UPDATE` | UPDATE an admin-seeded active grant to `status='revoked'` (the direction the guard permits, so the guard cannot mask the grant) | none |
-| `admin_role_grants/DELETE` | DELETE an admin-seeded grant | also `DISABLE TRIGGER admin_role_grants_no_delete` |
+| `admin_role_grants/DELETE` | DELETE an admin-seeded grant that **no** `tenant_admin_events` row references (rule 7) | also `DISABLE TRIGGER admin_role_grants_no_delete` |
 | `admin_actions/UPDATE` | UPDATE `decision` on an admin-seeded row | also `DISABLE TRIGGER admin_actions_no_update_delete` |
-| `admin_actions/DELETE` | DELETE that row | also `DISABLE TRIGGER admin_actions_no_update_delete` |
+| `admin_actions/DELETE` | DELETE that row, seeded **unspent** so no `admin_policy_changes` row references it (rule 7) | also `DISABLE TRIGGER admin_actions_no_update_delete` |
+| `admin_policy_changes/INSERT` (new in v3, defect 1) | INSERT a fully valid ledger row for a real allowed action ⇒ `42501`, proving the runtime role cannot record a spend, let alone forge one, outside `admin_write_autonomy_policy` | `GRANT INSERT ON public.admin_policy_changes TO uaid_app`; the identical INSERT commits (the guard clauses are all satisfied, so the privilege was the only obstacle); `REVOKE INSERT`, re-assert `42501` |
 | `admin_policy_changes/UPDATE` | UPDATE `new_autonomy_level` | also `DISABLE TRIGGER admin_policy_changes_no_update_delete` |
 | `admin_policy_changes/DELETE` | DELETE the row | same |
 | `tenant_admin_events/INSERT` | INSERT a lifecycle event (throwaway tenant, inert residue; append-only, no DELETE cleanup) | none |
@@ -1090,17 +1262,31 @@ the commit), then re-running the identical statement, then `REVOKE` + re-assert:
 Family **P-ao/`<table>`/`<statement>`**, 11 cases. Each runs **as admin** (stated in the
 docstring: the runtime role has no privilege on these statements, so a `uaid_app` attempt
 would prove the grant, not the trigger — the object under test here is the trigger), asserts
-the named trigger's own `RAISE`, and mutates **that** table's **that**-statement trigger:
+the named trigger's own `RAISE`, mutates **that** table's **that**-statement trigger, and runs
+inside a transaction that is rolled back.
 
-| Table | Statements | Trigger disabled by the mutation |
-|---|---|---|
-| `admin_role_grants` | DELETE, TRUNCATE | `admin_role_grants_no_delete`, `admin_role_grants_no_truncate` |
-| `admin_actions` | UPDATE, DELETE, TRUNCATE | `admin_actions_no_update_delete` (UPDATE and DELETE cases each re-run their own statement), `admin_actions_no_truncate` |
-| `admin_policy_changes` | UPDATE, DELETE, TRUNCATE | `admin_policy_changes_no_update_delete`, `admin_policy_changes_no_truncate` |
-| `tenant_admin_events` | UPDATE, DELETE, TRUNCATE | `tenant_admin_events_no_update_delete`, `tenant_admin_events_no_truncate` |
+**Rebuilt in v3 (defect 4).** Sol's live `0A000` is reproduced in fact 0.1.15: on the two FK
+**parent** tables a single-table `TRUNCATE` never reaches the trigger, so v2's two cases were
+false in both directions — the unmutated failure was the FK, and the mutation could not commit.
+The DELETE cases are additionally re-specified to seed **unreferenced** rows (rule 7).
+
+| Case | Statement under test | Setup layer disclosed | Mutation that must commit |
+|---|---|---|---|
+| `admin_role_grants/DELETE` | DELETE an unreferenced grant | none | `DISABLE TRIGGER admin_role_grants_no_delete` |
+| `admin_role_grants/TRUNCATE` | `TRUNCATE public.admin_role_grants, public.tenant_admin_events;` — the ordered two-table form, so the inbound `fk_tae_grant_identity` is satisfied and the trigger is the only obstacle | `tenant_admin_events_no_truncate` is **disabled in setup**, so the surviving `RAISE` provably names `admin_role_grants` (measured: fact 0.1.15) | additionally `DISABLE TRIGGER admin_role_grants_no_truncate`; the identical statement then commits (measured: both tables emptied); restore both triggers, assert `tgenabled='O'` on each, ROLLBACK |
+| `admin_actions/UPDATE` | UPDATE `decision` | none | `DISABLE TRIGGER admin_actions_no_update_delete` |
+| `admin_actions/DELETE` | DELETE an **unspent** action (no ledger child) | none | same trigger, re-running the DELETE |
+| `admin_actions/TRUNCATE` | `TRUNCATE public.admin_actions, public.admin_policy_changes;` | `admin_policy_changes_no_truncate` disabled in setup | additionally `DISABLE TRIGGER admin_actions_no_truncate`; commits; restore both |
+| `admin_policy_changes/{UPDATE,DELETE,TRUNCATE}` | its own statement; **no inbound FK**, so the single-table `TRUNCATE` is legitimate here | none | `admin_policy_changes_no_update_delete` / `admin_policy_changes_no_truncate` |
+| `tenant_admin_events/{UPDATE,DELETE,TRUNCATE}` | its own statement; leaf table, single-table `TRUNCATE` legitimate | none | `tenant_admin_events_no_update_delete` / `tenant_admin_events_no_truncate` |
 
 `admin_role_grants` has no UPDATE case by design (§3.1: revoke is a legal UPDATE); its UPDATE
 authority is probed by P-grant-update-widen instead.
+
+**Honest scope of the two multi-table cases.** What they prove is that *this* `TRUNCATE`
+statement is refused by *that* trigger and would otherwise succeed. They do **not** claim
+`TRUNCATE` is impossible: a role that can `ALTER TABLE ... DISABLE TRIGGER` — i.e. the table
+owner — can always truncate, exactly as §0.5 already says about owner credentials.
 
 #### 5.2.h RLS matrix — one case per table, §5.0 rule 6
 
@@ -1119,17 +1305,21 @@ cross-tenant SELECT returns B's row (and the INSERT commits) — then restore
 | **P-suspend-tenant-blocks** | resolver body | issue a key (raw returned once), assert it resolves; as admin set `tenants.status='suspended'`; the **same raw key** now yields `resolve(...) is None`, **and** a real HTTP `GET /api/projects/{id}/runs` with that bearer returns **401** with the generic body | restore the `0026` resolver body (drop + create the old body) — the same key resolves again; reinstall the `0062` body and re-assert `None`. This proves the resolver clause, not a Python check |
 | **P-suspend-org-blocks** | resolver body | tenant stays `active`; set `organizations.status='suspended'` ⇒ `resolve(...) is None` and HTTP 401 | same resolver mutation |
 | **P-reinstate-restores** | resolver body | after either suspension, set status back to `'active'` ⇒ the same key resolves and the endpoint returns 200 (proves suspension is a live filter, not a one-way key kill) | n/a (positive control for the two above) |
-| **P-downgrade-populated** | `populated_downgrade_sql()` | with one row in **each** of the four tables (four sub-cases, one per table, so the guard is proven on each object) `alembic downgrade 0061` fails closed with the guard's own message naming that table | in the same transaction, execute the downgrade's own DDL **without** the emptiness check (the guard-free equivalent: drop that table) and assert it succeeds, then `ROLLBACK` — proving the drop would have happened had the guard been absent |
+| **P-org-status-check** (new in v3, defect 3) | `ck_organizations_status_valid` (§3.5) | as **admin** (fact 0.1.16: `uaid_app` has only SELECT here, so the owner path is the only way to reach the CHECK), `UPDATE public.organizations SET status='bogus'` on a real org ⇒ violation naming `ck_organizations_status_valid`. Nothing else constrains the column, so the name cannot be a neighbour's | `ALTER TABLE public.organizations DROP CONSTRAINT ck_organizations_status_valid`; the identical UPDATE commits and the org now holds a status the resolver's `= 'active'` test silently rejects forever — the reason the CHECK exists; re-add the constraint from the migration text and re-assert the violation |
+| **P-downgrade-populated** | `populated_downgrade_sql()` | with one row in **each** of the four tables (four sub-cases, one per table, so the guard is proven on each object) `alembic downgrade 0061` fails closed with the guard's own message naming that table | **Re-specified in v3 (defect 4).** v2 said "drop that table", which is impossible for the two FK parents (fact 0.1.16: `2BP01`). The mutation is instead the **ordered guard-free sequence** of §3.6(f) executed in the same transaction with the emptiness check skipped — `DROP TABLE public.admin_policy_changes`, `public.tenant_admin_events`, `public.admin_actions`, `public.admin_role_grants`, in that order — asserting **each** statement succeeds despite the seeded rows, then `ROLLBACK`. That proves the data really would have been destroyed had the guard been absent, which is the claim the guard makes. No `CASCADE` is used anywhere: `CASCADE` would drop objects the downgrade does not own and would hide an ordering mistake |
 
 ### 5.3 Catalog / invariant assertions (not refusal probes)
 
 These are assertions, not guards, and are labelled as such so they are never counted as
 proven refusals. Where v1 claimed a probe that could only be mutated by monkeypatching a
-copy, v2 demotes it here rather than pretending (defect 4).
+copy, v2 demoted it here rather than pretending. **v3 moves one item the other way:** v2's
+A-writer-guc is now the real refusal probe P-writer-guc-unset, because fact 0.1.13's harness
+showed a mutation that does commit once the outer RLS layer is disclosed and disabled in setup.
 
 - **A-grant-matrix** `information_schema.role_table_grants` for `uaid_app` is exactly:
   `admin_role_grants` → `{SELECT}`; `tenant_admin_events` → `{SELECT}`;
-  `admin_actions` → `{SELECT, INSERT}`; `admin_policy_changes` → `{SELECT, INSERT}`;
+  **`admin_policy_changes` → `{SELECT}`** (no INSERT — v3 defect 1: the ledger is written only
+  inside the definer function); `admin_actions` → `{SELECT, INSERT}`;
   **`autonomy_policies` → `{SELECT}`** (no INSERT, no UPDATE — the §OD-11 lock, asserted at
   the catalog as well as behaviourally). No `UPDATE`, `DELETE`, `TRUNCATE`, or `REFERENCES`
   on any Slice-63 table. `PUBLIC` has none.
@@ -1137,12 +1327,13 @@ copy, v2 demotes it here rather than pretending (defect 4).
   `policy_admin_writer`; that role is `rolsuper=false rolbypassrls=false rolcanlogin=false`;
   `information_schema.routine_privileges` shows `EXECUTE` for `uaid_app` and none for PUBLIC;
   `policy_admin_writer` holds exactly `{SELECT, INSERT, UPDATE}` on `autonomy_policies`,
-  `{SELECT}` on `admin_actions` and `admin_policy_changes`, and **nothing** on
-  `admin_role_grants`, `tenant_admin_events`, or `tenant_api_keys`.
-- **A-writer-guc** calling `admin_write_autonomy_policy` with no `app.current_tenant` set
-  raises `tenant_guc_unset`. Recorded as an assertion, not a refusal probe: with the GUC
-  unset, `autonomy_policies` RLS would refuse the write anyway, so no mutation of the GUC
-  check alone can commit and it cannot meet §5.0 rule 1.
+  `{SELECT}` on `admin_actions`, `{SELECT, INSERT}` on `admin_policy_changes`, and **nothing**
+  on `admin_role_grants`, `tenant_admin_events`, or `tenant_api_keys`.
+- **A-no-ungated-upsert** (new in v3, defect 1) `AutonomyPolicyRepository` has **no** `upsert`
+  attribute (`hasattr` is False), and a repo-wide scan finds no `INSERT`/`UPDATE` against
+  `autonomy_policies` or `admin_policy_changes` outside `0062` and the two guard/DDL modules —
+  so the gated writer is not merely the intended path but the only expressible one below the
+  owner role.
 - **A-monotonic-table** a truth table over `SELECT public.admin_overrides_is_monotonic(a, b)`:
   `({}, {})` true; `({}, {"run_tests": {"allow": false}})` true (adding restriction);
   `({"run_tests": {"allow": false}}, {})` false; `(…{"allow": false}, …{"min_level": 3})`
@@ -1178,6 +1369,12 @@ copy, v2 demotes it here rather than pretending (defect 4).
   `autonomy_policies` row's `autonomy_level` / `overrides` / `updated_at` unchanged. This is
   an ordering assertion about the Python service, **not** a guard: the DB authority for the
   same property is P-writer-requires-allowed-action, which mutates the production function.
+- **A-writer-returns-both-ids** (new in v3, defect 1) one allowed change returns a non-null
+  `o_autonomy_policy_id` **and** `o_admin_policy_change_id` from the single call, the ledger
+  row's `admin_action_id` is the action just minted, and its `previous_autonomy_level` /
+  `override_key_count` match what the DB derived rather than anything Python passed — the
+  positive control for the atomic path whose negative control is
+  P-writer-spends-action-atomically.
 - **A-audit-chain** (demoted from v1's P-audit-chain) an allowed change and a refused attempt
   each append an `audit_logs` row with the §OD-9 action name and payload keys; `audit_verify()`
   returns `ok=true`; no payload value contains an override value, a key hash, or a raw key.
@@ -1213,10 +1410,11 @@ copy, v2 demotes it here rather than pretending (defect 4).
   `matrix_floor_enforced_in_python_only`, `cost_budget_writes_not_rbac_gated`,
   `malformed_stored_override_refuses_tighten`, and "an operator holding DB-owner credentials
   is not constrained by this RBAC — that actor can write policies and grants directly";
-- record that `uaid_app` **lost** `INSERT`/`UPDATE` on `autonomy_policies`, that
-  `AutonomyPolicyRepository.upsert` now requires an `admin_action_id`, and that
-  `scripts/bootstrap_rls_role.sql` must be run before `0062` (it creates
-  `policy_admin_writer`);
+- record that `uaid_app` **lost** `INSERT`/`UPDATE` on `autonomy_policies` and holds no
+  `INSERT` on `admin_policy_changes`, that `AutonomyPolicyRepository.upsert` was **removed** in
+  favour of the single gated call, that the policy write and the spending of its authorization
+  are one database call, and that `scripts/bootstrap_rls_role.sql` must be run before `0062`
+  (it creates `policy_admin_writer`);
 - publish the post-change SHA-256 of `app/repositories/autonomy_policies.py` and
   `scripts/bootstrap_rls_role.sql` next to the §1.1 pre-change hashes;
 - state that the Slice 61 exit and D-8 / D-9 / D-10 stay **OPEN** (owner = Salim);
@@ -1257,32 +1455,39 @@ Do **not** add a Slice 64.
 
 No change to the seventeen frozen files. No new HTTP route, tool, A1 action, connector, LLM
 call, or credential type. No RLS bypass. **No new privilege for `uaid_app` anywhere** — it
-gains `SELECT`/`INSERT` on the two ledgers and `SELECT` on the two admin-written tables, and
-**loses** `INSERT`/`UPDATE` on `autonomy_policies`. No budget figures. No spec edit. No
-softening of go-live or §2.6. No Slice 64.
+gains `SELECT` on all four new tables plus `INSERT` on `admin_actions` **only**, and **loses**
+`INSERT`/`UPDATE` on `autonomy_policies`. No budget figures. No spec edit. No softening of
+go-live or §2.6. No Slice 64.
 
 ---
 
 ## 9. Builder constraints
 
-- TDD: land P-1…P-6, then the failing P-priv/autonomy_policies/INSERT and
-  P-tighten-relax-empty-map (the two defect-1 / defect-2 proofs) before the feature code.
+- TDD: land P-1…P-6, then the failing P-priv/autonomy_policies/INSERT,
+  P-writer-spends-action-atomically, and P-tighten-relax-empty-map (the three proofs the v1
+  and v2 rejections turned on) before the feature code.
 - Every guard in §3 and §OD-11/§OD-12/§OD-13 has a named probe in §5.2 and must satisfy all
-  six §5.0 conditions. A probe whose mutation cannot commit is a defect, not a pass; if a
+  **seven** §5.0 conditions. A probe whose mutation cannot commit is a defect, not a pass; if a
   guard genuinely cannot carry a load-bearing probe, demote it to §5.3 and say so — do not
   dress an assertion as a refusal.
 - All forgery/privilege probes run as **`uaid_app`** via `rls_engine`, except those that must
   exercise the owner path because the runtime role has no privilege to reach the guard under
   test — each stating that reason in its docstring: **P-allow-no-grant-as-admin**,
-  **P-grant-update-widen**, the whole **P-ao/\*** family (11 cases), **P-event-lies**,
+  **P-grant-insert-status**, **P-grant-update-widen**, the whole **P-ao/\*** family (11 cases),
+  the three **P-change-\*** guard cases (v3: the runtime role lost INSERT on
+  `admin_policy_changes`), **P-org-status-check** (fact 0.1.16), **P-event-lies**,
   **P-event-wrong-org**, **P-event-role-grant-status**, **P-event-principal-mismatch**,
   **P-event-role-mismatch**, **P-check-tae-role-shape**, and the admin-side seeding halves of
   the **P-rls/\*** family. Any *other* probe run as admin is a defect.
 - Restore every disabled trigger, dropped constraint, temporary grant, disabled RLS, and
-  replaced function body in a `finally`, and let A-triggers-enabled catch a miss.
+  replaced function body in a `finally`, and let A-triggers-enabled catch a miss. The two
+  probes that disable RLS or drop `uq_admin_policy_changes_action` must additionally re-assert
+  `relforcerowsecurity` / the constraint's presence before the test ends.
 - The §OD-14 test migration touches twenty existing test files. Change **only** the policy
   seeding call at each site. If any test's *assertions* must change, name it in the PR body
-  with the reason — a silently weakened assertion is a defect.
+  with the reason — a silently weakened assertion is a defect. If `seed_gated_policy` raises
+  `SeedPreconditionError` at a site, convert that site (Mode A, or seed before the
+  `tenant_scope` block) — never loosen the helper.
 - Do not `ruff format` the whole tree. Line cap 500 per file — split rather than grow
   (`guards_sql.py` is pre-split from `ddl.py` for exactly this reason; if the two new function
   bodies push it over, split again into `app/admin/policy_sql.py`).
@@ -1290,7 +1495,7 @@ softening of go-live or §2.6. No Slice 64.
   two un-frozen files of §1.1; 0 errors on that set. Full-repo pyright remains out of scope
   (pre-existing errors).
 - Conventional commits (`feat(admin):`, `test(admin):`, `feat(migrations):`,
-  `refactor(policy):` for the un-frozen `upsert`). Do not commit `.env`.
+  `refactor(policy):` for the removal of `upsert`). Do not commit `.env`.
   **Do not edit this plan.**
 - Branch `feat/slice-63-enterprise-admin`. Do not open the PR before Sol's code APPROVE.
 
@@ -1358,3 +1563,63 @@ down:
    unauthenticated actor. §OD-3 documents the matching pure order. New probes:
    P-refuse-insufficient-with-higher-grant, P-allow-not-highest-grant, plus P-2 cases (b) and
    (h).
+
+**v3.** Sol REJECT #2 accepted in full; head re-verified `0061`. Four defects, none argued
+down. The common thread in both rejections was a claim asserted rather than measured, so v3
+**executed every contested behaviour against the live PostgreSQL 16 container** before writing
+it down; the results are facts 0.1.13–0.1.16 and each is a test the builder must reproduce.
+
+1. **Policy write and action consumption were not atomic.** Accepted. The spend moved
+   **inside** `admin_write_autonomy_policy` (§OD-11 step 3.8): the function now upserts the
+   policy *and* inserts the `admin_policy_changes` row in one call, returning both ids via
+   `OUT` parameters, with `uq_admin_policy_changes_action` as the **sole** spend authority —
+   v2's separate "already spent?" `SELECT` is **deleted**, because a pre-check would mask the
+   constraint and could not carry a mutation that commits. `previous_autonomy_level` and
+   `override_key_count` are now DB-derived, not caller-supplied. `uaid_app` loses `INSERT` on
+   `admin_policy_changes` (§3.3), so the ledger row cannot originate anywhere else, and
+   `AutonomyPolicyRepository.upsert` is **deleted** rather than re-signatured (§1.1) so no
+   ungated name survives for a future caller. Python is down to two steps, neither of which can
+   be interleaved or replayed. Measured (fact 0.1.14): the replay refuses **and** the policy
+   column retains its first value, so there is no window where a policy changed without a
+   ledger row. Probes: **P-writer-spends-action-atomically** (renamed from
+   P-writer-requires-unspent-action; absorbs P-change-action-reuse, now removed),
+   **P-priv/admin_policy_changes/INSERT**; assertions **A-no-ungated-upsert**,
+   **A-writer-returns-both-ids**; A-grant-matrix and A-writer-role updated.
+2. **The §OD-14 helper could not see uncommitted admin-session fixtures.** Accepted; v2's own
+   parenthetical admitted the problem and did not fix it. **Chosen path (a):** the definer
+   function is called **on the caller's own session** — `apply_policy_change` now *takes* a
+   session (with `apply_policy_change_in_scope` owning `tenant_scope` for production callers),
+   so admin-session tests seed the GUC and the grant and call the writer in **one transaction,
+   one connection**. Fact 0.1.13 measured exactly this: a non-owner SECURITY DEFINER function
+   called from a superuser session read a row that transaction had not committed, and stayed
+   RLS-confined (cross-tenant and unset-GUC both refused). For runtime-scope sites the grant
+   still needs an admin connection, so the helper takes the **existing `admin_engine` fixture**
+   — v2's "short-lived admin engine from `TEST_ADMIN_URL`" is deleted, and the helper now builds
+   no engine at all — and it **states and enforces** the committed-tenant precondition with a
+   loud `SeedPreconditionError` instead of a fallback. That precondition was checked, not
+   assumed: those fixtures seed inside `async with admin_engine.begin()`, which commits
+   (`tests/conftest.py:162-169`, `tests/test_ci_evidence.py:160-162`). A tripped site is a
+   failure the builder converts, never a silent pass. **No claim that a second connection sees
+   uncommitted work appears anywhere in v3.**
+3. **Four guards had no refusal/mutation pair.** All four added as real §5.2 probes:
+   **P-writer-guc-unset** (setup discloses and disables the outer RLS layer per §5.0 rule 4;
+   the mutation replaces the guard with the tempting "infer the tenant from the action row"
+   fallback and **commits** — measured, `pol_rows = 1`; v2's A-writer-guc assertion is
+   promoted and deleted from §5.3), **P-writer-no-existing-policy** (monotonicity is vacuous
+   against an absent row, so the existence clause is provably the only refuser),
+   **P-grant-insert-status** (the `status` CHECK permits `'revoked'`, so only the guard can
+   refuse a born-revoked grant), and **P-org-status-check** (`ck_organizations_status_valid` is
+   now a named constraint in §3.5; owner path, because fact 0.1.16 shows `uaid_app` has only
+   `SELECT` on `organizations`).
+4. **TRUNCATE/parent mutations could not commit.** Accepted, and Sol's `0A000` reproduced: on
+   an FK parent, `TRUNCATE` never reaches the BEFORE TRUNCATE trigger (fact 0.1.15), so v2's
+   two parent cases were false in *both* directions. §5.2.g is rebuilt: the statement under
+   test is the **explicitly ordered two-table** `TRUNCATE <parent>, <child>`, the child's
+   truncate trigger is disabled in setup so the surviving `RAISE` provably names the parent,
+   and the mutation additionally disables the parent's trigger — all three states measured
+   live, including the commit (`rows_left = 0`). P-downgrade-populated's mutation becomes the
+   **ordered children-first drop sequence** now named in §3.6(f), because a single
+   `DROP TABLE` on either parent fails with `2BP01`; no `CASCADE` is used. §5.0 gains **rule
+   7**, which also re-specifies parent-row DELETE cases to seed unreferenced rows so an FK
+   `RESTRICT` can never stand in for the guard, and states plainly that a probe whose
+   absent-guard mutation cannot commit must be deleted rather than kept.
