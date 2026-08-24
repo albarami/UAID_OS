@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 25 (Slice 63 MERGED via PR #116 squash `e6fbddc`; Alembic head `0062`; Slice 55–63 loop closed; Slice 61 exit still OPEN; D-8/D-9/D-10 still OPEN with owner=Salim; go-live unaffected). Rev 24 recorded Slice 62. Rev 23 recorded the bounded Slice 62 delivery on the feature branch. Rev 22 recorded Slice 61b population. Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
+**Created:** 2026-06-17. **Revision:** Rev 26 (owner-authorized final-audit remediation program recorded on 2026-08-24; Slices 64–85 are traceably bound to audit findings F-001–F-022; execution is limited to the scope in §5; go-live remains unauthorized). Rev 25 recorded Slice 63 MERGED via PR #116 squash `e6fbddc`, Alembic head `0062`, and closure of the Slice 55–63 loop.
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 63 MERGED and the Slice 55–63 loop closed. Residual Slice 61 exit, D-8/D-9/D-10, §25.4, and §26.6 actuators stay open. This document does **not** authorize go-live. **No Slice 64.**
+**Status of this document:** ACTIVE REMEDIATION SEQUENCING RECORD — Salim's owner ruling of 2026-08-24 lifts the former `STOP. No Slice 64. No new work.` only for the scoped remediation program in §5. Residual Slice 61 exit, D-8/D-9/D-10, §25.4, and §26.6 actuators stay open. This document does **not** authorize go-live; `can_go_live_autonomously` remains literal `False`.
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -78,7 +78,7 @@ Every store is tenant-owned, RLS `ENABLE`+`FORCE`, append-only events, **no DELE
 | Cost ledger (§19) | 7 | **DONE** | price cards; **forecast**; per-phase budgets | §5 Slice 51 (forecast) |
 | Agent registry (§9.7/§22.2) | 6 | **DONE (catalog)** | **Agent Factory**; eval execution; model routing; broker wiring | §5 Slices 38–41 |
 | Document intake sandbox (§16.3) | 9 | **DONE** | Documentation Compiler; ML/RAG; binary parsing | §5 Track B Slices 35–37 |
-| Read API/dashboard (§18.6) | 10,17,19,21 | **DONE (read subset)** | forecast, critical path, evidence-pack status, deployment status, next action; pagination; web UI | §5 (surfaces per slice); Phase 7 (UI) |
+| Read API/dashboard (§18.6) | 10,17,19,21 | **DONE (read subset)** | forecast, critical path, evidence-pack status, deployment status, next action; pagination; web UI | §5 (surfaces per slice); **Slice 75 / F-012 (recorded and parked)** |
 | Canonical intake spine + Sanad store (§3.4/§26.2) | 11 | **DONE** | — | — |
 | Build-readiness auditor R0–R5 (§4.3/§4.5) | 12,16,18,20 | **DONE (capped R5)** | — (A5 is separate) | §5 (Phase 3–6 gates) |
 | Requirement extractor (§26.2) | 14a | **DONE** | real-model quality/eval | §5 Slice 40 (evals) |
@@ -175,7 +175,7 @@ Phases follow spec §26.3–§26.7 (lines 2461–2522). Each is detailed slice-b
 
 ## 5. Proposed slice sequence (after Slice 25)
 
-Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63). **Track B** is the Phase-2 intake-compiler closure (§26.2 residuals) — *parallelizable, off the A5-gate critical path*; it can be scheduled flexibly alongside Track A and does **not** block any A5 gate (none of the §26.2 residuals appears in Appendix B or the §24.1 go-live gate — see §2.6 + the disposition note in each Track-B slice). Slice numbers are stable. Each entry carries the full field set. **No slice makes a gate PASS unless its evidence source is genuinely complete and verified.**
+The historical S26–S63 program has two tracks. **Track A** is the A5-gate / go-live critical path. **Track B** is the Phase-2 intake-compiler closure (§26.2 residuals) — *parallelizable, off the A5-gate critical path*; it can be scheduled flexibly alongside Track A and does **not** block any A5 gate (none of the §26.2 residuals appears in Appendix B or the §24.1 go-live gate — see §2.6 + the disposition note in each Track-B slice). Those historical entries carry the full field set. The S64–S85 section is an owner-authorized remediation register; each authorized slice receives its own full `.planning/SLICE-N-PLAN.md` before implementation. Slice numbers are stable. **No slice makes a gate PASS unless its evidence source is genuinely complete and verified.**
 
 > Sequencing rests on: (a) spec §26 orders Phase 3 (integrations) before Phase 5 (review/evidence); (b) the dependency graph (§7) shows source-control/CI is the root every other evidence gate draws from (**inference** from §26 + the Slice 24/25 "no issue provenance" deferrals).
 
@@ -662,13 +662,85 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Tests.** RBAC; tenant-boundary preserved; admin actions audited.
 - **A5 gate(s) advanced.** None.
 - **Must NOT claim.** Admin convenience overriding tenant isolation.
-- **Exit.** Enterprise administration delivered with tenant isolation intact (migration `0062`, `ruleset_version="slice63.v1"`). This is a **roadmap-scope** statement only: go-live is not authorized, `can_go_live_autonomously` is still the literal `False`, the Slice 61 exit is still **OPEN**, and D-8/D-9/D-10 are still **OPEN** (owner = Salim). Do not mark Slice 61 done. Do not claim go-live. Do not add a Slice 64.
+- **Exit.** Enterprise administration delivered with tenant isolation intact (migration `0062`, `ruleset_version="slice63.v1"`). This is a **roadmap-scope** statement only: go-live is not authorized, `can_go_live_autonomously` is still the literal `False`, the Slice 61 exit is still **OPEN**, and D-8/D-9/D-10 are still **OPEN** (owner = Salim). Do not mark Slice 61 done. Do not claim go-live. The historical instruction not to add Slice 64 was superseded only by Salim's scoped remediation ruling below.
+
+### Final-audit remediation program — Slices 64–85 (owner ruling 2026-08-24)
+
+`.planning/FINAL-AUDIT-REPORT.md` (SHA-256 `127241c54d196c4edc53f254418e1bf0399dd9c266242e24f98178d5c0454815`, audited main `50bc0558df37fbc438ac5349c1b0b3f4ec06e5ba`) is the binding finding ledger. Its contiguous mapping F-001→Slice 64 through F-022→Slice 85 is preserved exactly. Every implemented slice must satisfy the owner's probe rule: on current main, run the audit probe unchanged and quote its raw successful forbidden-action output (RED); if the report has no probe, write one and show it RED before implementation; implement the fix; rerun the identical probe unchanged and quote its refusal by the specific intended guard rather than a neighbouring constraint, NOT NULL, or foreign key (GREEN); then commit the probe as a permanent test. This ruling does not authorize go-live or any work marked **PARKED** below. **Every S64–S85 entry is NOT STARTED at Wave 0; `AUTHORIZED` is permission to run its per-slice loop, never a completion claim.**
+
+Execution order is Wave 0 → S84 → S83 → S71 → the authorized trust-boundary slices → S64 → the authorized fake-done slices → S81/S80. The Wave-1 phrase “Slice 85 / F-020” is resolved as **Slice 83 / F-020** because the owner made the audit finding IDs and slice numbers binding; Slice 85 remains F-022.
+
+#### Slice 64 — F-001 semantic readiness — **BLOCKER · AUTHORIZED (Wave 4) · NOT STARTED**
+Validate all 25 Appendix-A R5 conditions for content, approval, authority, and currentness, with one direct negative mutation per condition.
+
+#### Slice 65 — F-002 approval and disposition authority — **BLOCKER · AUTHORIZED (Wave 3) · NOT STARTED**
+Close the ten §2.6 mandatory-action bypasses and bind risk acceptance plus finding/issue disposition to controlled, authenticated evidence-backed writers.
+
+#### Slice 66 — F-003 tenant identity binding — **BLOCKER · AUTHORIZED (Wave 3) · NOT STARTED**
+Replace the user-selectable tenant-GUC trust boundary with a non-user-selectable authenticated tenant binding and prove cross-tenant credential attacks fail closed.
+
+#### Slice 67 — F-004 append-only ledgers — **MAJOR · UNASSIGNED / OWNER DISPOSITION REQUIRED · NOT STARTED**
+Add the missing immutability boundary for `approval_events`, `tool_calls`, and `agent_tool_allowlist`. F-004 was named by the binding audit but appears in neither the owner's execution waves nor the parked list; it is recorded for traceability and awaits owner disposition without blocking authorized work.
+
+#### Slice 68 — F-005 trusted-source authority and canonical finalization — **BLOCKER · AUTHORIZED (Wave 3) · NOT STARTED**
+Move trusted/executed/authenticated/observed evidence behind controlled writers and make go-live finalization reread and bind all thirteen canonical source stores in one transaction.
+
+#### Slice 69 — F-006 gate-8 reviewer currentness — **MAJOR · AUTHORIZED (Wave 5) · NOT STARTED**
+Resolve reviewer realization, qualification, independence, and current QA from authoritative state and exercise expiry, suspension, and breach failures.
+
+#### Slice 70 — F-007 auxiliary hard-false surfaces — **MAJOR · AUTHORIZED (Wave 5) · NOT STARTED**
+Structurally preserve literal-false truth on readiness and decision-output surfaces and apply the exact ingress sanitizer.
+
+#### Slice 71 — F-008 emergency ordering and load-bearing paths — **MAJOR · AUTHORIZED (Wave 2) · NOT STARTED**
+Check committed emergency state before cost and cycle creation on real owned paths, use the guarded-stage order in production, and retain load-bearing boundary tests.
+
+#### Slice 72 — F-009 broker execution and actuators — **BLOCKER · PARKED (owner decision pending) · NOT STARTED**
+No broker, build, PR, CI, deploy, or rollback actuator work is authorized in this run.
+
+#### Slice 73 — F-010 post-launch actuators and stabilization — **BLOCKER · PARKED (owner decision pending) · NOT STARTED**
+No hotfix or stabilization actuator work is authorized in this run.
+
+#### Slice 74 — F-011 catalog review truth and Slice-61 residuals — **BLOCKER · PARTIALLY AUTHORIZED (Wave 5) · NOT STARTED**
+Remove the manufactured catalog review PASS by requiring executed primary evidence. Live-provider testing and permission-scope proof (D-8/D-9), and therefore full Slice-61 closure, remain parked.
+
+#### Slice 75 — F-012 §18.6 owner web UI — **MAJOR · NUMBERED AND PARKED (owner decision pending) · NOT STARTED**
+This is the real numbered entry for the required human-facing web UI. Its complete §18.6 surface is current run state, open approvals, blockers, cost consumed and forecast, remaining critical path, build/readiness level, evidence-pack status, high-risk findings, deployment status, and next recommended action. A future authorized build must also test pagination, currentness, accessibility, and security. Recording it cures the phase-only orphan; building the UI is expressly outside this run.
+
+#### Slice 76 — F-013 authenticated review writers — **BLOCKER · PARTIALLY AUTHORIZED (Wave 3) · NOT STARTED**
+The writer/identity boundary for qualification and maker-checker-verifier records is in scope. Actual agent/eval/replacement execution remains outside this run unless separately authorized.
+
+#### Slice 77 — F-014 Al-Muhasibi/Sanad kernel — **MAJOR · PARKED (owner decision pending) · NOT STARTED**
+The structured five-stage reasoning and provenance kernel is not authorized in this run.
+
+#### Slice 78 — F-015 missing components, state, and §27.3 artifact — **MAJOR · PARKED (owner decision pending) · NOT STARTED**
+The new collections, actuators, and `build_readiness_report.json` artifact are not authorized in this run.
+
+#### Slice 79 — F-016 external-assurance contract — **MAJOR · PARKED (owner decision pending) · NOT STARTED**
+OSCAL, scoped auditor access, expiry enforcement, and the broader export contract are not authorized in this run.
+
+#### Slice 80 — F-017 repository typecheck ratchet — **MAJOR · AUTHORIZED (Wave 6) · NOT STARTED**
+Establish a full-repository Pyright baseline/ratchet and make that promised scope mandatory in CI; this slice does not attempt to erase the entire historical error baseline.
+
+#### Slice 81 — F-018 ledger consistency — **MINOR · AUTHORIZED (Wave 6) · NOT STARTED**
+Reconcile HANDOFF, roadmap, README, CLAUDE.md, and the stale dashboard comment to bounded current facts.
+
+#### Slice 82 — F-019 audit-log tenant isolation — **MAJOR · AUTHORIZED (Wave 3) · NOT STARTED**
+Add ENABLE+FORCE RLS and `tenant_isolation` to `audit_logs` while preserving a controlled writer and enumerating the tenant-owned denominator.
+
+#### Slice 83 — F-020 writer concurrency — **MAJOR · AUTHORIZED (Wave 1) · NOT STARTED**
+Retain the six reported first-write races, return a winner or domain result under contention, publish a deduplicated writer inventory, and add retained two-writer barriers across the 122 audit candidates.
+
+#### Slice 84 — F-021 test integrity — **MAJOR · AUTHORIZED (Wave 1; first numbered remediation slice) · NOT STARTED**
+Restore the five load-bearing test paths and assert exact target triggers, grants, RLS, repository branches, and acceptance guards without neighbouring-constraint masking.
+
+#### Slice 85 — F-022 cross-project learning truth tiers — **MAJOR · AUTHORIZED (Wave 5) · NOT STARTED**
+Preserve source tiers and binding hashes, separate unverified and broker-authorization buckets, and prove poisoned/self-labelled inputs cannot affect trusted optimizer decisions.
 
 ---
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-24): Slice 63 MERGED via PR #116 (squash `e6fbddc`; Alembic head `0062`). The Slice 55–63 loop is closed.** Tenant isolation is intact: `uaid_app` cannot INSERT/UPDATE `autonomy_policies` except through the SECURITY DEFINER writer. This is **not** go-live authority. `can_go_live_autonomously` is still the literal `False`. The Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`. **STOP. No Slice 64. No new work.** The Slice 55–63 final report is `.planning/SLICE-55-63-FINAL-REPORT.md`.
+> **Current state (2026-08-24): owner-authorized remediation Wave 0 is active from main `50bc055`, Alembic head `0062`.** After Wave 0 is merged, the first numbered remediation is **Slice 84 / F-021**, followed immediately by **Slice 83 / F-020** and **Slice 71 / F-008**. The authorization is limited to the statuses above. It does not authorize go-live, parked work, or changing the audit/spec. `can_go_live_autonomously` remains literal `False`; the Slice 61 exit and D-8/D-9/D-10 remain open.
 
 ---
 
@@ -802,7 +874,9 @@ Proves every named spec component maps to a future slice or milestone (no orphan
 
 **Phase 6 (§26.6, 2502–2510).** release manager → **S50**; production approval workflow → **S53**; rollback verification → **S52**; post-launch monitoring → **S56**; incident workflow → **S57**; self-healing/hotfix loop → **S58**; continuous improvement engine → **S59**. (+ cost forecast **S51**, emergency stop **S54**, §23.3 loop **S55**.)
 
-**Phase 7 (§26.7, 2514–2522).** marketplace of vetted blueprints → **S61**; connector library → **S61**; reference-intake companion library → **S61**; external assurance export format → **S60**; advanced cost optimizer → **S62**; cross-project learning → **S62**; enterprise administration → **S63**.
+**Phase 7 (§26.7, 2514–2522).** marketplace of vetted blueprints → **S61/S74**; connector library → **S61/S74**; reference-intake companion library → **S61/S74**; external assurance export format → **S60/S79**; advanced cost optimizer → **S62/S85**; cross-project learning → **S62/S85**; enterprise administration → **S63**; §18.6 owner web UI → **S75 (numbered, parked)**.
+
+**Final-audit remediation mapping.** The complete authoritative mapping is the S64–S85 program in §5: every F-001–F-022 finding has a numbered entry, including parked and partially authorized work. A numbered parked entry is scheduling evidence, not an implementation or completion claim.
 
 **13 A5 gates (App. B).** #1 DONE; #2 S30; #3 S26→28; #4 S43; #5 S44; #6 S45; #7 S47+S50; #8 S46; #9 S51; #10 S52; #11 S31; #12 S27+S53; #13 S54; aggregate `a5_satisfied` + go-live reachability S55.
 
