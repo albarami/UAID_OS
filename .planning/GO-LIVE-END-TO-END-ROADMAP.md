@@ -730,8 +730,8 @@ Add ENABLE+FORCE RLS and `tenant_isolation` to `audit_logs` while preserving a c
 #### Slice 83 — F-020 writer concurrency — **MAJOR · AUTHORIZED (Wave 1) · NOT STARTED**
 Retain the six reported first-write races, return a winner or domain result under contention, publish a deduplicated writer inventory, and add retained two-writer barriers across the 122 audit candidates.
 
-#### Slice 84 — F-021 test integrity — **MAJOR · AUTHORIZED (Wave 1; first numbered remediation slice) · NOT STARTED**
-Restore the five load-bearing test paths and assert exact target triggers, grants, RLS, repository branches, and acceptance guards without neighbouring-constraint masking.
+#### Slice 84 — F-021 test integrity — **MAJOR · AUTHORIZED (Wave 1; first numbered remediation slice) · COMPLETE (tests only; no migration; head 0062)**
+Restore the five load-bearing test paths and assert exact target triggers, grants, RLS, repository branches, and acceptance guards without neighbouring-constraint masking. Merged via PR #120 (squash `65e85c4`). Tests only; no production guard added.
 
 #### Slice 85 — F-022 cross-project learning truth tiers — **MAJOR · AUTHORIZED (Wave 5) · NOT STARTED**
 Preserve source tiers and binding hashes, separate unverified and broker-authorization buckets, and prove poisoned/self-labelled inputs cannot affect trusted optimizer decisions.
@@ -740,7 +740,7 @@ Preserve source tiers and binding hashes, separate unverified and broker-authori
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-24): owner-authorized remediation Wave 0 is active from main `50bc055`, Alembic head `0062`.** After Wave 0 is merged, the first numbered remediation is **Slice 84 / F-021**, followed immediately by **Slice 83 / F-020** and **Slice 71 / F-008**. The authorization is limited to the statuses above. It does not authorize go-live, parked work, or changing the audit/spec. `can_go_live_autonomously` remains literal `False`; the Slice 61 exit and D-8/D-9/D-10 remain open.
+> **Current state (2026-08-24): Slice 84 / F-021 COMPLETE (tests only; no migration; head 0062) on main `65e85c4` (PR #120).** Next numbered remediation is **Slice 83 / F-020**, then **Slice 71 / F-008**. The authorization is limited to the registered statuses. It does not authorize go-live, parked work, or changing the audit/spec. `can_go_live_autonomously` remains literal `False`; the Slice 61 exit and D-8/D-9/D-10 remain open.
 
 ---
 

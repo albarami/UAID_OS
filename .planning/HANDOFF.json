@@ -1,15 +1,15 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-24T18:00:14Z",
-  "source": "final-audit-remediation-wave-0-closeout",
+  "timestamp": "2026-08-24T20:00:00Z",
+  "source": "slice-84-f021-closeout",
   "partial": true,
   "phase": "Final audit remediation",
   "phase_name": "F-001 through F-022 remediation",
   "phase_dir": ".planning",
   "plan": null,
-  "task": "Slice 84 / F-021 — ORIENT next",
+  "task": "Slice 83 / F-020 \u2014 ORIENT next",
   "total_tasks": 22,
-  "status": "wave_0_merged_slice_84_next",
+  "status": "slice_84_merged_slice_83_next",
   "remediation_run": {
     "authority": {
       "owner": "Salim",
@@ -57,38 +57,150 @@
       "rationale": "This preserves every audit finding-to-slice trace without renumbering."
     },
     "execution_order": [
-      "Wave 0 — authority/report/roadmap/HANDOFF/ignore housekeeping",
+      "Wave 0 \u2014 authority/report/roadmap/HANDOFF/ignore housekeeping",
       "Slice 84 / F-021",
       "Slice 83 / F-020",
       "Slice 71 / F-008",
-      "Wave 3 — S68/F-005, S65/F-002, S66/F-003, S82/F-019, writer half S76/F-013",
+      "Wave 3 \u2014 S68/F-005, S65/F-002, S66/F-003, S82/F-019, writer half S76/F-013",
       "Slice 64 / F-001",
-      "Wave 5 — review half S74/F-011, S85/F-022, S69/F-006, S70/F-007",
-      "Wave 6 — S81/F-018, S80/F-017"
+      "Wave 5 \u2014 review half S74/F-011, S85/F-022, S69/F-006, S70/F-007",
+      "Wave 6 \u2014 S81/F-018, S80/F-017"
     ],
     "slice_register": [
-      {"slice": 64, "finding": "F-001", "status": "authorized", "wave": 4},
-      {"slice": 65, "finding": "F-002", "status": "authorized", "wave": 3},
-      {"slice": 66, "finding": "F-003", "status": "authorized", "wave": 3},
-      {"slice": 67, "finding": "F-004", "status": "recorded_scope_not_expressly_granted", "wave": null},
-      {"slice": 68, "finding": "F-005", "status": "authorized", "wave": 3},
-      {"slice": 69, "finding": "F-006", "status": "authorized", "wave": 5},
-      {"slice": 70, "finding": "F-007", "status": "authorized", "wave": 5},
-      {"slice": 71, "finding": "F-008", "status": "authorized", "wave": 2},
-      {"slice": 72, "finding": "F-009", "status": "parked", "wave": null},
-      {"slice": 73, "finding": "F-010", "status": "parked", "wave": null},
-      {"slice": 74, "finding": "F-011", "status": "partially_authorized_review_half", "wave": 5},
-      {"slice": 75, "finding": "F-012", "status": "numbered_and_parked", "wave": null},
-      {"slice": 76, "finding": "F-013", "status": "partially_authorized_writer_half", "wave": 3},
-      {"slice": 77, "finding": "F-014", "status": "parked", "wave": null},
-      {"slice": 78, "finding": "F-015", "status": "parked", "wave": null},
-      {"slice": 79, "finding": "F-016", "status": "parked", "wave": null},
-      {"slice": 80, "finding": "F-017", "status": "authorized", "wave": 6},
-      {"slice": 81, "finding": "F-018", "status": "authorized", "wave": 6},
-      {"slice": 82, "finding": "F-019", "status": "authorized", "wave": 3},
-      {"slice": 83, "finding": "F-020", "status": "authorized", "wave": 1},
-      {"slice": 84, "finding": "F-021", "status": "authorized", "wave": 1},
-      {"slice": 85, "finding": "F-022", "status": "authorized", "wave": 5}
+      {
+        "slice": 64,
+        "finding": "F-001",
+        "status": "authorized",
+        "wave": 4
+      },
+      {
+        "slice": 65,
+        "finding": "F-002",
+        "status": "authorized",
+        "wave": 3
+      },
+      {
+        "slice": 66,
+        "finding": "F-003",
+        "status": "authorized",
+        "wave": 3
+      },
+      {
+        "slice": 67,
+        "finding": "F-004",
+        "status": "recorded_scope_not_expressly_granted",
+        "wave": null
+      },
+      {
+        "slice": 68,
+        "finding": "F-005",
+        "status": "authorized",
+        "wave": 3
+      },
+      {
+        "slice": 69,
+        "finding": "F-006",
+        "status": "authorized",
+        "wave": 5
+      },
+      {
+        "slice": 70,
+        "finding": "F-007",
+        "status": "authorized",
+        "wave": 5
+      },
+      {
+        "slice": 71,
+        "finding": "F-008",
+        "status": "authorized",
+        "wave": 2
+      },
+      {
+        "slice": 72,
+        "finding": "F-009",
+        "status": "parked",
+        "wave": null
+      },
+      {
+        "slice": 73,
+        "finding": "F-010",
+        "status": "parked",
+        "wave": null
+      },
+      {
+        "slice": 74,
+        "finding": "F-011",
+        "status": "partially_authorized_review_half",
+        "wave": 5
+      },
+      {
+        "slice": 75,
+        "finding": "F-012",
+        "status": "numbered_and_parked",
+        "wave": null
+      },
+      {
+        "slice": 76,
+        "finding": "F-013",
+        "status": "partially_authorized_writer_half",
+        "wave": 3
+      },
+      {
+        "slice": 77,
+        "finding": "F-014",
+        "status": "parked",
+        "wave": null
+      },
+      {
+        "slice": 78,
+        "finding": "F-015",
+        "status": "parked",
+        "wave": null
+      },
+      {
+        "slice": 79,
+        "finding": "F-016",
+        "status": "parked",
+        "wave": null
+      },
+      {
+        "slice": 80,
+        "finding": "F-017",
+        "status": "authorized",
+        "wave": 6
+      },
+      {
+        "slice": 81,
+        "finding": "F-018",
+        "status": "authorized",
+        "wave": 6
+      },
+      {
+        "slice": 82,
+        "finding": "F-019",
+        "status": "authorized",
+        "wave": 3
+      },
+      {
+        "slice": 83,
+        "finding": "F-020",
+        "status": "authorized",
+        "wave": 1
+      },
+      {
+        "slice": 84,
+        "finding": "F-021",
+        "status": "merged_tests_only",
+        "wave": 1,
+        "pr": 120,
+        "merge_sha": "65e85c4"
+      },
+      {
+        "slice": 85,
+        "finding": "F-022",
+        "status": "authorized",
+        "wave": 5
+      }
     ],
     "parked_scope": [
       "S72/F-009 broker execution and build/PR/CI/deploy/rollback actuators",
@@ -124,8 +236,8 @@
       }
     },
     "current_wave": 1,
-    "current_slice": 84,
-    "next_numbered_slice": 84
+    "current_slice": 83,
+    "next_numbered_slice": 83
   },
   "slice_63_plan_review": {
     "version": "v4.1",
@@ -139,13 +251,13 @@
     "reviewer_agent_v2": "5aca1998-528c-42d9-97a2-f961e6d0757a",
     "planner_agent": "699e14a3-f8d3-4584-b67e-4a54dd87cf05",
     "history": [
-      "v1 REJECT — 6 defects (policy lock bypass, tighten can relax, four CHECKs unprobed, probe/mutation mismatches, role events unbound, decision partition not DB-true)",
-      "v2 REJECT — 4 defects (spend not atomic, second connection vs uncommitted fixtures, missing GUC/no-policy/grant-status/org-status probes, TRUNCATE 0A000)",
-      "v3 REJECT — 1 defect: §5.2.a writer-function mutations masked by admin_policy_changes_guard. HALT; owner authorized v4.",
-      "v4 APPROVE (Sol 0bfef98d-2dbe-4da3-a734-9cf8c35599c4). Code REJECT of ddb3869 (Sol 380cc908-3745-46fb-b762-504f4e1bd4fd) — OD-11 first-write race.",
+      "v1 REJECT \u2014 6 defects (policy lock bypass, tighten can relax, four CHECKs unprobed, probe/mutation mismatches, role events unbound, decision partition not DB-true)",
+      "v2 REJECT \u2014 4 defects (spend not atomic, second connection vs uncommitted fixtures, missing GUC/no-policy/grant-status/org-status probes, TRUNCATE 0A000)",
+      "v3 REJECT \u2014 1 defect: \u00a75.2.a writer-function mutations masked by admin_policy_changes_guard. HALT; owner authorized v4.",
+      "v4 APPROVE (Sol 0bfef98d-2dbe-4da3-a734-9cf8c35599c4). Code REJECT of ddb3869 (Sol 380cc908-3745-46fb-b762-504f4e1bd4fd) \u2014 OD-11 first-write race.",
       "v4.1 APPROVE (Sol e8e06b35-10a1-4a67-a853-e111f29ee1d6). Code APPROVE of 44f0448 (Sol 57f5a732-1f16-4b67-8220-fca9ec4cc5d0)."
     ],
-    "halt_rule": "one REJECT of v4 ⇒ halt, no v5 without owner — did not fire on v4.1",
+    "halt_rule": "one REJECT of v4 \u21d2 halt, no v5 without owner \u2014 did not fire on v4.1",
     "owner_action_required": null
   },
   "seats": {
@@ -157,7 +269,7 @@
       "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work.",
       "slice_61a_authorship": "Authored the superseded v1-v3 and the from-scratch SLICE-61A-PLAN.md v1, v2, and v3 in full. Builder seat never invoked on any plan version. Sol APPROVED v3. Owner accepted the narrowing on 2026-08-23 and directed immediate build.",
       "slice_62_authorship": "Authored SLICE-62-PLAN.md v1-v4 in full. Builder never edited the plan. Sol (4ac9facc-44e1-4172-9cb6-37cef628d36c) APPROVED v4.",
-      "slice_63_authorship": "Authored SLICE-63-PLAN.md v1–v3 (agent 699e14a3-f8d3-4584-b67e-4a54dd87cf05), v4 (agent c7c6e513-da45-41ba-b767-79f90581e884), and v4.1 (agent da1511f1-6991-4ada-aa4d-4c210bfdce74) in full. Builder never edited the plan. Owner authorized v4 then v4.1 (OD-11 only)."
+      "slice_63_authorship": "Authored SLICE-63-PLAN.md v1\u2013v3 (agent 699e14a3-f8d3-4584-b67e-4a54dd87cf05), v4 (agent c7c6e513-da45-41ba-b767-79f90581e884), and v4.1 (agent da1511f1-6991-4ada-aa4d-4c210bfdce74) in full. Builder never edited the plan. Owner authorized v4 then v4.1 (OD-11 only)."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
@@ -184,16 +296,16 @@
     "Slice 58 merged via PR #106 (squash commit 787ddd63160d6b61d1e3189cdd00e45809109e30) as NON-CLOSING hotfix-intent evaluation",
     "Slice 58 docs follow-up merged via PR #107 (squash commit 33ee561)",
     "Slice 59 merged via PR #108 (squash commit 15bb587e2adff2f00b95067e0c79eff2290352cc) as NON-CLOSING stabilization-window assessment",
-    "Slice 60 built and reviewed: signed offline auditor bundle (§28.1), migration 0059, closes no spec section",
+    "Slice 60 built and reviewed: signed offline auditor bundle (\u00a728.1), migration 0059, closes no spec section",
     "Slice 60 merged via PR #110 (squash commit 8e001ca) as SIGNED OFFLINE AUDITOR BUNDLE, closing no spec section",
     "Slice 61a merged via PR #111 (squash commit 17e7fc9de7b044cf0ab98b8e27dfd679e1d72674) as EMPTY ECOSYSTEM CATALOG LISTING MECHANISM, closing no spec section; catalog empty; D-8/D-9/D-10 OPEN",
     "Slice 61b merged via PR #113 (squash commit 59af1c709dcb2ac302f255ed2eb2325ea3710c97) as DECLARED CATALOG POPULATION; does not close Slice 61 exit; D-8/D-9/D-10 OPEN",
     "Slice 62 merged via PR #114 (squash commit 96faa864c19d7cbffb3677600530de5071c12b2c) as TENANT-SAFE AGGREGATES + DECISION-ONLY COST OPTIMIZER; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0061",
     "Slice 63 merged via PR #116 (squash commit e6fbddc7bd8f19ce4e721575f77a48318b369ad9) as ENTERPRISE ADMIN with DB-enforced RBAC; v4.1 first-write serialization; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0062",
-    "Final-audit remediation Wave 0 merged via PR #118 (squash commit a508d5d2d862b03f53c93fc90d4771b54cfe966c): audit report tracked byte-identically, owner stop lift and S64-S85 register recorded, nested checkout removed/ignored; no finding fixed and no go-live authority granted"
+    "Final-audit remediation Wave 0 merged via PR #118 (squash commit a508d5d2d862b03f53c93fc90d4771b54cfe966c): audit report tracked byte-identically, owner stop lift and S64-S85 register recorded, nested checkout removed/ignored; no finding fixed and no go-live authority granted",
+    "Slice 84 / F-021 merged via PR #120 (squash commit 65e85c4): tests only; five F-021 regressions bound to named guards; no migration; head 0062; no production guard added"
   ],
   "remaining_tasks": [
-    "Slice 84 / F-021",
     "Slice 83 / F-020",
     "Slice 71 / F-008",
     "Wave 3: S68/F-005, S65/F-002, S66/F-003, S82/F-019, writer half S76/F-013",
@@ -230,7 +342,7 @@
     {
       "date": "2026-08-23",
       "ruling": "slice_61a_v3_owner_accepts_narrowing_and_directs_build",
-      "text": "Owner accepted the narrowing: hash/canonical-JSON/rebind layer deleted; typed child rows; provenance renames; permission-scoped claim refused; content_sha256 is drift metadata; round-2 race linearizations and lock-before-load and guard-fires test accepted. PROCEED on Sol APPROVE of v3. Build immediately. Every guard needs a test that shows the guard REFUSING the bad case. Docs must state the DB cannot attribute a payload to the code that produced it. Three roadmap section 12 OPEN entries with owner=Salim: verified permission scoping, real-provider connector testing, automated blueprint security scanning. Then continue 61b/62/63 with no report between slices. IF this line had been REJECT, halt, no v4, split proposal for owner — did not apply; verdict was APPROVE."
+      "text": "Owner accepted the narrowing: hash/canonical-JSON/rebind layer deleted; typed child rows; provenance renames; permission-scoped claim refused; content_sha256 is drift metadata; round-2 race linearizations and lock-before-load and guard-fires test accepted. PROCEED on Sol APPROVE of v3. Build immediately. Every guard needs a test that shows the guard REFUSING the bad case. Docs must state the DB cannot attribute a payload to the code that produced it. Three roadmap section 12 OPEN entries with owner=Salim: verified permission scoping, real-provider connector testing, automated blueprint security scanning. Then continue 61b/62/63 with no report between slices. IF this line had been REJECT, halt, no v4, split proposal for owner \u2014 did not apply; verdict was APPROVE."
     }
   ],
   "decisions": [
@@ -244,7 +356,7 @@
   "slice_60_verdicts": {
     "plan": {
       "verdict": "APPROVE",
-      "version": "v4 (after v1/v2/v3 REJECT — 12 defects total, all accepted, none argued down)",
+      "version": "v4 (after v1/v2/v3 REJECT \u2014 12 defects total, all accepted, none argued down)",
       "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
       "verbatim": "APPROVE\n\nThe verifier is now total and fail-closed... Returning `manifest_invalid` before trust/signature checks is correct fail-closed precedence. The ten-value integrity enum and two-value horizon enum are complete and independent. PostgreSQL probes confirmed the strict base64 expression and core `sha256(bytea)` behavior. D-28a/b/c and change-log item 12 accurately cover the v3 correction. ... The builder may proceed.",
       "authored_by_seat": "planner (all four versions; builder never involved)"
@@ -287,12 +399,12 @@
     }
   },
   "validation": {
-    "merged_sha": "e6fbddc7bd8f19ce4e721575f77a48318b369ad9",
-    "pr": "#116",
+    "merged_sha": "65e85c4",
+    "pr": "#120",
     "alembic_head": "0062",
-    "make_test": "1277 passed / 1085 deselected",
-    "make_test_db": "1085 passed / 1277 deselected",
-    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32698972608"
+    "make_test": "1277 passed / 1104 deselected",
+    "make_test_db": "1104 passed / 1277 deselected",
+    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32771816216/job/97573646027"
   },
   "open_questions": [
     "Residual 26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt.",
@@ -301,8 +413,8 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "ORIENT and write .planning/SLICE-84-PLAN.md for F-021 from main a508d5d2d862b03f53c93fc90d4771b54cfe966c and live Alembic head 0062; obtain plan review before the RED probe. can_go_live_autonomously remains literal False.",
-  "context_notes": "Wave 0 merged via PR #118 at a508d5d2d862b03f53c93fc90d4771b54cfe966c. Owner ruling 2026-08-24 supersedes the historical stop only for the registered remediation scope. Audit mapping controls numbering: S83/F-020 despite the Wave-1 S85 typo; S85 remains F-022. S67/F-004 awaits owner scope disposition but does not block authorized work. Historical Slice 60-63 seat/history objects below remain records of that completed run; current remediation seats are recorded in remediation_run.seats.",
+  "next_action": "ORIENT and write .planning/SLICE-83-PLAN.md for F-020 from main 65e85c4 and live Alembic head 0062; obtain plan review before the RED probe. can_go_live_autonomously remains literal False. Seats revert to Grok building and Sol reviewing after the Slice 84 seat-swap APPROVE.",
+  "context_notes": "Slice 84 merged via PR #120 at 65e85c4 (tests only; head 0062). Seat swap on code: three consecutive Sol REJECTs then Sol implemented and Opus APPROVE'd; reject counter reset. Next is Slice 83 / F-020. Do not write no remaining blockers. F-004 still succeeds on owner mutation. Owner ruling 2026-08-24 supersedes the historical stop only for the registered remediation scope.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
     "split_rationale": "Reviewer showed on v1 that an empty mechanism cannot claim the roadmap Slice 61 exit (\"vetted connector/blueprint/reference libraries\"). Split 61a (mechanism) / 61b (population), per the 8a/8b and 14a/14b precedent.",
@@ -318,20 +430,20 @@
   "slice_61a_verdicts": {
     "scope_split": "Slice 61 is split into 61a (catalog mechanism, this plan) and 61b (population). The reviewer recommended the split on the v1 round: the roadmap Slice 61 exit requires POPULATED vetted connector/blueprint/reference libraries, and an empty mechanism claiming that exit would be fake-done under spec section 2.1. Precedent: 8a/8b, 14a/14b. 61a explicitly does NOT close the roadmap Slice 61 exit, Appendix C l.3010, or l.3012.",
     "plan": {
-      "verdict": "REJECT (third consecutive) — HALT CONDITION FIRED",
+      "verdict": "REJECT (third consecutive) \u2014 HALT CONDITION FIRED",
       "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
       "version": "v3 REJECTED (v1 eight defects, v2 seven, v3 five; twenty defects total, all accepted, none argued down)",
       "halt_watch": "RESOLVED by owner direction on 2026-08-23: option A, replan from scratch as v1 rather than authorize a fourth round. The superseded plan is archived at .planning/archive/SLICE-61A-PLAN-SUPERSEDED-v1-v3.md and nothing in it is carried forward. Halt rules unchanged and now apply to the NEW v1: three rejects on it means halt and report, not narrow again.",
       "reject_history": [
-        "v1 (eight defects): (1) provenance CHECK admitted a system_executed_contract_test record with empty check_results, so the tier claimed unearned execution; (2) content-hash pinning under-specified — connector identity lived outside catalog_assets and blueprint labels were not DB-bound to agent_version; (3) permission scope trivially widened — _TOOL IN tool_scope is satisfied by declaring every tool; (4) shipped_untested factually inaccurate — the adapters are mock-tested in CI, not untested; (5) listing lifecycle protection incomplete — no owner-level DELETE/TRUNCATE blockers on catalog_listings, and the adoption idempotency index was described as partial with no predicate; (6) populated downgrade destructive; (7) an empty catalog presented as the roadmap deliverable; (8) an import scan described as a structural section-20.3 guarantee when it is regression evidence.",
-        "v2 (seven defects): (1) cardinality contradiction — section 0.2 said five checks while section 3.3, OD-61-5 and the probes said six; (2) the vetting guard still accepted under-constrained system results — extra element keys admissible, count equality not universal, and fabricated passed:true values admissible while the wording implied proven execution; (3) check_results::text digest instability — PostgreSQL JSONB text rendering differs from Python canonical JSON, so the digest binding was unsatisfiable across languages; (4) identity rebinding incomplete — field-by-field ->> comparison ignores extra keys, collapses duplicate keys at ::jsonb, coerces wrong scalar types, cannot distinguish missing from explicit null, and blueprint labels were not bound directly to agent_blueprints/agent_versions; (5) the AST scope checker was not complete — aliased imports, module-object calls, getattr, shadowed names or imported wrappers can hide a brokered call while the observed set still equals the declaration; (6) live_adapter_status was a one-way implication, letting a shipped adapter name nothing; (7) stale probe references.",
-        "v3 (five defects): (1) identity rebinding still bypassable and internally contradictory — a Unicode-escaped duplicate key evades the regexp_count rule, and the no-optional-fields rule contradicts live_adapter_name being NULL for an absent adapter, so such a connector has no valid identity payload; (2) canonical check-result bytes are not actually enforced — reordered text is JSONB-equal and its recomputed digest is self-consistent, so every specified guard clause passes and probe D-25c has no implementing mechanism; (3) AST accounting still underspecified — a method call client.broker_call_service(...) is an ast.Attribute, invisible to ast.Name occurrence counting, so all five conditions can pass alongside a hidden route; (4) the plan still overclaims — sections 0.3 and OD-61-5 say the bar \"proves protocol/structural conformance\", contradicting the honest refusal in sections 0.2 and 0.7 that fabricated passing results stay admin-admissible; (5) stale probe ranges D-16…D-19c should be D-16…D-19d."
+        "v1 (eight defects): (1) provenance CHECK admitted a system_executed_contract_test record with empty check_results, so the tier claimed unearned execution; (2) content-hash pinning under-specified \u2014 connector identity lived outside catalog_assets and blueprint labels were not DB-bound to agent_version; (3) permission scope trivially widened \u2014 _TOOL IN tool_scope is satisfied by declaring every tool; (4) shipped_untested factually inaccurate \u2014 the adapters are mock-tested in CI, not untested; (5) listing lifecycle protection incomplete \u2014 no owner-level DELETE/TRUNCATE blockers on catalog_listings, and the adoption idempotency index was described as partial with no predicate; (6) populated downgrade destructive; (7) an empty catalog presented as the roadmap deliverable; (8) an import scan described as a structural section-20.3 guarantee when it is regression evidence.",
+        "v2 (seven defects): (1) cardinality contradiction \u2014 section 0.2 said five checks while section 3.3, OD-61-5 and the probes said six; (2) the vetting guard still accepted under-constrained system results \u2014 extra element keys admissible, count equality not universal, and fabricated passed:true values admissible while the wording implied proven execution; (3) check_results::text digest instability \u2014 PostgreSQL JSONB text rendering differs from Python canonical JSON, so the digest binding was unsatisfiable across languages; (4) identity rebinding incomplete \u2014 field-by-field ->> comparison ignores extra keys, collapses duplicate keys at ::jsonb, coerces wrong scalar types, cannot distinguish missing from explicit null, and blueprint labels were not bound directly to agent_blueprints/agent_versions; (5) the AST scope checker was not complete \u2014 aliased imports, module-object calls, getattr, shadowed names or imported wrappers can hide a brokered call while the observed set still equals the declaration; (6) live_adapter_status was a one-way implication, letting a shipped adapter name nothing; (7) stale probe references.",
+        "v3 (five defects): (1) identity rebinding still bypassable and internally contradictory \u2014 a Unicode-escaped duplicate key evades the regexp_count rule, and the no-optional-fields rule contradicts live_adapter_name being NULL for an absent adapter, so such a connector has no valid identity payload; (2) canonical check-result bytes are not actually enforced \u2014 reordered text is JSONB-equal and its recomputed digest is self-consistent, so every specified guard clause passes and probe D-25c has no implementing mechanism; (3) AST accounting still underspecified \u2014 a method call client.broker_call_service(...) is an ast.Attribute, invisible to ast.Name occurrence counting, so all five conditions can pass alongside a hidden route; (4) the plan still overclaims \u2014 sections 0.3 and OD-61-5 say the bar \"proves protocol/structural conformance\", contradicting the honest refusal in sections 0.2 and 0.7 that fabricated passing results stay admin-admissible; (5) stale probe ranges D-16\u2026D-19c should be D-16\u2026D-19d."
       ],
       "v3_fixes": [
         "Standardized to six checks in every section; the guard mirrors a single code-owned name list, probed for exhaustiveness by D-15.",
         "Vetting guard requires exactly-{name,passed} elements and universal count equality; section 0.2 now states plainly that six fabricated passing values remain admissible to admin write access, so the proven claim is \"recorded through a path uaid_app cannot reach\", not \"UAID executed this\". Probes D-25a, D-30.",
         "New check_results_canonical_json TEXT column holds the Python-produced canonical bytes; the digest binds to those bytes and the guard verifies the column parses to the same document as check_results. Probe D-25b asserts the two renderings genuinely differ so the regression cannot pass vacuously.",
-        "Identity rebinding gains three gates before any comparison — exact key set via jsonb_object_keys, regexp_count duplicate detection on the raw text, jsonb_typeof type checks — plus direct label equality against agent_blueprints/agent_versions. Probes D-19a through D-19d.",
+        "Identity rebinding gains three gates before any comparison \u2014 exact key set via jsonb_object_keys, regexp_count duplicate detection on the raw text, jsonb_typeof type checks \u2014 plus direct label equality against agent_blueprints/agent_versions. Probes D-19a through D-19d.",
         "Check 5 fails closed unless the module broker access is fully accountable: single direct import binding, no rebinding or shadowing, no getattr/setattr/eval/exec/__import__/importlib, occurrence accounting, at least one observed call. Claim narrowed in section 0.6 to direct calls within the service module. Probes D-10a through D-10f.",
         "ck_ccs_adapter_name_iff_shipped enforces the iff in both directions. Probes D-56a, D-56b.",
         "All stale probe cross-references corrected."
@@ -341,12 +453,12 @@
         "results": [
           "regexp_count exists (PG15+) and returns 2 for a duplicated JSON key, 1 for a single key.",
           "A duplicate key does collapse at ::jsonb, last value winning: {\"name\":\"x\",\"name\":\"y\"} yields \"y\". The count check therefore has to inspect the raw text, as the plan specifies.",
-          "jsonb_typeof returns number for 7 while ->> coerces the same value to the text 7 — the exact laundering path defect 4 identified; the type gate must run first, as the plan specifies.",
+          "jsonb_typeof returns number for 7 while ->> coerces the same value to the text 7 \u2014 the exact laundering path defect 4 identified; the type gate must run first, as the plan specifies.",
           "Digest binding is well-defined: sha256 over the stored canonical text is 4d88235c... while sha256 over the same document rendered by PostgreSQL ::text is d88776d5... The two genuinely differ, so probe D-25b cannot pass vacuously and the defect-3 premise is confirmed.",
           "Exact key-set comparison via array_agg over jsonb_object_keys detects an extra top-level key.",
           "The duplicate-key regexp has no false positives: a value containing the literal text \"domain_label\": still counts 1, because JSON escapes the inner quotes; and a key that is a substring of another key (key vs asset_key) counts 1 each, because the opening quote anchors the boundary."
         ],
-        "correction": "The claim recorded earlier — that the duplicate-key regexp \"has no false positives\" — was true as far as it went and misleading as a soundness claim. The probe set covered a value mimicking a key and a key that is a substring of another key, but NOT a Unicode-escaped key name. The reviewer probed that case and it is a real bypass, re-verified by the planner on PostgreSQL 16.14: for {\"asset_key\":\"bad\",\"\\u0061sset_key\":\"good\"}, regexp_count returns 1 while json_each decodes two asset_key entries and JSONB keeps \"good\" — so the DB verifies \"good\" while the human-visible canonical text says \"bad\", defeating the premise that the canonical bytes are the identity. Also re-verified: reordered check-result text is JSONB-equal to the canonical form, byte-different, and digest-self-consistent, so nothing in the specified guard forces actual canonical ordering. Incomplete verification is not verification; the record is corrected rather than left standing."
+        "correction": "The claim recorded earlier \u2014 that the duplicate-key regexp \"has no false positives\" \u2014 was true as far as it went and misleading as a soundness claim. The probe set covered a value mimicking a key and a key that is a substring of another key, but NOT a Unicode-escaped key name. The reviewer probed that case and it is a real bypass, re-verified by the planner on PostgreSQL 16.14: for {\"asset_key\":\"bad\",\"\\u0061sset_key\":\"good\"}, regexp_count returns 1 while json_each decodes two asset_key entries and JSONB keeps \"good\" \u2014 so the DB verifies \"good\" while the human-visible canonical text says \"bad\", defeating the premise that the canonical bytes are the identity. Also re-verified: reordered check-result text is JSONB-equal to the canonical form, byte-different, and digest-self-consistent, so nothing in the specified guard forces actual canonical ordering. Incomplete verification is not verification; the record is corrected rather than left standing."
       },
       "v3_prior_defect_disposition": "Reviewer disposition of the seven v2 defects: 1 fixed, 2 fixed, 3 partial, 4 not fixed, 5 partial, 6 fixed, 7 not fully fixed.",
       "reviewer_confirmed_good": "jsonb_object_keys exact-set checks and jsonb_typeof checks behave correctly; PostgreSQL and Python UTF-8 SHA-256 digests agree; the fourteen frozen hashes match; the grounding facts in section 0.1 hold against the current models and connectors.",
@@ -358,7 +470,7 @@
       "agent": "cacd3b79-15df-4d15-899f-1514426cb9a1",
       "root_cause_addressed": "Every rejected version tried to make a database constraint prove something a database cannot prove: that a text blob is a canonical serialization, that a recorded result was computed, that a declared tool scope matches code behaviour. The new plan stops reaching for forgery resistance against admin write access and records only what the datastore enforces.",
       "what_changed": [
-        "Identity is the row, not a hash. Because the tables are append-only a row never changes, so a foreign key to catalog_assets.id is already a binding to immutable content. identity_canonical_json, the content_hash CHECK, and the deferrable rebind trigger are deleted outright — with them go the escaped-key, duplicate-key, type-coercion and extra-key evasions.",
+        "Identity is the row, not a hash. Because the tables are append-only a row never changes, so a foreign key to catalog_assets.id is already a binding to immutable content. identity_canonical_json, the content_hash CHECK, and the deferrable rebind trigger are deleted outright \u2014 with them go the escaped-key, duplicate-key, type-coercion and extra-key evasions.",
         "Vetting results are typed child rows keyed UNIQUE(record, check_name), not a JSONB array with a canonical-text column and a digest. No serialization exists, so none can be non-canonical. Cardinality and outcome derivation are dual deferred triggers, the Slice-37/40 pattern.",
         "Provenance renamed to what it is: checker_output_admin_recorded and reviewer_asserted_admin_recorded. The plan states plainly that the DB cannot see which code produced a payload and that the label is app-stamped.",
         "The AST tool-scope equality check is dropped entirely rather than patched a third time. Declared scope is declared and unverified, and the permission-scoped claim is refused.",
@@ -366,14 +478,14 @@
         "Seven tables, 585 plan lines, versus the superseded five tables and 800+ lines of guard machinery."
       ],
       "deferred_with_owner_entries": "Section 7 of the plan lists every dropped capability with a one-line reason. Three are spec-required and get roadmap section 12 OPEN entries with owner=Salim, added by the builder in the same PR: D-8 verified permission scoping (App. C l.3012), D-9 real-provider connector testing (App. C l.3012), D-10 automated blueprint security scanning (App. C l.3010).",
-      "v1_reject": "v1 REJECT by cacd3b79-15df-4d15-899f-1514426cb9a1: (1) connector identity not frozen — append-only parent rows do not freeze child inserts, so a second tool_scope row could land after listing; (2) section 8 scheduled a false roadmap-exit claim for 61b while D-8/D-9/D-10 remain open; (3) D-10 tracked automated scanning rather than an evidence-backed security-review gate, and section 0.6 overclaimed a performed review.",
+      "v1_reject": "v1 REJECT by cacd3b79-15df-4d15-899f-1514426cb9a1: (1) connector identity not frozen \u2014 append-only parent rows do not freeze child inserts, so a second tool_scope row could land after listing; (2) section 8 scheduled a false roadmap-exit claim for 61b while D-8/D-9/D-10 remain open; (3) D-10 tracked automated scanning rather than an evidence-backed security-review gate, and section 0.6 overclaimed a performed review.",
       "v2_fixes": [
         "OD-13: tool-scope pins (asset_id, asset_kind); catalog_connector_children_complete required at vetting and listing; spec/scope INSERT refused once any vetting record exists; both triggers FOR UPDATE the asset row. Probes D-21a through D-21h.",
         "61b populates the declared catalog and does not close the roadmap Slice 61 exit. Header, 0.7, 6, 7, and 8 now agree.",
         "D-10 is an evidence-backed security-review gate (verified human workflow or scanner). Allowed claim is a reviewer-asserted record labelled blueprint_security_review, not a performed review."
       ],
       "halt_watch": "Cleared. Plan approved on the third from-scratch review. Halt rules remain in force for code review: three consecutive code REJECTs halt and report.",
-      "v2_reject": "v2 REJECT by cacd3b79-15df-4d15-899f-1514426cb9a1: (1) race outcome overspecified — FOR UPDATE serializes but child-first lets both commit (scopes=2, vettings=1), contradicting \"cannot both succeed\" / \"exactly one commits\"; record_contract_test must lock before loading children; \"children the checker ran against\" was unsupported; (2) listing-guard clause 7 had no behavioural test — helper unit test plus source-text mention is not a guard firing.",
+      "v2_reject": "v2 REJECT by cacd3b79-15df-4d15-899f-1514426cb9a1: (1) race outcome overspecified \u2014 FOR UPDATE serializes but child-first lets both commit (scopes=2, vettings=1), contradicting \"cannot both succeed\" / \"exactly one commits\"; record_contract_test must lock before loading children; \"children the checker ran against\" was unsupported; (2) listing-guard clause 7 had no behavioural test \u2014 helper unit test plus source-text mention is not a guard firing.",
       "v3_fixes": [
         "Both linearizations specified and probed (D-21h): vetting-first freezes the later child; child-first both commit and the extra child is in the frozen pre-vetting set. Forbidden outcome is a child committing after a vetting row.",
         "record_contract_test locks the asset before loading children and running the checker (D-21i), so checker input equals the frozen set. Claim language is \"children present when the vetting row was inserted\" except on that repository path.",
@@ -383,11 +495,11 @@
     },
     "owner": {
       "verdict": "ACCEPT narrowing; PROCEED on Sol APPROVE of v3",
-      "path_taken": "IF APPROVE — build immediately. Halt/split path did not apply.",
+      "path_taken": "IF APPROVE \u2014 build immediately. Halt/split path did not apply.",
       "section_12_open_required": [
         "D-8 verified permission scoping, owner=Salim, App. C l.3012",
         "D-9 real-provider connector testing, owner=Salim, App. C l.3012",
-        "D-10 automated blueprint security scanning, owner=Salim, App. C l.3010 — the approved plan, after Sol defect 3 which the owner accepted as a round-2 fix, records this as an evidence-backed security-review gate (verified human workflow or scanner). Both the owner-named item and the approved-plan gate are recorded; neither is a silent drop."
+        "D-10 automated blueprint security scanning, owner=Salim, App. C l.3010 \u2014 the approved plan, after Sol defect 3 which the owner accepted as a round-2 fix, records this as an evidence-backed security-review gate (verified human workflow or scanner). Both the owner-named item and the approved-plan gate are recorded; neither is a silent drop."
       ],
       "test_rule": "Every guard in the plan needs a test that shows the guard REFUSING the bad case, not a helper unit test and not a name assertion. Sol rejects any guard without a refusal test.",
       "docs_rule": "Narrowed guarantee in Slices 55-60 wording, plus: the DB cannot attribute a payload to the code that produced it."
@@ -469,7 +581,7 @@
     "scope": "Enterprise administration with DB-enforced RBAC over the existing tenant model. Closes no spec section. Does not meet the Slice 61 exit.",
     "plan": {
       "verdict": "APPROVE",
-      "version": "v4.1 after v1–v3 REJECT (halt), owner-authorized v4, then owner-authorized OD-11 amendment; plan REJECT count stayed 0 on the v4 line",
+      "version": "v4.1 after v1\u2013v3 REJECT (halt), owner-authorized v4, then owner-authorized OD-11 amendment; plan REJECT count stayed 0 on the v4 line",
       "agent_v4": "0bfef98d-2dbe-4da3-a734-9cf8c35599c4",
       "agent_v41": "e8e06b35-10a1-4a67-a853-e111f29ee1d6",
       "planner_v41": "da1511f1-6991-4ada-aa4d-4c210bfdce74",
@@ -490,5 +602,61 @@
         "ci": "https://github.com/albarami/UAID_OS/actions/runs/32698972608"
       }
     }
+  },
+  "slice_84": {
+    "finding": "F-021",
+    "status": "merged_tests_only",
+    "pr": 120,
+    "merge_sha": "65e85c4",
+    "alembic_head": "0062",
+    "a5": "slice54.v1",
+    "readiness": "slice20.v1",
+    "can_go_live_autonomously": false,
+    "make_test": "1277 passed / 1104 deselected",
+    "make_test_db": "1104 passed / 1277 deselected",
+    "pyright_eight_files": "0 errors",
+    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32771816216/job/97573646027",
+    "ci_result": "test passed in 2m51s",
+    "plan": {
+      "version": "v2",
+      "planner": "Claude Opus substituting for owner-named Fable 5",
+      "reviewer": "GPT-5.6 Sol",
+      "verdict": "APPROVE after one REJECT of v1.1"
+    },
+    "code": {
+      "builder_initial": "Cursor Grok 4.6 Extra High",
+      "consecutive_code_rejects": 3,
+      "reject_history": [
+        "1 pyright 14 errors on eight \u00a71 files",
+        "2 P-GREEN-2a wrapper substring: skills is append-only inside agent_provided_skills is append-only",
+        "3 _inputs explicit defaults plus **over duplicated keywords; two Docker-free skills tests TypeError"
+      ],
+      "seat_swap": {
+        "reason": "third consecutive code REJECT of the same item",
+        "implementer": "GPT-5.6 Sol",
+        "implementer_agent": "cc9b930f-5782-45e5-a815-fc7dbcebc2e0",
+        "implementer_commit": "2f50752",
+        "reviewer": "Claude Opus",
+        "reviewer_agent": "c31c2f80-a848-4332-a9f3-cef8583567e7",
+        "verdict": "APPROVE"
+      },
+      "reject_counter_after_approve": 0
+    },
+    "limitations": [
+      "f021_test_integrity_only_no_production_guard_added",
+      "risk_acceptance_cross_tenant_insert_refused_by_binding_guard_before_rls",
+      "wrong_project_acceptance_case_differs_in_both_project_and_subject",
+      "four_touched_test_files_remain_over_the_500_line_house_cap",
+      "ci_pyright_scope_still_s55_63_full_repo_typecheck_is_f017",
+      "f004_approval_events_tool_calls_allowlist_owner_mutation_still_succeeds"
+    ],
+    "not_closed": [
+      "F-002",
+      "F-003",
+      "F-004",
+      "F-005",
+      "F-017",
+      "F-020"
+    ]
   }
 }
