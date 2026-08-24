@@ -1013,6 +1013,24 @@ Python, that cost budgets are role-gated, that suspension halts work already ins
 `tenant_scope`, or that any read endpoint is role-gated — none is. A5 stays `slice54.v1`,
 readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal `False`.
 D-8, D-9, and D-10 stay OPEN (owner = Salim). No HTTP, no LLM, no broker change.**
+**Slice 84 binds F-021's five load-bearing tests to the named guards they
+already had (tests only; no migration; Alembic head stays `0062`).** Merged via
+PR #120 (squash commit `65e85c4`). Seats: PLANNER = Claude Opus substituting for
+the owner-named Fable 5 (`SLICE-84-PLAN.md` v2, Sol plan APPROVE after one
+REJECT); BUILDER = Cursor Grok 4.6 Extra High until three consecutive code
+REJECTs (pyright; skills substring trap; `_inputs` overlay TypeError), then
+**seat swap** — Sol implemented `2f50752`, Claude Opus reviewed and APPROVE'd
+(`c31c2f80-a848-4332-a9f3-cef8583567e7`). Verified suites: `make test` 1277
+passing / 1104 deselected; `make test-db` 1104 passing / 1277 deselected.
+Eight §1-file pyright: 0 errors. A5 stays `slice54.v1`; readiness stays
+`slice20.v1`; `can_go_live_autonomously` remains the literal `False`. Named
+limitations: `f021_test_integrity_only_no_production_guard_added`,
+`risk_acceptance_cross_tenant_insert_refused_by_binding_guard_before_rls`,
+`wrong_project_acceptance_case_differs_in_both_project_and_subject`,
+`four_touched_test_files_remain_over_the_500_line_house_cap`,
+`ci_pyright_scope_still_s55_63_full_repo_typecheck_is_f017`,
+`f004_approval_events_tool_calls_allowlist_owner_mutation_still_succeeds`.
+**Honesty crux:** Slice 84 changed tests only. It added no migration, no guard, no grant, and no production code: Alembic head stays `0062`. What is now true is that five previously masked assertions execute the operation that reaches the named guard and pin that guard's exact message and SQLSTATE — the `cost_events` immutability trigger via `TRUNCATE ... CASCADE`, the three global skill append-only triggers via controlled `TRUNCATE ... CASCADE`, the `uaid_app` SELECT-only grant on all three global tables via structurally valid INSERTs, the `critical findings cannot be accepted` repository branch via a direct `accept()` call, the finding and issue acceptance guards via direct SQL over separately valid wrong-project and wrong-subject records, and the risk-acceptance tenant boundary via a structurally valid cross-tenant SQL INSERT. Each is paired with a mutation probe that disables only that guard and shows the test fail. This does not make any of those guards stronger, does not close F-002, F-003, F-004, F-005, F-017, or F-020, and does not prove the rest of the suite is load-bearing — it repairs the five regressions the audit named and nothing else. A usable risk-acceptance record for a critical finding is structurally impossible (`app/repositories/risk_acceptance.py:120-123`), so the critical-accept test supplies a separately valid non-critical record purely to reach the refusal. On the risk-acceptance table the tenant-scoped Slice-47 binding guard refuses a cross-tenant INSERT before PostgreSQL evaluates the row-level security policy; RLS attribution is therefore proven on a second probe that disables only that guard. `can_go_live_autonomously` remains the literal `False`, A5 remains `slice54.v1`, and readiness remains `slice20.v1`.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1786,11 +1804,11 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
   `test_agents.py`, `test_cost.py`, `test_runtime.py`, `test_runtime_8b.py`, `test_intake.py`,
   `test_intake_compiler.py`, `test_readiness.py`, `test_findings.py`, `test_extraction.py`,
   `test_extraction_promotion.py`, `test_intake_categories.py`, `test_production_autonomy.py`,
-  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_ops_stabilization.py`, `test_ops_stabilization_db.py`, `test_ops_stabilization_checks.py`, `test_ops_stabilization_migrate.py`, `test_ops_stabilization_guards.py`, `test_export_bundle.py`, `test_export_bundle_db.py`, `test_export_bundle_checks.py`, `test_export_bundle_guards.py`, `test_export_bundle_migrate.py`, `test_api.py`
+  `test_risk_acceptance.py`, `test_release_findings.py`, `test_release_issues.py`, `test_release_candidates.py`, `test_ci_evidence.py`, `test_identity.py`, `test_pr_evidence.py`, `test_deploy_evidence.py`, `test_monitoring_evidence.py`, `test_secrets_verification.py`, `test_approval_channel.py`, `test_pm_issues.py`, `test_classification.py`, `test_generator.py`, `test_semantic_contradictions.py`, `test_skills.py`, `test_factory.py`, `test_qualification.py`, `test_failure_policy.py`, `test_task_contracts.py`, `test_test_oracles.py`, `test_security_scans.py`, `test_shortcut_detector.py`, `test_acceptance_verifier.py`, `test_issue_provenance.py`, `test_reviewer_quality.py`, `test_evidence_packs.py`, `test_release_verdicts.py`, `test_cost_forecasts.py`, `test_rollback_verifications.py`, `test_production_preapprovals.py`, `test_emergency_controls.py`, `test_control_loop.py`, `test_control_loop_review_fixes.py`, `test_control_loop_owner_retry.py`, `test_control_loop_owner_review.py`, `test_ops_signals.py`, `test_ops_signals_db.py`, `test_ops_signals_checks.py`, `test_ops_signals_migrate.py`, `test_ops_incidents.py`, `test_ops_incidents_db.py`, `test_ops_incidents_catalog.py`, `test_ops_incidents_checks.py`, `test_ops_incidents_migrate.py`, `test_ops_hotfix.py`, `test_ops_hotfix_db.py`, `test_ops_hotfix_checks.py`, `test_ops_hotfix_migrate.py`, `test_ops_hotfix_currentness.py`, `test_ops_stabilization.py`, `test_ops_stabilization_db.py`, `test_ops_stabilization_checks.py`, `test_ops_stabilization_migrate.py`, `test_ops_stabilization_guards.py`, `test_export_bundle.py`, `test_export_bundle_db.py`, `test_export_bundle_checks.py`, `test_export_bundle_guards.py`, `test_export_bundle_migrate.py`, `test_slice84_load_bearing.py`, `test_slice84_acceptance_guards.py`, `test_api.py`
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1277 passing (Docker-free); `make test-db` → 1085 passing (DB-backed: tenancy,
+  **`make test` → 1277 passing (Docker-free); `make test-db` → 1104 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1898,7 +1916,7 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 1277 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1085 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1104 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
