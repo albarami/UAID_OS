@@ -10,8 +10,8 @@ from sqlalchemy.exc import DBAPIError
 
 from app.ops.incident_service import open_incident, record_support_handover
 from app.ops.incidents import HandoverPayload, IncidentPayload
-from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.tenancy import TenantContext, tenant_scope
+from tests.admin_support import seed_gated_policy
 from tests.ops_incidents_support import INCIDENT_TABLES
 
 
@@ -19,13 +19,15 @@ def _payload() -> IncidentPayload:
     return IncidentPayload(category="error", severity="high", summary="api 5xx burst")
 
 
-async def _set_policy(ctx, project_id, level):
+async def _set_policy(ctx, project_id, level, *, admin_engine):
     async with tenant_scope(ctx) as session:
-        await AutonomyPolicyRepository(session, ctx).upsert(
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
             project_id=project_id,
             autonomy_level=level,
             overrides={},
-            actor="inc-test",
+            admin_engine=admin_engine,
         )
 
 
@@ -33,7 +35,7 @@ async def _set_policy(ctx, project_id, level):
 async def test_catalog_rls_append_only_and_race(inc_ctx, admin_engine, db_session):
     ctx = TenantContext(inc_ctx["t1"])
     p1 = inc_ctx["p1"]
-    await _set_policy(ctx, p1, 1)
+    await _set_policy(ctx, p1, 1, admin_engine=admin_engine)
     snap = await open_incident(
         ctx, p1, actor="inc-test", payload=_payload(), idempotency_key=f"cat-{inc_ctx['suffix']}"
     )

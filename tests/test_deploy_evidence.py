@@ -634,14 +634,18 @@ def _observation(**over) -> dict:
     return rec
 
 
-async def _allow_setup(session, ctx, project_id, agent_id="conn", domain="app.example.com"):
+async def _allow_setup(session, ctx, project_id, agent_id="conn", domain="app.example.com", *, admin_engine):
     from app.policy.levels import AutonomyLevel
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.tools import ToolAllowlistRepository
 
     await _declare_env(session, ctx, project_id, domain=domain)
-    await AutonomyPolicyRepository(session, ctx).upsert(
-        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    await seed_gated_policy(
+        session=session,
+        ctx=ctx,
+        project_id=project_id,
+        autonomy_level=int(AutonomyLevel.A5),
+        admin_engine=admin_engine,
     )
     await ToolAllowlistRepository(session, ctx).grant(
         agent_id=agent_id, tool_name="deployment.read_target_status", actor="admin"
@@ -657,7 +661,7 @@ async def test_refresh_broker_allow_writes_positive_safe_params(dt_ctx, admin_en
     t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        await _allow_setup(session, ctx, p1)
+        await _allow_setup(session, ctx, p1, admin_engine=admin_engine)
         result = await refresh_deployment_target_evidence(
             session,
             ctx,
@@ -690,7 +694,7 @@ async def test_refresh_broker_allow_writes_positive_safe_params(dt_ctx, admin_en
 
 
 @pytest.mark.db
-async def test_refresh_writes_verified_negative(dt_ctx):
+async def test_refresh_writes_verified_negative(dt_ctx, admin_engine):
     # B-30-9: a safely-attempted UNAVAILABLE probe writes a verified-NEGATIVE snapshot.
     from app.release.deploy_connector import FakeDeployTargetConnector
     from app.release.deploy_evidence_service import refresh_deployment_target_evidence
@@ -699,7 +703,7 @@ async def test_refresh_writes_verified_negative(dt_ctx):
     t1, p1 = dt_ctx["t1"], dt_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        await _allow_setup(session, ctx, p1)
+        await _allow_setup(session, ctx, p1, admin_engine=admin_engine)
         result = await refresh_deployment_target_evidence(
             session,
             ctx,
@@ -721,7 +725,7 @@ async def test_refresh_writes_verified_negative(dt_ctx):
 
 @pytest.mark.db
 @pytest.mark.parametrize("scenario", ["target_unbound", "broker_denied", "ssrf_reject"])
-async def test_refresh_no_write_paths(dt_ctx, scenario):
+async def test_refresh_no_write_paths(dt_ctx, scenario, admin_engine):
     from app.release.deploy_connector import FakeDeployTargetConnector
     from app.release.deploy_evidence_service import refresh_deployment_target_evidence
     from app.tenancy import TenantContext, tenant_scope
@@ -736,7 +740,7 @@ async def test_refresh_no_write_paths(dt_ctx, scenario):
         elif scenario == "broker_denied":
             await _declare_env(session, ctx, p1)  # declared, but agent not allowlisted
         elif scenario == "ssrf_reject":
-            await _allow_setup(session, ctx, p1)
+            await _allow_setup(session, ctx, p1, admin_engine=admin_engine)
             connector = FakeDeployTargetConnector(error=DeploySSRFRejected("blocked"))
         result = await refresh_deployment_target_evidence(
             session, ctx, project_id=p1, agent_id="conn", actor="conn", connector=connector

@@ -23,7 +23,7 @@ from app.agents.factory import (
 )
 from app.policy.levels import AutonomyLevel as L
 from app.repositories.agent_realizations import AgentRealizationRepository
-from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from tests.admin_support import seed_gated_policy
 from app.repositories.tools import ToolAllowlistRepository
 from app.tenancy import TenantContext, tenant_scope
 from app.tools.broker import BrokerDecision, broker_call, broker_call_service
@@ -422,7 +422,7 @@ async def test_broker_cross_project_instance_denied_unknown(ar_ctx, admin_engine
 
 
 @pytest.mark.db
-async def test_broker_realized_unqualified_denied_even_with_allowlist_and_policy(ar_ctx):
+async def test_broker_realized_unqualified_denied_even_with_allowlist_and_policy(ar_ctx, admin_engine):
     # The qualification gate fires BEFORE allowlist/policy: a realized (unqualified) agent with the
     # tool granted + policy ALLOW is STILL denied (no new authority unlocked this slice).
     ctx = TenantContext(ar_ctx["t1"])
@@ -435,8 +435,12 @@ async def test_broker_realized_unqualified_denied_even_with_allowlist_and_policy
             reviewer_blueprint_ids=[ar_ctx["bp_reviewer"]],
             realized_by="planner",
         )
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=ar_ctx["p1"], autonomy_level=int(L.A2), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=ar_ctx["p1"],
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
         )
         d = await broker_call(
             session,
@@ -477,7 +481,7 @@ async def test_broker_records_both_new_decisions(ar_ctx, admin_engine):
 
 
 @pytest.mark.db
-async def test_agent_and_service_paths_are_separate(ar_ctx):
+async def test_agent_and_service_paths_are_separate(ar_ctx, admin_engine):
     # Separation: a tool granted to a SERVICE identity passes the SERVICE path, but the SAME string on
     # the AGENT path is denied (not an instance) — service authority never satisfies agent identity,
     # and the service path never resolves an instance or checks qualification.
@@ -486,8 +490,12 @@ async def test_agent_and_service_paths_are_separate(ar_ctx):
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id="service:probe", tool_name="ci.run_tests", actor="admin"
         )
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=ar_ctx["p1"], autonomy_level=int(L.A2), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=ar_ctx["p1"],
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
         )
         svc = await broker_call_service(
             session,

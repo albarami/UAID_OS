@@ -332,7 +332,7 @@ async def test_frozen_hashes_and_verified_unreadable_seq3(inc_ctx):
 
 
 @pytest.mark.db
-async def test_real_emergency_latch_refuses_closure_and_leaves_window_open(inc_ctx, db_session):
+async def test_real_emergency_latch_refuses_closure_and_leaves_window_open(inc_ctx, db_session, admin_engine):
     member = TenantContext(inc_ctx["t1"], actor=AuthenticatedActor("stop-a@example.test", "human"))
     closer = TenantContext(inc_ctx["t1"], actor=AuthenticatedActor("stop-b@example.test", "human"))
     project = await create_project(member, name="StabLatch", slug=unique_key("stab-latch"))
@@ -340,7 +340,7 @@ async def test_real_emergency_latch_refuses_closure_and_leaves_window_open(inc_c
     window = await assess_stabilization(
         member, project, actor="alice", idempotency_key=unique_key("latch-win")
     )
-    await seed_emergency_authority(member, project)
+    await seed_emergency_authority(member, project, admin_engine=admin_engine)
     bound, activated = await bind_and_activate_emergency_stop(
         member,
         project,

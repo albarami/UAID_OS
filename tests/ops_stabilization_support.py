@@ -311,12 +311,13 @@ async def create_project(ctx: TenantContext, *, name: str, slug: str) -> uuid.UU
         return project.id
 
 
-async def seed_emergency_authority(ctx: TenantContext, project_id: uuid.UUID) -> None:
+async def seed_emergency_authority(
+    ctx: TenantContext, project_id: uuid.UUID, *, admin_engine
+) -> None:
     """Declare the Slice-54 recorded policy + checklist and a valid autonomy row.
 
     Bind/activate need this graph. ``emergency_controls.py`` stays unmodified.
     """
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
     from app.repositories.intake_categories import IntakeCategoryRepository
     from tests.test_emergency_controls import _checklist, _policy
 
@@ -336,11 +337,15 @@ async def seed_emergency_authority(ctx: TenantContext, project_id: uuid.UUID) ->
             data=_checklist(),
             origin="test",
         )
-        await AutonomyPolicyRepository(session, ctx).upsert(
+        from tests.admin_support import seed_gated_policy
+
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
             project_id=project_id,
             autonomy_level=5,
             overrides={},
-            actor="stab-test",
+            admin_engine=admin_engine,
         )
 
 

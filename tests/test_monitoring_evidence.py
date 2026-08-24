@@ -916,14 +916,18 @@ async def test_connector_happy_path_pins_validated_ip(monkeypatch):
 # --- DB-backed: broker-gated service ------------------------------------------
 
 
-async def _mon_allow_setup(session, ctx, project_id, agent_id="conn", status_url=_URL):
+async def _mon_allow_setup(session, ctx, project_id, agent_id="conn", status_url=_URL, *, admin_engine):
     from app.policy.levels import AutonomyLevel
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.tools import ToolAllowlistRepository
 
     await _declare_monitoring(session, ctx, project_id, status_url=status_url)
-    await AutonomyPolicyRepository(session, ctx).upsert(
-        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    await seed_gated_policy(
+        session=session,
+        ctx=ctx,
+        project_id=project_id,
+        autonomy_level=int(AutonomyLevel.A5),
+        admin_engine=admin_engine,
     )
     await ToolAllowlistRepository(session, ctx).grant(
         agent_id=agent_id, tool_name="monitoring.read_status", actor="admin"
@@ -940,7 +944,7 @@ async def test_refresh_broker_allow_writes_positive_safe_params(mon_ctx, admin_e
     ctx = TenantContext(t1)
     secret_url = "https://secret-mon.example.com/private"
     async with tenant_scope(ctx) as session:
-        await _mon_allow_setup(session, ctx, p1, status_url=secret_url)
+        await _mon_allow_setup(session, ctx, p1, status_url=secret_url, admin_engine=admin_engine)
         result = await refresh_monitoring_evidence(
             session,
             ctx,
@@ -973,7 +977,7 @@ async def test_refresh_broker_allow_writes_positive_safe_params(mon_ctx, admin_e
 
 
 @pytest.mark.db
-async def test_refresh_writes_verified_negative(mon_ctx):
+async def test_refresh_writes_verified_negative(mon_ctx, admin_engine):
     # B-30-9: a safely-attempted failed read writes a verified-NEGATIVE (honest-unknown) snapshot.
     from app.release.monitoring_connector import FakeMonitoringConnector
     from app.release.monitoring_evidence_service import refresh_monitoring_evidence
@@ -982,7 +986,7 @@ async def test_refresh_writes_verified_negative(mon_ctx):
     ctx = TenantContext(mon_ctx["t1"])
     p1 = mon_ctx["p1"]
     async with tenant_scope(ctx) as session:
-        await _mon_allow_setup(session, ctx, p1)
+        await _mon_allow_setup(session, ctx, p1, admin_engine=admin_engine)
         result = await refresh_monitoring_evidence(
             session,
             ctx,
@@ -1002,7 +1006,7 @@ async def test_refresh_writes_verified_negative(mon_ctx):
 
 @pytest.mark.db
 @pytest.mark.parametrize("scenario", ["monitoring_unbound", "broker_denied", "ssrf_reject"])
-async def test_refresh_no_write_paths(mon_ctx, scenario):
+async def test_refresh_no_write_paths(mon_ctx, scenario, admin_engine):
     from app.release.monitoring_connector import FakeMonitoringConnector
     from app.release.monitoring_evidence_service import refresh_monitoring_evidence
     from app.tenancy import TenantContext, tenant_scope
@@ -1017,7 +1021,7 @@ async def test_refresh_no_write_paths(mon_ctx, scenario):
         elif scenario == "broker_denied":
             await _declare_monitoring(session, ctx, p1)  # declared, but agent not allowlisted
         elif scenario == "ssrf_reject":
-            await _mon_allow_setup(session, ctx, p1)
+            await _mon_allow_setup(session, ctx, p1, admin_engine=admin_engine)
             connector = FakeMonitoringConnector(error=DeploySSRFRejected("blocked"))
         result = await refresh_monitoring_evidence(
             session, ctx, project_id=p1, agent_id="conn", actor="conn", connector=connector
@@ -1132,7 +1136,7 @@ def test_gate11_only_no_other_gate_regression():
 
 
 @pytest.mark.db
-async def test_gate11_db_passes_then_negative_supersedes(mon_ctx):
+async def test_gate11_db_passes_then_negative_supersedes(mon_ctx, admin_engine):
     from app.release.monitoring_connector import FakeMonitoringConnector
     from app.release.monitoring_evidence_service import refresh_monitoring_evidence
     from app.repositories.production_autonomy import ProductionAutonomyRepository
@@ -1141,7 +1145,7 @@ async def test_gate11_db_passes_then_negative_supersedes(mon_ctx):
     ctx = TenantContext(mon_ctx["t1"])
     p1 = mon_ctx["p1"]
     async with tenant_scope(ctx) as session:
-        await _mon_allow_setup(session, ctx, p1)
+        await _mon_allow_setup(session, ctx, p1, admin_engine=admin_engine)
         # 1) verified valid + active + fresh ⇒ gate #11 PASSES (the first DB pass).
         await refresh_monitoring_evidence(
             session,

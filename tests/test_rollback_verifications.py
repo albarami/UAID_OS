@@ -537,7 +537,7 @@ def _zero_inventories() -> tuple[SectionInventory, ...]:
 @pytest_asyncio.fixture
 async def rollback_ctx(db_session):
     from app.policy.levels import AutonomyLevel
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.evidence_packs import EvidencePackRepository
     from app.repositories.intake_categories import IntakeCategoryRepository
     from app.repositories.tools import ToolAllowlistRepository
@@ -600,8 +600,12 @@ async def rollback_ctx(db_session):
             }
         },
     )
-    await AutonomyPolicyRepository(db_session, context).upsert(
-        project_id=project, autonomy_level=int(AutonomyLevel.A5), actor="slice52-test"
+    await seed_gated_policy(
+        session=db_session,
+        ctx=context,
+        project_id=project,
+        autonomy_level=int(AutonomyLevel.A5),
+        session_is_admin=True,
     )
     await ToolAllowlistRepository(db_session, context).grant(
         agent_id="rollback-connector",

@@ -662,15 +662,13 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 - **Tests.** RBAC; tenant-boundary preserved; admin actions audited.
 - **A5 gate(s) advanced.** None.
 - **Must NOT claim.** Admin convenience overriding tenant isolation.
-- **Exit.** Plan v4 under review (owner-authorized 2026-08-24 after three plan REJECTs; consecutive count reset). No product code yet. Alembic head still `0061`. D-8/D-9/D-10 and the Slice 61 exit stay OPEN.
+- **Exit.** Enterprise administration delivered with tenant isolation intact (migration `0062`, `ruleset_version="slice63.v1"`). This is a **roadmap-scope** statement only: go-live is not authorized, `can_go_live_autonomously` is still the literal `False`, the Slice 61 exit is still **OPEN**, and D-8/D-9/D-10 are still **OPEN** (owner = Salim). Do not mark Slice 61 done. Do not claim go-live. Do not add a Slice 64.
 
 ---
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-24): Slice 62 is MERGED.** PR #114 landed as squash commit `96faa86`; migration `0061_cost_learning` is the Alembic head (`uv run alembic heads` → `0061`). UAID records a tenant-owned model-tier recommendation and a 62-row tenant-safe aggregate snapshot; this is not actuated routing, not a privacy proof, and not go-live authority. The roadmap Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`, and `can_go_live_autonomously=False` remains literal (`.planning/SLICE-62-PLAN.md`; `app/ecosystem/learning.py`; `app/ecosystem/cost_optimizer.py`; migration `0061`; PR #114).
-
-**Slice 63 plan v4 awaiting Sol review.** Owner (Salim, 2026-08-24) authorized v4 and amended the overlapping-guard bar to named `/reachable` + `/own-reason` probe pairs. Consecutive plan REJECT count reset to 0. One REJECT of v4 halts; no v5 without the owner. Alembic head remains `0061`. Slice 61 exit and D-8/D-9/D-10 stay OPEN. A5 `slice54.v1`, readiness `slice20.v1`, `can_go_live_autonomously=False`. Seat ruling (2026-08-23, standing) unchanged. After Slice 63 merges: stop and write the Slice 55–63 final report; do not start new work.
+> **Current state (2026-08-24): Slice 63 enterprise administration is implemented on `feat/slice-63-enterprise-admin` (Alembic head `0062`).** Tenant isolation is intact: `uaid_app` cannot INSERT/UPDATE `autonomy_policies` except through the SECURITY DEFINER writer. This is **not** go-live authority. `can_go_live_autonomously` is still the literal `False`. The Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`. After Slice 63 merges: stop and write the Slice 55–63 final report; do not start new work. Do not add a Slice 64.
 
 ---
 

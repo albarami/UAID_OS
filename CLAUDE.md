@@ -950,6 +950,61 @@ A5 stays `slice54.v1`; readiness stays `slice20.v1`;
 1270 passing / 1022 deselected; `make test-db` 1022 passing / 1270 deselected.
 Owned pyright paths report 0 errors. **Merged via PR #114 (squash commit
 `96faa864c19d7cbffb3677600530de5071c12b2c`).** The Slice 61 exit stays OPEN.**
+**Slice 63 adds ENTERPRISE ADMINISTRATION over the existing tenant model
+(closes NO spec section; does **not** meet the roadmap Slice 61 exit)**
+(`app/admin/` + `AdminRbac`/`policy_admin`/`tenant_admin` +
+`app/repositories/admin.py` + migration `0062_enterprise_admin`,
+`ruleset_version="slice63.v1"`). Three tenant-owned RLS tables
+(`admin_role_grants`, `admin_actions`, `admin_policy_changes`) plus
+`tenant_admin_events`; additive `organizations.status`;
+`AutonomyPolicyRepository.upsert` **removed**. Runtime `uaid_app` holds
+**SELECT only** on `autonomy_policies` — INSERT/UPDATE revoked. The only
+runtime policy write is `public.admin_write_autonomy_policy` (SECURITY
+DEFINER, owner `policy_admin_writer`), which upserts the policy and
+inserts the ledger row in one call. Bearer-key resolution fails closed
+when `tenants.status` or `organizations.status` is not `active`.
+Operator CLI: `python -m scripts.admin_roles`. Bootstrap
+`scripts/bootstrap_rls_role.sql` must run before `0062` (creates
+`policy_admin_writer`). Pre-change SHA-256 (§1.1):
+`app/repositories/autonomy_policies.py`
+`9b563f6a8780da4a60cd1a57de377df6f3510a221d656564c115b89812288317`;
+`scripts/bootstrap_rls_role.sql`
+`7a611e198d1efff926646dcbfaebe95782e9de0d8ed3d2c20fd4c38bbccc9c61`.
+Post-change SHA-256:
+`app/repositories/autonomy_policies.py`
+`452ec2c489181b72fdcd3d6f7c60c5646251199a87ec80059964cdbd41d97fdd`;
+`scripts/bootstrap_rls_role.sql`
+`3e810268b005db05a0af2d65189ab09634e1ea127837600d3303f68ead684128`.
+Verified suites: `make test` 1276 passing / 1082 deselected;
+`make test-db` 1082 passing / 1276 deselected. Owned pyright paths
+report 0 errors. Alembic head `0062`.
+Limitations named: `read_api_not_role_gated`,
+`suspension_not_enforced_inside_tenant_scope`,
+`role_grant_delegation_not_implemented`,
+`matrix_floor_enforced_in_python_only`,
+`cost_budget_writes_not_rbac_gated`,
+`malformed_stored_override_refuses_tighten`, and an operator holding
+DB-owner credentials is not constrained. A freshly migrated database
+has zero role grants. **Honesty crux:** This slice records enterprise administration over UAID's existing tenant model. It is not
+go-live authority, not an RLS bypass for `uaid_app`, not a human signature, not closing
+Slice 61, and not closing D-8/D-9/D-10. What the database enforces is that the runtime role
+holds no INSERT or UPDATE on `autonomy_policies` at all, so its only policy-write path is a
+SECURITY DEFINER function that refuses without an allowed, unspent, same-tenant admin action —
+one that spends that authorization in the same call and transaction as the write, so a policy
+can neither change without a ledger row nor be changed twice on one authorization — and which
+refuses a "tighten" that would relax the currently stored override map, including an
+empty map; that the runtime role cannot record an allowed admin action without a real active
+same-tenant role grant it has no privilege to create, and cannot record a lesser refusal while
+a sufficient higher grant is active; and that a suspended tenant's or organization's bearer key
+no longer resolves at the single HTTP→tenant boundary. What it does not enforce is that the
+recorded principal is the authenticated one (app-stamped), that a role grant carries real
+organizational authority (its provenance is an unverified operator admin session), that an
+operator with DB-owner credentials is constrained — that actor can still write policies and
+grants directly — that the §5/§2.6 matrix floor is checked in the database rather than in
+Python, that cost budgets are role-gated, that suspension halts work already inside
+`tenant_scope`, or that any read endpoint is role-gated — none is. A5 stays `slice54.v1`,
+readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal `False`.
+D-8, D-9, and D-10 stay OPEN (owner = Salim). No HTTP, no LLM, no broker change.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1218,6 +1273,47 @@ freshly migrated database has no published aggregates until the admin publisher 
 Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
   A5 stays `slice54.v1`; readiness stays `slice20.v1`;
   `can_go_live_autonomously` remains the literal `False`.
+- `app/admin/` — enterprise administration (Slice 63; **closes no spec section**; does
+  **not** meet the roadmap Slice 61 exit). DB-enforced RBAC over the existing
+  tenant model: role grants, evaluated admin actions, a real write lock on
+  `autonomy_policies` for `uaid_app`, org/tenant suspend that fails closed at
+  `resolve_tenant_api_key`, and operator CLI `python -m scripts.admin_roles`.
+  Migration `0062` is additive and fails closed if `policy_admin_writer` is
+  missing (`make db-bootstrap-rls-role` first). `AutonomyPolicyRepository.upsert`
+  is gone; the gated write and the spending of its authorization are one
+  database call. A freshly migrated database has zero role grants. Limitations:
+  `read_api_not_role_gated`, `suspension_not_enforced_inside_tenant_scope`,
+  `role_grant_delegation_not_implemented`, `matrix_floor_enforced_in_python_only`,
+  `cost_budget_writes_not_rbac_gated`, `malformed_stored_override_refuses_tighten`;
+  an operator holding DB-owner credentials is not constrained. Pre-change
+  SHA-256: `autonomy_policies.py`
+  `9b563f6a8780da4a60cd1a57de377df6f3510a221d656564c115b89812288317`,
+  `bootstrap_rls_role.sql`
+  `7a611e198d1efff926646dcbfaebe95782e9de0d8ed3d2c20fd4c38bbccc9c61`.
+  Post-change SHA-256: `autonomy_policies.py`
+  `452ec2c489181b72fdcd3d6f7c60c5646251199a87ec80059964cdbd41d97fdd`,
+  `bootstrap_rls_role.sql`
+  `3e810268b005db05a0af2d65189ab09634e1ea127837600d3303f68ead684128`.
+  **Honesty crux:** This slice records enterprise administration over UAID's existing tenant model. It is not
+go-live authority, not an RLS bypass for `uaid_app`, not a human signature, not closing
+Slice 61, and not closing D-8/D-9/D-10. What the database enforces is that the runtime role
+holds no INSERT or UPDATE on `autonomy_policies` at all, so its only policy-write path is a
+SECURITY DEFINER function that refuses without an allowed, unspent, same-tenant admin action —
+one that spends that authorization in the same call and transaction as the write, so a policy
+can neither change without a ledger row nor be changed twice on one authorization — and which
+refuses a "tighten" that would relax the currently stored override map, including an
+empty map; that the runtime role cannot record an allowed admin action without a real active
+same-tenant role grant it has no privilege to create, and cannot record a lesser refusal while
+a sufficient higher grant is active; and that a suspended tenant's or organization's bearer key
+no longer resolves at the single HTTP→tenant boundary. What it does not enforce is that the
+recorded principal is the authenticated one (app-stamped), that a role grant carries real
+organizational authority (its provenance is an unverified operator admin session), that an
+operator with DB-owner credentials is constrained — that actor can still write policies and
+grants directly — that the §5/§2.6 matrix floor is checked in the database rather than in
+Python, that cost budgets are role-gated, that suspension halts work already inside
+`tenant_scope`, or that any read endpoint is role-gated — none is. A5 stays `slice54.v1`,
+readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal `False`.
+  D-8 / D-9 / D-10 stay OPEN (owner = Salim). No HTTP, no LLM, no broker change.
 - `app/release/export_bundle.py` — signed offline auditor bundle (Slice 60, §28.1; **closes no**
   spec section**). Pure contracts `slice60.signed_manifest.v1` /
   `slice60.bundle_verification.v1` / `slice60.redaction_policy.v1`; `export_signing.py` holds
@@ -1683,7 +1779,7 @@ Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1270 passing (Docker-free); `make test-db` → 1022 passing (DB-backed: tenancy,
+  **`make test` → 1276 passing (Docker-free); `make test-db` → 1082 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1790,8 +1886,8 @@ Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1270 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1022 passing
+make test                                  # Docker-free tests (no services) — 1276 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1082 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

@@ -125,9 +125,9 @@ def test_p_sql_allowlist_migration_imports() -> None:
     assert "expected_counts_function_body" in Path("app/ecosystem/learning_ddl.py").read_text()
 
 
-def test_alembic_revision_0061_is_head() -> None:
+def test_alembic_revision_0062_is_head() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
-    assert heads == ["0061"]
+    assert heads == ["0062"]

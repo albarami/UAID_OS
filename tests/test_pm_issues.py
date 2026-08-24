@@ -462,15 +462,19 @@ async def test_resolver_fail_closed_bad(pm_ctx, jira):
         assert await resolve_declared_pm_project(session, ctx, p1) is None
 
 
-async def _pm_allow_setup(session, ctx, project_id, agent_id="conn"):
+async def _pm_allow_setup(session, ctx, project_id, agent_id="conn", *, admin_engine):
     from app.policy.levels import AutonomyLevel
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.tools import ToolAllowlistRepository
 
     await _declare_jira(session, ctx, project_id)
     await _declare_jira_credential(session, ctx, project_id)
-    await AutonomyPolicyRepository(session, ctx).upsert(
-        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    await seed_gated_policy(
+        session=session,
+        ctx=ctx,
+        project_id=project_id,
+        autonomy_level=int(AutonomyLevel.A5),
+        admin_engine=admin_engine,
     )
     await ToolAllowlistRepository(session, ctx).grant(
         agent_id=agent_id, tool_name="pm.read_issues", actor="admin"
@@ -499,7 +503,7 @@ async def test_service_broker_allow_writes_mappings_safe_params(pm_ctx, admin_en
         },  # malformed -> skipped
     ]
     async with tenant_scope(ctx) as session:
-        await _pm_allow_setup(session, ctx, p1)
+        await _pm_allow_setup(session, ctx, p1, admin_engine=admin_engine)
         result = await sync_pm_issues(
             session,
             ctx,
@@ -561,7 +565,7 @@ async def test_service_no_write_paths(pm_ctx, scenario):
 
 
 @pytest.mark.db
-async def test_no_a5_impact_before_equals_after(pm_ctx):
+async def test_no_a5_impact_before_equals_after(pm_ctx, admin_engine):
     from app.release.pm_connector import FakeIssueTrackerConnector
     from app.release.pm_sync_service import sync_pm_issues
     from app.repositories.production_autonomy import ProductionAutonomyRepository
@@ -571,7 +575,7 @@ async def test_no_a5_impact_before_equals_after(pm_ctx):
     p1 = pm_ctx["p1"]
     obs = [{"external_ref": "PROJ-1", "external_status": "In Progress", "title_present": True}]
     async with tenant_scope(ctx) as session:
-        await _pm_allow_setup(session, ctx, p1)
+        await _pm_allow_setup(session, ctx, p1, admin_engine=admin_engine)
         before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
         result = await sync_pm_issues(
             session,
@@ -594,7 +598,7 @@ async def test_service_credential_unbound_no_broker_no_write(pm_ctx, admin_engin
     from app.policy.levels import AutonomyLevel
     from app.release.pm_connector import FakeIssueTrackerConnector
     from app.release.pm_sync_service import sync_pm_issues
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.tools import ToolAllowlistRepository
     from app.tenancy import TenantContext, tenant_scope
 
@@ -603,8 +607,12 @@ async def test_service_credential_unbound_no_broker_no_write(pm_ctx, admin_engin
     obs = [{"external_ref": "PROJ-1", "external_status": "Done", "title_present": True}]
     async with tenant_scope(ctx) as session:
         await _declare_jira(session, ctx, p1)  # project declared, but NO credential
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=p1, autonomy_level=int(AutonomyLevel.A5), actor="a"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=p1,
+            autonomy_level=int(AutonomyLevel.A5),
+            admin_engine=admin_engine,
         )
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id="conn", tool_name="pm.read_issues", actor="admin"

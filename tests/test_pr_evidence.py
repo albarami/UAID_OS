@@ -958,15 +958,19 @@ def _mapped_pr(**over) -> dict:
     return rec
 
 
-async def _allow_setup(session, ctx, project_id, agent_id="conn"):
+async def _allow_setup(session, ctx, project_id, agent_id="conn", *, admin_engine):
     from app.policy.levels import AutonomyLevel
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.tools import ToolAllowlistRepository
 
     await _declare_repo(session, ctx, project_id, "owner/repo")
     await _declare_secrets(session, ctx, project_id)
-    await AutonomyPolicyRepository(session, ctx).upsert(
-        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    await seed_gated_policy(
+        session=session,
+        ctx=ctx,
+        project_id=project_id,
+        autonomy_level=int(AutonomyLevel.A5),
+        admin_engine=admin_engine,
     )
     await ToolAllowlistRepository(session, ctx).grant(
         agent_id=agent_id, tool_name="source_control.read_pull_request", actor="admin"
@@ -982,7 +986,7 @@ async def test_refresh_broker_allow_writes_safe_params(pr_ctx, admin_engine):
     t1, p1 = pr_ctx["t1"], pr_ctx["p1"]
     ctx = TenantContext(t1)
     async with tenant_scope(ctx) as session:
-        await _allow_setup(session, ctx, p1)
+        await _allow_setup(session, ctx, p1, admin_engine=admin_engine)
         result = await refresh_pull_request_evidence(
             session,
             ctx,
@@ -1017,7 +1021,7 @@ async def test_refresh_broker_allow_writes_safe_params(pr_ctx, admin_engine):
 
 @pytest.mark.db
 @pytest.mark.parametrize("scenario", ["repo_unbound", "broker_denied", "connector_error", "no_pr"])
-async def test_refresh_no_write_paths(pr_ctx, scenario):
+async def test_refresh_no_write_paths(pr_ctx, scenario, admin_engine):
     from app.release.pr_evidence_service import refresh_pull_request_evidence
     from app.release.scm_connector import FakeSCMConnector, SCMConnectorError
     from app.tenancy import TenantContext, tenant_scope
@@ -1033,10 +1037,10 @@ async def test_refresh_no_write_paths(pr_ctx, scenario):
             await _declare_repo(session, ctx, p1, "owner/repo")
             await _declare_secrets(session, ctx, p1)  # declared, but agent not allowlisted
         elif scenario == "connector_error":
-            await _allow_setup(session, ctx, p1)
+            await _allow_setup(session, ctx, p1, admin_engine=admin_engine)
             connector = FakeSCMConnector(error=SCMConnectorError("reviews endpoint 500"))
         elif scenario == "no_pr":
-            await _allow_setup(session, ctx, p1)
+            await _allow_setup(session, ctx, p1, admin_engine=admin_engine)
             connector = FakeSCMConnector(result=None)
         result = await refresh_pull_request_evidence(
             session, ctx, project_id=p1, pr_number=7, agent_id="conn", actor="conn",

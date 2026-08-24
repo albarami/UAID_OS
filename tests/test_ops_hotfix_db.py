@@ -20,6 +20,7 @@ from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.repositories.emergency_controls import assert_project_not_stopped
 from app.repositories.ops_hotfix import OpsHotfixRepository
 from app.tenancy import TenantContext, tenant_scope
+from tests.admin_support import in_savepoint
 from tests.ops_hotfix_support import HOTFIX_TABLES, incident_payload, set_policy, unique_key
 
 
@@ -28,10 +29,10 @@ def _by_seq(actions):
 
 
 @pytest.mark.db
-async def test_a2_allow_writes_local_plans_and_null_context_fks(inc_ctx):
+async def test_a2_allow_writes_local_plans_and_null_context_fks(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,
@@ -62,7 +63,7 @@ async def test_a2_allow_writes_local_plans_and_null_context_fks(inc_ctx):
 
 
 @pytest.mark.db
-async def test_a0_and_missing_policy_write_zero_plans(inc_ctx):
+async def test_a0_and_missing_policy_write_zero_plans(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
     incident = await open_incident(
@@ -76,7 +77,7 @@ async def test_a0_and_missing_policy_write_zero_plans(inc_ctx):
         ctx, project, incident.id, actor="hotfix-test", idempotency_key=unique_key("hf-miss")
     )
     assert all(child.plan_id is None for child in missing.actions)
-    await set_policy(ctx, project, 0)
+    await set_policy(ctx, project, 0, admin_engine=admin_engine)
     a0 = await evaluate_hotfix_intent(
         ctx, project, incident.id, actor="hotfix-test", idempotency_key=unique_key("hf-a0")
     )
@@ -84,10 +85,10 @@ async def test_a0_and_missing_policy_write_zero_plans(inc_ctx):
 
 
 @pytest.mark.db
-async def test_staging_override_and_a3_allow_residual(inc_ctx):
+async def test_staging_override_and_a3_allow_residual(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
-    await set_policy(ctx, project, 3, {"deploy_staging": {"requires_approval": True}})
+    await set_policy(ctx, project, 3, {"deploy_staging": {"requires_approval": True}}, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,
@@ -99,7 +100,7 @@ async def test_staging_override_and_a3_allow_residual(inc_ctx):
         ctx, project, incident.id, actor="hotfix-test", idempotency_key=unique_key("hf-st")
     )
     assert _by_seq(needs.actions)[5].reason_code == "plan_needs_approval"
-    await set_policy(ctx, project, 3)
+    await set_policy(ctx, project, 3, admin_engine=admin_engine)
     allowed = await evaluate_hotfix_intent(
         ctx, project, incident.id, actor="hotfix-test", idempotency_key=unique_key("hf-st2")
     )
@@ -108,10 +109,10 @@ async def test_staging_override_and_a3_allow_residual(inc_ctx):
 
 
 @pytest.mark.db
-async def test_missing_current_release_graph_does_not_cite_authorization(inc_ctx):
+async def test_missing_current_release_graph_does_not_cite_authorization(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,
@@ -131,24 +132,33 @@ async def test_missing_current_release_graph_does_not_cite_authorization(inc_ctx
 async def test_policy_for_share_blocks_concurrent_upsert(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     async with tenant_scope(ctx, isolation_level="READ COMMITTED") as session:
-        await AutonomyPolicyRepository(session, ctx).snapshot_decisions(project, MATRIX_ACTIONS)
-        async with admin_engine.connect() as other:
-            await other.execute(text("SET lock_timeout = '200ms'"))
-            with pytest.raises(DBAPIError):
-                await other.execute(
-                    text("UPDATE autonomy_policies SET autonomy_level=0 WHERE project_id=:p"),
+        snap = await AutonomyPolicyRepository(session, ctx).snapshot_decisions(
+            project, MATRIX_ACTIONS
+        )
+        assert snap.policy_present is True
+        with pytest.raises(DBAPIError) as ei:
+            await in_savepoint(
+                session,
+                lambda: session.execute(
+                    text(
+                        "UPDATE autonomy_policies SET autonomy_level=0 WHERE project_id=:p"
+                    ),
                     {"p": project},
-                )
+                ),
+            )
+        assert getattr(ei.value.orig, "sqlstate", "") == "42501" or "42501" in str(
+            ei.value
+        )
 
 
 @pytest.mark.db
-async def test_swapped_kind_insert_and_seq67_plan_fail(inc_ctx, db_session):
+async def test_swapped_kind_insert_and_seq67_plan_fail(inc_ctx, db_session, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
     tenant = inc_ctx["t1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,
@@ -225,7 +235,7 @@ async def test_catalog_rls_append_only_and_audit_omits_intended_ref(
 ):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,
@@ -309,10 +319,10 @@ async def test_catalog_rls_append_only_and_audit_omits_intended_ref(
 
 
 @pytest.mark.db
-async def test_idempotency_and_terminal_incident_refused(inc_ctx):
+async def test_idempotency_and_terminal_incident_refused(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,

@@ -199,13 +199,13 @@ async def test_old_authorization_row_is_not_cited(rollback_ctx):
 
 
 @pytest.mark.db
-async def test_forged_snapshot_mismatch_and_seq4_without_branch_plan_fail(inc_ctx, db_session):
+async def test_forged_snapshot_mismatch_and_seq4_without_branch_plan_fail(inc_ctx, db_session, admin_engine):
     import uuid
 
     ctx = TenantContext(inc_ctx["t1"])
     project = inc_ctx["p1"]
     tenant = inc_ctx["t1"]
-    await set_policy(ctx, project, 2)
+    await set_policy(ctx, project, 2, admin_engine=admin_engine)
     incident = await open_incident(
         ctx,
         project,

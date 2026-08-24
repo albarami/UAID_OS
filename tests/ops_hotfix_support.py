@@ -5,8 +5,8 @@ from __future__ import annotations
 import uuid
 
 from app.ops.incidents import IncidentPayload
-from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.tenancy import tenant_scope
+from tests.admin_support import seed_gated_policy
 
 HOTFIX_TABLES = (
     "ops_self_healing_runs",
@@ -22,13 +22,15 @@ def incident_payload() -> IncidentPayload:
     return IncidentPayload(category="error", severity="high", summary="api 5xx burst")
 
 
-async def set_policy(ctx, project_id, level, overrides=None):
+async def set_policy(ctx, project_id, level, overrides=None, *, admin_engine):
     async with tenant_scope(ctx) as session:
-        await AutonomyPolicyRepository(session, ctx).upsert(
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
             project_id=project_id,
             autonomy_level=level,
             overrides=overrides or {},
-            actor="hotfix-test",
+            admin_engine=admin_engine,
         )
 
 

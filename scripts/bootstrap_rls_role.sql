@@ -61,3 +61,18 @@ END
 $$;
 ALTER ROLE api_key_resolver
     WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+
+-- Slice 63: limited owner role for the SECURITY DEFINER policy writer.
+-- NOLOGIN (never authenticates), no password; its only privileges are those
+-- migration 0062 grants (SELECT/INSERT/UPDATE on autonomy_policies, SELECT on
+-- admin_actions, SELECT/INSERT on admin_policy_changes).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'policy_admin_writer') THEN
+        CREATE ROLE policy_admin_writer
+            NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+    END IF;
+END
+$$;
+ALTER ROLE policy_admin_writer
+    WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;

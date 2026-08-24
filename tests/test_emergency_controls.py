@@ -479,7 +479,7 @@ async def test_policy_rebind_never_resets_an_active_stop(emergency_ctx, db_sessi
         EmergencyControlConflict,
         EmergencyControlService,
     )
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
 
     ctx = emergency_ctx
     await EmergencyControlService(db_session, ctx["a"]).bind(
@@ -488,11 +488,13 @@ async def test_policy_rebind_never_resets_an_active_stop(emergency_ctx, db_sessi
     await EmergencyControlService(db_session, ctx["a"]).activate(
         project_id=ctx["project"], idempotency_key="rebind-activate"
     )
-    await AutonomyPolicyRepository(db_session, ctx["a"]).upsert(
+    await seed_gated_policy(
+        session=db_session,
+        ctx=ctx["a"],
         project_id=ctx["project"],
         autonomy_level=5,
         overrides={"read_docs": {"requires_approval": True}},
-        actor="test_policy_change",
+        session_is_admin=True,
     )
     with pytest.raises(EmergencyControlConflict):
         await EmergencyControlService(db_session, ctx["b"]).clear(
