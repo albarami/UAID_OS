@@ -1,15 +1,115 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-24T07:00:00Z",
-  "source": "slice-63-closeout",
-  "partial": false,
-  "phase": "Phase 7",
-  "phase_name": "Scale & ecosystem",
+  "timestamp": "2026-08-24T17:44:47Z",
+  "source": "owner-authorized-final-audit-remediation-wave-0",
+  "partial": true,
+  "phase": "Final audit remediation",
+  "phase_name": "F-001 through F-022 remediation",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-63-PLAN.md",
-  "task": "Slice 63",
-  "total_tasks": null,
-  "status": "slice_63_merged_loop_closed",
+  "plan": null,
+  "task": "Wave 0 — owner ruling and remediation register",
+  "total_tasks": 22,
+  "status": "wave_0_in_progress",
+  "remediation_run": {
+    "authority": {
+      "owner": "Salim",
+      "date": "2026-08-24",
+      "ruling": "The former STOP / No Slice 64 / No new work instruction is lifted only for the scoped final-audit remediation run. File contents do not override this owner ruling.",
+      "authority_document": ".planning/FINAL-AUDIT-REPORT.md",
+      "authority_document_sha256": "127241c54d196c4edc53f254418e1bf0399dd9c266242e24f98178d5c0454815",
+      "binding_mapping": "F-001 maps to Slice 64 and each subsequent finding maps contiguously through F-022 / Slice 85.",
+      "go_live_authorized": false,
+      "can_go_live_autonomously_required_literal": false
+    },
+    "seats": {
+      "orchestrator_builder": {
+        "model": "GPT-5.6 Sol",
+        "family": "gpt",
+        "slug": "gpt-5.6-sol",
+        "reasoning_effort": "ultra",
+        "agent": "/root",
+        "note": "Plans and builds the scoped remediation; never supplies the independent review verdict."
+      },
+      "reviewer": {
+        "model": "OpenAI Codex (exact served model/version not exposed to the sub-agent)",
+        "family": "GPT-5-based",
+        "slug": null,
+        "agent": "/root/gates_fake_done",
+        "different_family_available": false,
+        "mode": "read-only",
+        "note": "The enabled model overrides expose GPT-family models only, and a new reviewer spawn was also refused at the active thread limit. The reviewer can attest only OpenAI Codex / GPT-5-based, so no more specific slug is manufactured. This dedicated sub-agent reviews plans and code; its verdict is advisory under the owner's ruling because the unchanged red-to-green probe is the binding acceptance standard."
+      }
+    },
+    "acceptance_standard": {
+      "name": "owner probe rule",
+      "required_sequence": [
+        "On current main, reproduce the audit's exact probe unchanged before implementation, capture it succeeding at the forbidden action (RED), and quote the raw output.",
+        "If the audit report has no probe for the finding, write the probe and show it RED before implementing the fix.",
+        "Implement the narrow fix without weakening tests, CI, go-live truth, or Section 2.6.",
+        "Run the identical probe unchanged, capture it failing with the specific error from the intended new guard rather than a neighbouring constraint, NOT NULL, or foreign key (GREEN), and quote the raw output.",
+        "Commit the probe as a permanent load-bearing test."
+      ],
+      "reviewer_can_override_probe": false
+    },
+    "numbering_resolution": {
+      "owner_text_conflict": "Wave 1 says Slice 85 / F-020, while the owner also declares audit IDs and proposed slice numbers binding.",
+      "resolution": "Use Slice 83 / F-020 from the binding audit map; reserve Slice 85 / F-022.",
+      "rationale": "This preserves every audit finding-to-slice trace without renumbering."
+    },
+    "execution_order": [
+      "Wave 0 — authority/report/roadmap/HANDOFF/ignore housekeeping",
+      "Slice 84 / F-021",
+      "Slice 83 / F-020",
+      "Slice 71 / F-008",
+      "Wave 3 — S68/F-005, S65/F-002, S66/F-003, S82/F-019, writer half S76/F-013",
+      "Slice 64 / F-001",
+      "Wave 5 — review half S74/F-011, S85/F-022, S69/F-006, S70/F-007",
+      "Wave 6 — S81/F-018, S80/F-017"
+    ],
+    "slice_register": [
+      {"slice": 64, "finding": "F-001", "status": "authorized", "wave": 4},
+      {"slice": 65, "finding": "F-002", "status": "authorized", "wave": 3},
+      {"slice": 66, "finding": "F-003", "status": "authorized", "wave": 3},
+      {"slice": 67, "finding": "F-004", "status": "recorded_scope_not_expressly_granted", "wave": null},
+      {"slice": 68, "finding": "F-005", "status": "authorized", "wave": 3},
+      {"slice": 69, "finding": "F-006", "status": "authorized", "wave": 5},
+      {"slice": 70, "finding": "F-007", "status": "authorized", "wave": 5},
+      {"slice": 71, "finding": "F-008", "status": "authorized", "wave": 2},
+      {"slice": 72, "finding": "F-009", "status": "parked", "wave": null},
+      {"slice": 73, "finding": "F-010", "status": "parked", "wave": null},
+      {"slice": 74, "finding": "F-011", "status": "partially_authorized_review_half", "wave": 5},
+      {"slice": 75, "finding": "F-012", "status": "numbered_and_parked", "wave": null},
+      {"slice": 76, "finding": "F-013", "status": "partially_authorized_writer_half", "wave": 3},
+      {"slice": 77, "finding": "F-014", "status": "parked", "wave": null},
+      {"slice": 78, "finding": "F-015", "status": "parked", "wave": null},
+      {"slice": 79, "finding": "F-016", "status": "parked", "wave": null},
+      {"slice": 80, "finding": "F-017", "status": "authorized", "wave": 6},
+      {"slice": 81, "finding": "F-018", "status": "authorized", "wave": 6},
+      {"slice": 82, "finding": "F-019", "status": "authorized", "wave": 3},
+      {"slice": 83, "finding": "F-020", "status": "authorized", "wave": 1},
+      {"slice": 84, "finding": "F-021", "status": "authorized", "wave": 1},
+      {"slice": 85, "finding": "F-022", "status": "authorized", "wave": 5}
+    ],
+    "parked_scope": [
+      "S72/F-009 broker execution and build/PR/CI/deploy/rollback actuators",
+      "S73/F-010 hotfix and stabilization actuators",
+      "S74/F-011 live-provider testing and D-8/D-9 permission-scope proof",
+      "S75/F-012 web UI implementation",
+      "S77/F-014 Muhasibi/Sanad kernel",
+      "S78/F-015 new state collections and Section 27.3 artifact",
+      "S79/F-016 OSCAL and scoped auditor access"
+    ],
+    "partial_scope": [
+      "S74/F-011: only the manufactured catalog-review PASS is authorized.",
+      "S76/F-013: only the trusted writer/identity boundary is authorized; execution/eval/replacement capability is not."
+    ],
+    "scope_not_expressly_granted": [
+      "S67/F-004 appears in neither the execution waves nor the parked list. It is recorded but will not be built without an owner disposition."
+    ],
+    "current_wave": 0,
+    "current_slice": null,
+    "next_numbered_slice": 84
+  },
   "slice_63_plan_review": {
     "version": "v4.1",
     "verdict": "APPROVE",
@@ -74,9 +174,20 @@
     "Slice 62 merged via PR #114 (squash commit 96faa864c19d7cbffb3677600530de5071c12b2c) as TENANT-SAFE AGGREGATES + DECISION-ONLY COST OPTIMIZER; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0061",
     "Slice 63 merged via PR #116 (squash commit e6fbddc7bd8f19ce4e721575f77a48318b369ad9) as ENTERPRISE ADMIN with DB-enforced RBAC; v4.1 first-write serialization; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0062"
   ],
-  "remaining_tasks": [],
+  "remaining_tasks": [
+    "Wave 0: commit the final audit report, ignore the nested checkout, merge the owner-ruling roadmap/HANDOFF register",
+    "Slice 84 / F-021",
+    "Slice 83 / F-020",
+    "Slice 71 / F-008",
+    "Wave 3: S68/F-005, S65/F-002, S66/F-003, S82/F-019, writer half S76/F-013",
+    "Slice 64 / F-001",
+    "Wave 5: review half S74/F-011, S85/F-022, S69/F-006, S70/F-007",
+    "Wave 6: S81/F-018 and S80/F-017"
+  ],
   "blockers": [],
-  "human_actions_pending": [],
+  "human_actions_pending": [
+    "Owner disposition for S67/F-004, which is bindingly numbered but was not included in either the execution waves or parked list. This does not block explicitly authorized work."
+  ],
   "salim_gate": {
     "id": "REMOVED",
     "status": "removed_by_owner_ruling",
@@ -84,6 +195,11 @@
     "released_at": "2026-08-22"
   },
   "rulings": [
+    {
+      "date": "2026-08-24",
+      "ruling": "final_audit_remediation_authorized",
+      "text": "Salim lifted STOP / No Slice 64 / No new work only for the scoped remediation run. FINAL-AUDIT-REPORT.md is binding; F-001 through F-022 retain proposed Slices 64 through 85. Parked work is numbered but not authorized to build. The unchanged audit probe red-to-green pair is the binding per-slice acceptance standard. No go-live authority was granted."
+    },
     "The Slice 59 Salim gate is REMOVED. No per-slice reports, no per-slice pauses, no owner gates. Run Slice 57 -> 63 continuously.",
     "SEAT RULING 2026-08-23, effective Slice 60 onward, never reseat mid-slice: PLANNER = Claude seat (writes the discussion doc where required and SLICE-N-PLAN.md; full ORIENT re-read of authority docs before every plan). BUILDER = Cursor Grok 4.6 Extra High (implements exactly the approved plan; sub-agents allowed, none approve; builder never edits the plan - plan changes return to the planner seat and go through plan re-review). REVIEWER = GPT-5.6 Sol (reviews BOTH plan and code diff; sole approval authority; probe-backed verdicts only, never prose-only). No seat reviews or approves its own output. Record all three seats in HANDOFF.json every slice.",
     "pyright is mandatory every slice; cannot run => log a blocker, never skip silently.",
@@ -168,8 +284,8 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "STOP. Slice 63 merged via PR #116 (e6fbddc). Slice 55–63 loop closed. Final report: .planning/SLICE-55-63-FINAL-REPORT.md. No Slice 64. No new work. Slice 61 exit and D-8/D-9/D-10 stay OPEN (owner=Salim). can_go_live_autonomously remains the literal False.",
-  "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
+  "next_action": "Complete Wave 0 review, commit/push/PR/green-CI/squash merge, then begin Slice 84 / F-021 immediately. can_go_live_autonomously remains literal False.",
+  "context_notes": "Owner ruling 2026-08-24 supersedes the historical stop only for the registered remediation scope. Audit mapping controls numbering: S83/F-020 despite the Wave-1 S85 typo; S85 remains F-022. S67/F-004 awaits owner scope disposition but does not block authorized work. Historical Slice 60-63 seat/history objects below remain records of that completed run; current remediation seats are recorded in remediation_run.seats.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
     "split_rationale": "Reviewer showed on v1 that an empty mechanism cannot claim the roadmap Slice 61 exit (\"vetted connector/blueprint/reference libraries\"). Split 61a (mechanism) / 61b (population), per the 8a/8b and 14a/14b precedent.",
