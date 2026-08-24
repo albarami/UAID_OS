@@ -99,18 +99,19 @@ def test_work_unit_ref_regex():
 
 
 def _inputs(**over: Any) -> MatchInputs:
-    return MatchInputs(
-        capability_match=1.0,
-        domain_fit=1.0,
-        tool_access_fit=1.0,
-        eval_performance=0.0,
-        reviewer_availability=1.0,
-        cost_latency_fit=1.0,
-        risk_penalty=0.0,
-        high_risk=False,
-        eval_source="absent_until_slice40",
-        **over,
-    )
+    payload: dict[str, Any] = {
+        "capability_match": 1.0,
+        "domain_fit": 1.0,
+        "tool_access_fit": 1.0,
+        "eval_performance": 0.0,
+        "reviewer_availability": 1.0,
+        "cost_latency_fit": 1.0,
+        "risk_penalty": 0.0,
+        "high_risk": False,
+        "eval_source": "absent_until_slice40",
+    }
+    payload.update(over)
+    return MatchInputs(**payload)
 
 
 def test_compute_capability_match():
