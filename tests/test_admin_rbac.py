@@ -31,44 +31,28 @@ FROZEN = {
     "app/release/production_autonomy.py": (
         "55d8bb179321e57ffd4ee3b514cb1ff386e6e5b81cf00e2bfdcbab02fd093029"
     ),
-    "app/intake/readiness.py": (
-        "7671979fa7d4f700436439965a85df22052a384b1245bc9a1bfacc261ac63b26"
-    ),
+    "app/intake/readiness.py": ("7671979fa7d4f700436439965a85df22052a384b1245bc9a1bfacc261ac63b26"),
     "app/runtime/control_loop.py": (
         "3fa5270902b505824358d5ebd61153fa16b16c4b0dcf01d0fef32833edbe1180"
     ),
-    "app/tools/broker.py": (
-        "20728181a65073d0ec5cacb63385fa2101760ec670e54621991eb24a97a33c57"
-    ),
+    "app/tools/broker.py": ("20728181a65073d0ec5cacb63385fa2101760ec670e54621991eb24a97a33c57"),
     "app/cost.py": "2dc1e1d1a0dcfb433af536b69bba926b5c74f3c028bda841d243416546819b43",
-    "app/cost_forecast.py": (
-        "0fb050597363bcb4af6393e48e8822d975094108f92f4c5770ea4656b3ce02b6"
-    ),
-    "app/llm/pricing.py": (
-        "0693ab457daefd45fedbf3bd6df08e531568c89e2ca9a91dbd710c40febe5d59"
-    ),
-    "app/policy/matrix.py": (
-        "c69a09ee8f910bffa839a8b75154dd3f3025fdb44c0c5aa0b9bfdd6e6f31a43f"
-    ),
-    "app/policy/engine.py": (
-        "6269f250cc3fc621ed1f445175f79d9e5227f3ece4f0ea2546aa3fc1337a45c0"
-    ),
+    "app/cost_forecast.py": ("0fb050597363bcb4af6393e48e8822d975094108f92f4c5770ea4656b3ce02b6"),
+    "app/llm/pricing.py": ("0693ab457daefd45fedbf3bd6df08e531568c89e2ca9a91dbd710c40febe5d59"),
+    "app/policy/matrix.py": ("c69a09ee8f910bffa839a8b75154dd3f3025fdb44c0c5aa0b9bfdd6e6f31a43f"),
+    "app/policy/engine.py": ("6269f250cc3fc621ed1f445175f79d9e5227f3ece4f0ea2546aa3fc1337a45c0"),
     "app/tenancy.py": "cb7f9827bcf2c25fdd72ad29177e0f2fb6911b4ffbd7931ac1fe2cb939c2dbc1",
     "app/identity.py": "a76f99b85593e6d7ade9f71b6adb1a1ca81b3066436bb12ec9a04e7876897a09",
     "app/audit.py": "b44c45706c86ad4a55b45d81c43d9db0115e642267b2592c29d0649699c6c116",
     "app/api/auth.py": "86930b47f16f0a487518b2e232412ce61e7536d45bf963e7da7f7518d0fc76ab",
-    "app/api/dashboard.py": (
-        "752c1bb4e96c6681f16ea4314a3835603d0bb19c19dfc1b49b2e6207762d8a81"
-    ),
+    "app/api/dashboard.py": ("752c1bb4e96c6681f16ea4314a3835603d0bb19c19dfc1b49b2e6207762d8a81"),
     "app/repositories/api_keys.py": (
         "9dc80483746f0098efc65ead51267650404f9d315baa9f77706c66b836dcaeda"
     ),
     "app/models/tenant_api_key.py": (
         "c3753ea4648ecf857f16798754b7fcb07f091d81573bc99a61c305b21862d321"
     ),
-    "app/models/tenant.py": (
-        "d6b5cd28b139f1487eaa2d649ba443fe754964521635afd130d17f5a5a3594aa"
-    ),
+    "app/models/tenant.py": ("d6b5cd28b139f1487eaa2d649ba443fe754964521635afd130d17f5a5a3594aa"),
 }
 
 _FORBIDDEN_PARAMS = {
@@ -80,6 +64,19 @@ _FORBIDDEN_PARAMS = {
     "key_hash",
     "password",
 }
+
+
+def test_writer_serializes_absent_row() -> None:
+    from app.admin.policy_sql import WRITER_BODY, writer_body
+
+    assert "ON CONFLICT (tenant_id, project_id) DO NOTHING" in WRITER_BODY
+    assert "ON CONFLICT (tenant_id, project_id) DO UPDATE" not in WRITER_BODY
+    assert "policy_write_row_unavailable" in WRITER_BODY
+    assert "v_found := FOUND" in WRITER_BODY
+    racy = writer_body(racy_first_write=True)
+    assert "ON CONFLICT (tenant_id, project_id) DO UPDATE" in racy
+    assert "DO NOTHING" not in racy
+    assert "v_previous_level, p_autonomy_level" in racy
 
 
 def test_p1_vocabulary() -> None:

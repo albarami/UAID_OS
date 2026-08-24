@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from app.admin.policy_sql import WRITER_BODY, writer_create_sql
 from app.admin.rbac import OPERATOR_PROVENANCE, RULESET_VERSION
@@ -60,9 +63,7 @@ async def action(
     required=None,
     provenance="request_authenticated",
 ):
-    required = required or (
-        "tenant_admin" if kind == "set_autonomy_policy" else "tenant_operator"
-    )
+    required = required or ("tenant_admin" if kind == "set_autonomy_policy" else "tenant_operator")
     return (
         await session.execute(
             text(
@@ -134,16 +135,12 @@ async def tighten_relax_case(session, *, stored: str, new: str) -> None:
     with pytest.raises(DBAPIError, match="tighten_would_relax_overrides"):
         await as_app(
             session,
-            lambda: call_writer(
-                session, action_id=act, project_id=w["p1"], level=2, overrides=new
-            ),
+            lambda: call_writer(session, action_id=act, project_id=w["p1"], level=2, overrides=new),
         )
     await session.execute(text(writer_create_sql(omit_monotonic=True)))
     await as_app(
         session,
-        lambda: call_writer(
-            session, action_id=act, project_id=w["p1"], level=2, overrides=new
-        ),
+        lambda: call_writer(session, action_id=act, project_id=w["p1"], level=2, overrides=new),
     )
     got = (
         await session.execute(
@@ -249,3 +246,101 @@ async def assert_priv_cycle(rls_engine, admin_engine, *, tenant, stmt, params, p
                 await conn.execute(stmt, params)
             assert ei.value.orig.sqlstate == "42501"
             await nested.rollback()
+
+
+async def seed_committed_first_write(admin_engine: AsyncEngine, *, prefix: str) -> dict[str, Any]:
+    """Commit tenant, grant, and two unspent set-policy actions; no policy row."""
+    import uuid
+
+    sfx = uuid.uuid4().hex[:8]
+    async with admin_engine.begin() as conn:
+        org = (
+            await conn.execute(
+                text("INSERT INTO organizations (name, slug) VALUES (:n,:s) RETURNING id"),
+                {"n": prefix, "s": f"{prefix.lower()}-{sfx}"},
+            )
+        ).scalar_one()
+        tenant = (
+            await conn.execute(
+                text(
+                    "INSERT INTO tenants (organization_id, name, slug) "
+                    "VALUES (:o,'t',:s) RETURNING id"
+                ),
+                {"o": org, "s": f"{prefix.lower()}-t-{sfx}"},
+            )
+        ).scalar_one()
+        project = (
+            await conn.execute(
+                text(
+                    "INSERT INTO projects (tenant_id, name, slug) VALUES (:t,'P',:s) RETURNING id"
+                ),
+                {"t": tenant, "s": f"{prefix.lower()}-p-{sfx}"},
+            )
+        ).scalar_one()
+        await grant(conn, tenant)
+        first = await action(conn, tenant, project)
+        second = await action(conn, tenant, project)
+        n_policies = (
+            await conn.execute(
+                text("SELECT count(*) FROM autonomy_policies WHERE tenant_id=:t AND project_id=:p"),
+                {"t": tenant, "p": project},
+            )
+        ).scalar_one()
+        assert n_policies == 0
+        assert first != second
+    return {
+        "tenant": tenant,
+        "project": project,
+        "action_w1": first,
+        "action_w2": second,
+    }
+
+
+async def write_wait_snapshot(
+    conn: AsyncConnection, *, waiter_pid: int, holder_pid: int
+) -> dict[str, Any]:
+    """Observer view of whether ``waiter_pid`` is blocked at the unique-index write."""
+    activity = (
+        await conn.execute(
+            text(
+                "SELECT wait_event_type, wait_event, state, pg_blocking_pids(pid) "
+                "FROM pg_stat_activity WHERE pid = :pid"
+            ),
+            {"pid": waiter_pid},
+        )
+    ).one_or_none()
+    lock = (
+        await conn.execute(
+            text(
+                "SELECT 1 FROM pg_locks "
+                "WHERE pid = :pid AND locktype = 'transactionid' AND NOT granted "
+                "LIMIT 1"
+            ),
+            {"pid": waiter_pid},
+        )
+    ).scalar_one_or_none()
+    if activity is None:
+        return {
+            "wait_event_type": None,
+            "wait_event": None,
+            "state": None,
+            "blockers": (),
+            "ungranted_transactionid": False,
+            "blocked_at_write": False,
+        }
+    blockers = tuple(int(pid) for pid in (activity[3] or ()))
+    blocked = (
+        activity[0] == "Lock"
+        and activity[1] == "transactionid"
+        and activity[2] == "active"
+        and holder_pid in blockers
+        and lock == 1
+    )
+    return {
+        "wait_event_type": activity[0],
+        "wait_event": activity[1],
+        "state": activity[2],
+        "blockers": blockers,
+        "ungranted_transactionid": lock == 1,
+        "blocked_at_write": blocked,
+    }

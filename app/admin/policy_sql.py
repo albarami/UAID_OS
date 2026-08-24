@@ -62,18 +62,10 @@ _LOAD_POLICY = """    SELECT p.id, p.autonomy_level, p.overrides
      WHERE p.tenant_id = v_tenant AND p.project_id = p_project_id
      FOR UPDATE;"""
 
-_UPSERT_AND_SPEND = """    INSERT INTO public.autonomy_policies (
-        tenant_id, project_id, autonomy_level, overrides, updated_at
-    ) VALUES (
-        v_tenant, p_project_id, p_autonomy_level,
-        COALESCE(p_overrides, '{}'::jsonb), now()
-    )
-    ON CONFLICT (tenant_id, project_id) DO UPDATE
-        SET autonomy_level = EXCLUDED.autonomy_level,
-            overrides = EXCLUDED.overrides,
-            updated_at = now()
-    RETURNING id INTO o_autonomy_policy_id;
-    SELECT count(*)::smallint INTO v_override_key_count
+_RECORD_PROBE = """    v_found := FOUND;
+    v_created := FALSE;"""
+
+_SPEND = """    SELECT count(*)::smallint INTO v_override_key_count
       FROM jsonb_object_keys(COALESCE(p_overrides, '{}'::jsonb));
     BEGIN
         INSERT INTO public.admin_policy_changes (
@@ -88,6 +80,54 @@ _UPSERT_AND_SPEND = """    INSERT INTO public.autonomy_policies (
         RAISE EXCEPTION 'admin_action_already_spent';
     END;"""
 
+# Approved-v4 body kept only so the two-writer mutation can reinstall it.
+_RACY_UPSERT_AND_SPEND = (
+    """    INSERT INTO public.autonomy_policies (
+        tenant_id, project_id, autonomy_level, overrides, updated_at
+    ) VALUES (
+        v_tenant, p_project_id, p_autonomy_level,
+        COALESCE(p_overrides, '{}'::jsonb), now()
+    )
+    ON CONFLICT (tenant_id, project_id) DO UPDATE
+        SET autonomy_level = EXCLUDED.autonomy_level,
+            overrides = EXCLUDED.overrides,
+            updated_at = now()
+    RETURNING id INTO o_autonomy_policy_id;
+"""
+    + _SPEND
+)
+
+_SERIALIZE_THEN_UPDATE = """    IF NOT v_found THEN
+        INSERT INTO public.autonomy_policies (
+            tenant_id, project_id, autonomy_level, overrides, updated_at
+        ) VALUES (
+            v_tenant, p_project_id, p_autonomy_level,
+            COALESCE(p_overrides, '{}'::jsonb), now()
+        )
+        ON CONFLICT (tenant_id, project_id) DO NOTHING
+        RETURNING id INTO o_autonomy_policy_id;
+        v_created := FOUND;
+        SELECT p.id, p.autonomy_level, p.overrides
+          INTO o_autonomy_policy_id, v_previous_level, v_stored_overrides
+          FROM public.autonomy_policies p
+         WHERE p.tenant_id = v_tenant AND p.project_id = p_project_id
+         FOR UPDATE;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'policy_write_row_unavailable';
+        END IF;
+        IF v_created THEN
+            v_previous_level := NULL;
+        END IF;
+    END IF;
+    UPDATE public.autonomy_policies
+       SET autonomy_level = p_autonomy_level,
+           overrides = COALESCE(p_overrides, '{}'::jsonb),
+           updated_at = now()
+     WHERE tenant_id = v_tenant AND project_id = p_project_id
+     RETURNING id INTO o_autonomy_policy_id;"""
+
+_SERIALIZE_AND_SPEND = _SERIALIZE_THEN_UPDATE + "\n" + _SPEND
+
 
 def writer_body(
     *,
@@ -98,6 +138,7 @@ def writer_body(
     omit_no_existing: bool = False,
     omit_tighten_level: bool = False,
     omit_monotonic: bool = False,
+    racy_first_write: bool = False,
 ) -> str:
     """Return the plpgsql body with named clauses optionally removed."""
     if guc_fallback:
@@ -111,21 +152,19 @@ def writer_body(
     existence = "" if omit_no_existing else NO_EXISTING_CLAUSE
     level = "" if omit_tighten_level else TIGHTEN_LEVEL_CLAUSE
     mono = "" if omit_monotonic else MONOTONIC_CLAUSE
-    tighten = "\n".join(
-        part for part in (existence, level, mono) if part
-    )
+    tighten = "\n".join(part for part in (existence, level, mono) if part)
     tighten_block = (
-        "    IF v_kind = 'tighten_autonomy_overrides' THEN\n"
-        f"{tighten}\n"
-        "    END IF;"
+        f"    IF v_kind = 'tighten_autonomy_overrides' THEN\n{tighten}\n    END IF;"
         if tighten
         else ""
     )
+    found_vars = "" if racy_first_write else "    v_found boolean;\n    v_created boolean;\n"
     parts = [
         "DECLARE\n"
         "    v_tenant uuid;\n"
         "    v_decision text;\n"
         "    v_kind text;\n"
+        f"{found_vars}"
         "    v_previous_level smallint;\n"
         "    v_stored_overrides jsonb;\n"
         "    v_override_key_count smallint;\n"
@@ -135,8 +174,9 @@ def writer_body(
         allowed,
         kind,
         _LOAD_POLICY,
+        "" if racy_first_write else _RECORD_PROBE,
         tighten_block,
-        _UPSERT_AND_SPEND,
+        _RACY_UPSERT_AND_SPEND if racy_first_write else _SERIALIZE_AND_SPEND,
         "END",
     ]
     return "\n".join(part for part in parts if part)
