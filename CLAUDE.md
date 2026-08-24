@@ -975,9 +975,17 @@ Post-change SHA-256:
 `452ec2c489181b72fdcd3d6f7c60c5646251199a87ec80059964cdbd41d97fdd`;
 `scripts/bootstrap_rls_role.sql`
 `3e810268b005db05a0af2d65189ab09634e1ea127837600d3303f68ead684128`.
-Verified suites: `make test` 1276 passing / 1082 deselected;
-`make test-db` 1082 passing / 1276 deselected. Owned pyright paths
-report 0 errors. Alembic head `0062`.
+v4.1 serializes the first policy write (`INSERT … ON CONFLICT DO NOTHING`,
+then lock / read / update); `previous_autonomy_level` is derived only after
+the row exists. Seats: PLANNER = Claude/Fable (v4.1
+`da1511f1-6991-4ada-aa4d-4c210bfdce74`; builder never touched the plan);
+BUILDER = Cursor Grok 4.6 Extra High; REVIEWER = GPT-5.6 Sol
+(`57f5a732-1f16-4b67-8220-fca9ec4cc5d0` code APPROVE of `44f0448` after
+owner-authorized OD-11). Verified suites: `make test` 1277 passing / 1085
+deselected; `make test-db` 1085 passing / 1277 deselected. Owned pyright
+paths report 0 errors. Alembic head `0062`. **Merged via PR #116 (squash
+commit `e6fbddc7bd8f19ce4e721575f77a48318b369ad9`).** The Slice 61 exit
+stays OPEN.
 Limitations named: `read_api_not_role_gated`,
 `suspension_not_enforced_inside_tenant_scope`,
 `role_grant_delegation_not_implemented`,
@@ -1281,7 +1289,10 @@ Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
   Migration `0062` is additive and fails closed if `policy_admin_writer` is
   missing (`make db-bootstrap-rls-role` first). `AutonomyPolicyRepository.upsert`
   is gone; the gated write and the spending of its authorization are one
-  database call. A freshly migrated database has zero role grants. Limitations:
+  database call. First-write concurrency serializes on
+  `INSERT … ON CONFLICT DO NOTHING`, then lock / read / update — never
+  `FOR UPDATE` on an absent row. A freshly migrated database has zero role
+  grants. Limitations:
   `read_api_not_role_gated`, `suspension_not_enforced_inside_tenant_scope`,
   `role_grant_delegation_not_implemented`, `matrix_floor_enforced_in_python_only`,
   `cost_budget_writes_not_rbac_gated`, `malformed_stored_override_refuses_tighten`;
@@ -1779,7 +1790,7 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1276 passing (Docker-free); `make test-db` → 1082 passing (DB-backed: tenancy,
+  **`make test` → 1277 passing (Docker-free); `make test-db` → 1085 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1867,7 +1878,7 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
   The DB admin `psql` is parameterized via `PSQL` (default: `docker exec … uaid_os-postgres-1`;
   CI overrides with `PSQL=psql` to use a service container over TCP).
 - `.github/workflows/ci.yml` — GitHub Actions CI on PRs + pushes to `main`: `uv sync`,
-  `ruff check`, scoped `pyright` on Slice 55/56/57/58/59/60/61a/61b/62 owned paths (mandatory; a slice that cannot
+  `ruff check`, scoped `pyright` on Slice 55/56/57/58/59/60/61a/61b/62/63 owned paths (mandatory; a slice that cannot
   run it logs a HANDOFF blocker), `make test` (Docker-free), and `make test-db` against a
   `postgres:16` **service** (CI-only non-secret creds; `RLS_DB_PASSWORD=uaid_app`). No real
   `.env`/secrets. Full-repo pyright currently reports 3051 pre-existing errors and is not
@@ -1886,8 +1897,8 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
 
 ## How to run
 ```
-make test                                  # Docker-free tests (no services) — 1276 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1082 passing
+make test                                  # Docker-free tests (no services) — 1277 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1085 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000

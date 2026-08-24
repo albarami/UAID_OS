@@ -397,8 +397,12 @@ its authorization in the same database call as the write.
 creates `policy_admin_writer`). Operator path: `python -m scripts.admin_roles`.
 A freshly migrated database has zero role grants, so no runtime admin action
 can be `allowed` and no runtime policy write can succeed until an operator
-grants a role. Slice 63 **closes no spec section** and does **not** meet the
-roadmap Slice 61 exit. D-8, D-9, and D-10 stay OPEN (owner = Salim).
+grants a role. Concurrent first writers serialize on
+`INSERT … ON CONFLICT DO NOTHING`, then lock / read / update;
+`previous_autonomy_level` is read only after the row exists. Merged via
+PR #116 (squash `e6fbddc`). Slice 63 **closes no spec section** and does
+**not** meet the roadmap Slice 61 exit. D-8, D-9, and D-10 stay OPEN
+(owner = Salim).
 Limitations: `read_api_not_role_gated`,
 `suspension_not_enforced_inside_tenant_scope`,
 `role_grant_delegation_not_implemented`,
