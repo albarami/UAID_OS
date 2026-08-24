@@ -371,20 +371,9 @@ async def test_db_skills_seeded(admin_engine, sk_ctx):
 
 @pytest.mark.db
 async def test_db_runtime_cannot_write_any_global_table(rls_engine, sk_ctx):
-    # B8 — uaid_app: SELECT ok; INSERT/UPDATE/DELETE/TRUNCATE denied on ALL THREE global tables.
-    async with rls_engine.connect() as conn:
-        assert (await conn.execute(text("SELECT count(*) FROM skills"))).scalar_one() >= 1
-    for table in ("skills", "agent_skill_capabilities", "agent_provided_skills"):
-        for sql in (
-            f"INSERT INTO {table} DEFAULT VALUES",
-            f"UPDATE {table} SET id = id WHERE false",
-            f"DELETE FROM {table} WHERE false",
-            f"TRUNCATE {table}",
-        ):
-            async with rls_engine.connect() as conn:
-                with pytest.raises(Exception):
-                    await conn.execute(text(sql))
-                    await conn.commit()
+    from tests.slice84_support import assert_runtime_cannot_write_global_tables
+
+    await assert_runtime_cannot_write_global_tables(rls_engine, sk_ctx)
 
 
 @pytest.mark.db
@@ -403,20 +392,9 @@ async def test_db_provided_skill_fk_rejects_unknown_skill(admin_engine, sk_ctx):
 
 @pytest.mark.db
 async def test_db_global_tables_immutable(admin_engine, sk_ctx):
-    # B7 — even admin cannot UPDATE/DELETE/TRUNCATE any of the 3 global tables (block triggers).
-    for sql in (
-        "UPDATE skills SET description='z' WHERE key='security'",
-        "UPDATE agent_skill_capabilities SET cost_latency_class='low' WHERE id=:cap",
-        "DELETE FROM agent_provided_skills WHERE capability_id=:cap",
-        "DELETE FROM agent_skill_capabilities WHERE id=:cap",
-        "TRUNCATE skills",
-        "TRUNCATE agent_skill_capabilities",
-        "TRUNCATE agent_provided_skills",
-    ):
-        # blocked either by the append-only trigger or (for FK-referenced tables) by TRUNCATE-on-FK.
-        with pytest.raises(Exception, match="append-only|immutable|cannot truncate"):
-            async with admin_engine.begin() as c:
-                await c.execute(text(sql), {"cap": str(sk_ctx["cap"])})
+    from tests.slice84_support import assert_global_tables_dml_immutable
+
+    await assert_global_tables_dml_immutable(admin_engine, sk_ctx)
 
 
 @pytest.mark.db

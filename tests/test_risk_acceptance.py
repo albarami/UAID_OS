@@ -304,27 +304,9 @@ async def test_count_active_nonblocking(ra_ctx):
 
 @pytest.mark.db
 async def test_rls_deny_by_default_and_cross_tenant(ra_ctx, rls_engine):
-    from app.tenancy import TenantContext, tenant_scope
+    from tests.test_slice84_load_bearing import run_risk_acceptance_cross_tenant
 
-    t1, t2, p1 = ra_ctx["t1"], ra_ctx["t2"], ra_ctx["p1"]
-    ctx = TenantContext(t1)
-    async with tenant_scope(ctx) as session:
-        await _repo(session, ctx).create(project_id=p1, payload=_bound(ra_ctx), actor="a")
-    async with rls_engine.connect() as conn:
-        async with conn.begin():
-            n = (
-                await conn.execute(text("SELECT count(*) FROM risk_acceptance_records"))
-            ).scalar_one()
-            assert n == 0  # deny-by-default (no GUC)
-    # tenant t2 sees none of t1's records
-    async with tenant_scope(TenantContext(t2)) as session:
-        assert await _repo(session, TenantContext(t2)).count_active_nonblocking(p1) == 0
-    # tenant t2 cannot CREATE a record for tenant t1's project (composite FK / RLS WITH CHECK)
-    with pytest.raises(Exception):
-        async with tenant_scope(TenantContext(t2)) as session:
-            await _repo(session, TenantContext(t2)).create(
-                project_id=p1, payload=_bound(ra_ctx), actor="attacker"
-            )
+    await run_risk_acceptance_cross_tenant(ra_ctx, rls_engine)
 
 
 @pytest.mark.db
