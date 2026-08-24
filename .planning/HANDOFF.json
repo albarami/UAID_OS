@@ -1,15 +1,15 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-24T17:44:47Z",
-  "source": "owner-authorized-final-audit-remediation-wave-0",
+  "timestamp": "2026-08-24T18:00:14Z",
+  "source": "final-audit-remediation-wave-0-closeout",
   "partial": true,
   "phase": "Final audit remediation",
   "phase_name": "F-001 through F-022 remediation",
   "phase_dir": ".planning",
   "plan": null,
-  "task": "Wave 0 — owner ruling and remediation register",
+  "task": "Slice 84 / F-021 — ORIENT next",
   "total_tasks": 22,
-  "status": "wave_0_in_progress",
+  "status": "wave_0_merged_slice_84_next",
   "remediation_run": {
     "authority": {
       "owner": "Salim",
@@ -106,8 +106,25 @@
     "scope_not_expressly_granted": [
       "S67/F-004 appears in neither the execution waves nor the parked list. It is recorded but will not be built without an owner disposition."
     ],
-    "current_wave": 0,
-    "current_slice": null,
+    "wave_0_closeout": {
+      "status": "merged",
+      "pr": 118,
+      "merge_sha": "a508d5d2d862b03f53c93fc90d4771b54cfe966c",
+      "merged_at": "2026-08-24T17:59:54Z",
+      "ci": "https://github.com/albarami/UAID_OS/actions/runs/32759488992/job/97534634087",
+      "ci_result": "test passed in 3m20s",
+      "review": "APPROVE after one REJECT/fix round by /root/gates_fake_done",
+      "validation": {
+        "uv_sync_frozen": "Checked 127 packages",
+        "ruff": "All checks passed",
+        "make_test": "1277 passed / 1085 deselected",
+        "make_test_db": "1085 passed / 1277 deselected",
+        "alembic_head": "0062",
+        "audit_sha256": "127241c54d196c4edc53f254418e1bf0399dd9c266242e24f98178d5c0454815"
+      }
+    },
+    "current_wave": 1,
+    "current_slice": 84,
     "next_numbered_slice": 84
   },
   "slice_63_plan_review": {
@@ -172,10 +189,10 @@
     "Slice 61a merged via PR #111 (squash commit 17e7fc9de7b044cf0ab98b8e27dfd679e1d72674) as EMPTY ECOSYSTEM CATALOG LISTING MECHANISM, closing no spec section; catalog empty; D-8/D-9/D-10 OPEN",
     "Slice 61b merged via PR #113 (squash commit 59af1c709dcb2ac302f255ed2eb2325ea3710c97) as DECLARED CATALOG POPULATION; does not close Slice 61 exit; D-8/D-9/D-10 OPEN",
     "Slice 62 merged via PR #114 (squash commit 96faa864c19d7cbffb3677600530de5071c12b2c) as TENANT-SAFE AGGREGATES + DECISION-ONLY COST OPTIMIZER; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0061",
-    "Slice 63 merged via PR #116 (squash commit e6fbddc7bd8f19ce4e721575f77a48318b369ad9) as ENTERPRISE ADMIN with DB-enforced RBAC; v4.1 first-write serialization; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0062"
+    "Slice 63 merged via PR #116 (squash commit e6fbddc7bd8f19ce4e721575f77a48318b369ad9) as ENTERPRISE ADMIN with DB-enforced RBAC; v4.1 first-write serialization; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0062",
+    "Final-audit remediation Wave 0 merged via PR #118 (squash commit a508d5d2d862b03f53c93fc90d4771b54cfe966c): audit report tracked byte-identically, owner stop lift and S64-S85 register recorded, nested checkout removed/ignored; no finding fixed and no go-live authority granted"
   ],
   "remaining_tasks": [
-    "Wave 0: commit the final audit report, ignore the nested checkout, merge the owner-ruling roadmap/HANDOFF register",
     "Slice 84 / F-021",
     "Slice 83 / F-020",
     "Slice 71 / F-008",
@@ -284,8 +301,8 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Complete Wave 0 review, commit/push/PR/green-CI/squash merge, then begin Slice 84 / F-021 immediately. can_go_live_autonomously remains literal False.",
-  "context_notes": "Owner ruling 2026-08-24 supersedes the historical stop only for the registered remediation scope. Audit mapping controls numbering: S83/F-020 despite the Wave-1 S85 typo; S85 remains F-022. S67/F-004 awaits owner scope disposition but does not block authorized work. Historical Slice 60-63 seat/history objects below remain records of that completed run; current remediation seats are recorded in remediation_run.seats.",
+  "next_action": "ORIENT and write .planning/SLICE-84-PLAN.md for F-021 from main a508d5d2d862b03f53c93fc90d4771b54cfe966c and live Alembic head 0062; obtain plan review before the RED probe. can_go_live_autonomously remains literal False.",
+  "context_notes": "Wave 0 merged via PR #118 at a508d5d2d862b03f53c93fc90d4771b54cfe966c. Owner ruling 2026-08-24 supersedes the historical stop only for the registered remediation scope. Audit mapping controls numbering: S83/F-020 despite the Wave-1 S85 typo; S85 remains F-022. S67/F-004 awaits owner scope disposition but does not block authorized work. Historical Slice 60-63 seat/history objects below remain records of that completed run; current remediation seats are recorded in remediation_run.seats.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
     "split_rationale": "Reviewer showed on v1 that an empty mechanism cannot claim the roadmap Slice 61 exit (\"vetted connector/blueprint/reference libraries\"). Split 61a (mechanism) / 61b (population), per the 8a/8b and 14a/14b precedent.",
