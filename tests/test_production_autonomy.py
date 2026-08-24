@@ -355,11 +355,11 @@ async def pa_ctx(admin_engine):
     return out
 
 
-async def _seed_full_r5(ctx, project_id, doc_id):
+async def _seed_full_r5(ctx, project_id, doc_id, *, admin_engine):
     """Reuse the Slice-20 R5 recipe: full spine + all declarable categories + autonomy row + budget."""
     from app.intake.categories import DECLARABLE_INTAKE_CATEGORIES
     from app.intake.compiler import SourceInput
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.cost import BudgetRepository
     from app.repositories.intake import IntakeRepository
     from app.repositories.intake_categories import IntakeCategoryRepository
@@ -403,8 +403,12 @@ async def _seed_full_r5(ctx, project_id, doc_id):
                 locator="§ ref",
                 actor="planner",
             )
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=project_id, autonomy_level=2, actor="admin"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=project_id,
+            autonomy_level=2,
+            admin_engine=admin_engine,
         )
         await BudgetRepository(session, ctx).upsert(
             project_id=project_id, max_total_cost_usd="100", actor="admin"
@@ -412,13 +416,13 @@ async def _seed_full_r5(ctx, project_id, doc_id):
 
 
 @pytest.mark.db
-async def test_db_reads_readiness_r5_passes_gate1(pa_ctx):
+async def test_db_reads_readiness_r5_passes_gate1(pa_ctx, admin_engine):
     from app.repositories.production_autonomy import ProductionAutonomyRepository
     from app.tenancy import TenantContext, tenant_scope
 
     t1, p1, d1 = pa_ctx["t1"], pa_ctx["p1"], pa_ctx["doc_p1"]
     ctx = TenantContext(t1)
-    await _seed_full_r5(ctx, p1, d1)
+    await _seed_full_r5(ctx, p1, d1, admin_engine=admin_engine)
     async with tenant_scope(ctx) as session:
         rep = await ProductionAutonomyRepository(session, ctx).evaluate(p1)
     d = rep.to_dict()
@@ -446,7 +450,7 @@ async def test_db_evaluate_is_read_only(pa_ctx, admin_engine):
 
     t1, p1, d1 = pa_ctx["t1"], pa_ctx["p1"], pa_ctx["doc_p1"]
     ctx = TenantContext(t1)
-    await _seed_full_r5(ctx, p1, d1)
+    await _seed_full_r5(ctx, p1, d1, admin_engine=admin_engine)
 
     async def _readiness_count():
         async with admin_engine.connect() as c:

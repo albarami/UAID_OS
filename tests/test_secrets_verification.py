@@ -509,14 +509,18 @@ async def test_env_connector_unsupported_manager_no_lookup():
 # --- DB-backed: broker-gated service ------------------------------------------
 
 
-async def _src_allow_setup(session, ctx, project_id, references, agent_id="conn"):
+async def _src_allow_setup(session, ctx, project_id, references, agent_id="conn", *, admin_engine):
     from app.policy.levels import AutonomyLevel
-    from app.repositories.autonomy_policies import AutonomyPolicyRepository
+    from tests.admin_support import seed_gated_policy
     from app.repositories.tools import ToolAllowlistRepository
 
     await _declare_secrets(session, ctx, project_id, references)
-    await AutonomyPolicyRepository(session, ctx).upsert(
-        project_id=project_id, autonomy_level=int(AutonomyLevel.A5), actor="a"
+    await seed_gated_policy(
+        session=session,
+        ctx=ctx,
+        project_id=project_id,
+        autonomy_level=int(AutonomyLevel.A5),
+        admin_engine=admin_engine,
     )
     await ToolAllowlistRepository(session, ctx).grant(
         agent_id=agent_id, tool_name="secrets.verify_reference", actor="admin"
@@ -542,6 +546,7 @@ async def test_service_broker_allow_writes_per_reference(src_ctx, monkeypatch, a
                 {"manager": "env", "reference_name": "UAID_SVC_MISSING"},  # not_found
                 {"manager": "vault", "reference_name": "db/pw"},
             ],  # unsupported_manager
+            admin_engine=admin_engine,
         )
         result = await refresh_secret_reference_evidence(
             session,
@@ -628,7 +633,7 @@ async def test_service_broker_denied_no_write(src_ctx):
 
 
 @pytest.mark.db
-async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
+async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch, admin_engine):
     # Store-only: recording secret-reference evidence feeds NO gate and does not change the A5 report
     # or the readiness level; current ruleset is slice43.v1.
     from app.release.secrets_connector import EnvSecretsManagerConnector
@@ -642,8 +647,7 @@ async def test_no_a5_impact_before_equals_after(src_ctx, monkeypatch):
     monkeypatch.setenv("UAID_REG_TOK", "secret-value")
     async with tenant_scope(ctx) as session:
         await _src_allow_setup(
-            session, ctx, p1, [{"manager": "env", "reference_name": "UAID_REG_TOK"}]
-        )
+            session, ctx, p1, [{"manager": "env", "reference_name": "UAID_REG_TOK"}], admin_engine=admin_engine)
         before = (await ProductionAutonomyRepository(session, ctx).evaluate(p1)).to_dict()
         readiness_before = (await ReadinessRepository(session, ctx).evaluate(p1)).readiness_level
         result = await refresh_secret_reference_evidence(
@@ -735,8 +739,7 @@ async def test_service_skips_malformed_no_broker_no_abort(src_ctx, monkeypatch, 
                 {"manager": "env", "reference_name": "UAID_OK_TOK"},  # valid
                 {"manager": "ENV", "reference_name": "x"},  # malformed → skipped
                 {"manager": "env", "reference_name": "bad name"},  # malformed → skipped
-            ],
-        )
+            ], admin_engine=admin_engine)
         result = await refresh_secret_reference_evidence(
             session,
             ctx,

@@ -32,7 +32,7 @@ from app.intake.readiness import (
     CategoryDeclarationView,
     evaluate_readiness,
 )
-from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from tests.admin_support import seed_gated_policy
 from app.repositories.cost import BudgetRepository
 from app.repositories.intake import IntakeRepository
 from app.repositories.intake_categories import IntakeCategoryRepository
@@ -734,11 +734,15 @@ async def _declare_all_r5_categories(ctx, project_id, doc_id):
     )
 
 
-async def _set_engine_gates(ctx, project_id, *, autonomy=True, budget=True):
+async def _set_engine_gates(ctx, project_id, *, autonomy=True, budget=True, admin_engine):
     async with tenant_scope(ctx) as session:
         if autonomy:
-            await AutonomyPolicyRepository(session, ctx).upsert(
-                project_id=project_id, autonomy_level=2, actor="admin"
+            await seed_gated_policy(
+                session=session,
+                ctx=ctx,
+                project_id=project_id,
+                autonomy_level=2,
+                admin_engine=admin_engine,
             )
         if budget:
             await BudgetRepository(session, ctx).upsert(
@@ -747,12 +751,12 @@ async def _set_engine_gates(ctx, project_id, *, autonomy=True, budget=True):
 
 
 @pytest.mark.db
-async def test_db_r5_persists_when_all_categories_and_engine_gates_present(rd_ctx):
+async def test_db_r5_persists_when_all_categories_and_engine_gates_present(rd_ctx, admin_engine):
     t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
     ctx = TenantContext(t1)
     await _seed_full_chain(ctx, p1, d1)
     await _declare_all_r5_categories(ctx, p1, d1)
-    await _set_engine_gates(ctx, p1, autonomy=True, budget=True)
+    await _set_engine_gates(ctx, p1, autonomy=True, budget=True, admin_engine=admin_engine)
     async with tenant_scope(ctx) as session:
         report, row = await ReadinessRepository(session, ctx).evaluate_and_record(
             project_id=p1, actor="auditor"
@@ -765,12 +769,12 @@ async def test_db_r5_persists_when_all_categories_and_engine_gates_present(rd_ct
 
 
 @pytest.mark.db
-async def test_db_r5_missing_autonomy_row_no_r5(rd_ctx):
+async def test_db_r5_missing_autonomy_row_no_r5(rd_ctx, admin_engine):
     t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
     ctx = TenantContext(t1)
     await _seed_full_chain(ctx, p1, d1)
     await _declare_all_r5_categories(ctx, p1, d1)
-    await _set_engine_gates(ctx, p1, autonomy=False, budget=True)  # no autonomy row
+    await _set_engine_gates(ctx, p1, autonomy=False, budget=True, admin_engine=admin_engine)  # no autonomy row
     async with tenant_scope(ctx) as session:
         report = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
         assert report.readiness_level == "R4"
@@ -785,7 +789,7 @@ async def test_db_r5_invalid_autonomy_overrides_no_r5(rd_ctx, admin_engine):
     ctx = TenantContext(t1)
     await _seed_full_chain(ctx, p1, d1)
     await _declare_all_r5_categories(ctx, p1, d1)
-    await _set_engine_gates(ctx, p1, autonomy=False, budget=True)
+    await _set_engine_gates(ctx, p1, autonomy=False, budget=True, admin_engine=admin_engine)
     # inject an invalid-overrides autonomy row directly (bypasses upsert validation)
     async with admin_engine.begin() as c:
         await c.execute(
@@ -802,12 +806,12 @@ async def test_db_r5_invalid_autonomy_overrides_no_r5(rd_ctx, admin_engine):
 
 
 @pytest.mark.db
-async def test_db_r5_missing_or_zero_budget_no_r5(rd_ctx):
+async def test_db_r5_missing_or_zero_budget_no_r5(rd_ctx, admin_engine):
     t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
     ctx = TenantContext(t1)
     await _seed_full_chain(ctx, p1, d1)
     await _declare_all_r5_categories(ctx, p1, d1)
-    await _set_engine_gates(ctx, p1, autonomy=True, budget=False)  # no budget
+    await _set_engine_gates(ctx, p1, autonomy=True, budget=False, admin_engine=admin_engine)  # no budget
     async with tenant_scope(ctx) as session:
         report = await ReadinessRepository(session, ctx).evaluate(project_id=p1)
         assert report.readiness_level == "R4"
@@ -872,7 +876,7 @@ async def test_latest_and_history(rd_ctx):
 
 
 @pytest.mark.db
-async def test_evaluate_wires_deploy_production_policy_decision(rd_ctx):
+async def test_evaluate_wires_deploy_production_policy_decision(rd_ctx, admin_engine):
     """A high autonomy policy yields needs_approval for deploy_production (it is
     mandatory-approval), and go-live still stays false — proving real Slice-3 wiring."""
     t1, p1, d1 = rd_ctx["t1"], rd_ctx["p1"], rd_ctx["doc_p1"]
@@ -880,8 +884,12 @@ async def test_evaluate_wires_deploy_production_policy_decision(rd_ctx):
     await _seed_full_chain(ctx, p1, d1)
     async with tenant_scope(ctx) as session:
         # high autonomy: A5 / level 5
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=p1, autonomy_level=5, actor="admin"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=p1,
+            autonomy_level=5,
+            admin_engine=admin_engine,
         )
         repo = ReadinessRepository(session, ctx)
         report, row = await repo.evaluate_and_record(project_id=p1, actor="auditor")

@@ -11,11 +11,13 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
+from app.admin.policy_admin import apply_policy_change
 from app.policy.engine import Decision, PolicyOverrideError, check_authority
 from app.policy.levels import AutonomyLevel as L
 from app.policy.matrix import validate_overrides
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.tenancy import TenantContext, tenant_scope
+from tests.admin_support import seed_gated_policy
 
 # --- Docker-free: pure engine -------------------------------------------------
 
@@ -201,26 +203,36 @@ async def test_missing_policy_denies_all(policy_project):
 
 
 @pytest.mark.db
-async def test_upsert_then_decision_reflects_level(policy_project):
+async def test_upsert_then_decision_reflects_level(policy_project, admin_engine):
     tenant_id, project_id = policy_project
-    async with tenant_scope(TenantContext(tenant_id)) as session:
-        repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
-        await repo.upsert(project_id=project_id, autonomy_level=int(L.A2), actor="test:setup")
+    ctx = TenantContext(tenant_id)
+    async with tenant_scope(ctx) as session:
+        repo = AutonomyPolicyRepository(session, ctx)
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=project_id,
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
+        )
         assert await repo.decision_for(project_id, "create_branches") is Decision.ALLOW
         assert await repo.decision_for(project_id, "deploy_staging") is Decision.DENY
         assert await repo.decision_for(project_id, "deploy_production") is Decision.DENY
 
 
 @pytest.mark.db
-async def test_upsert_tighten_override_takes_effect(policy_project):
+async def test_upsert_tighten_override_takes_effect(policy_project, admin_engine):
     tenant_id, project_id = policy_project
-    async with tenant_scope(TenantContext(tenant_id)) as session:
-        repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
-        await repo.upsert(
+    ctx = TenantContext(tenant_id)
+    async with tenant_scope(ctx) as session:
+        repo = AutonomyPolicyRepository(session, ctx)
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
             project_id=project_id,
             autonomy_level=int(L.A3),
             overrides={"run_tests": {"requires_approval": True}},
-            actor="test:setup",
+            admin_engine=admin_engine,
         )
         assert await repo.decision_for(project_id, "run_tests") is Decision.NEEDS_APPROVAL
 
@@ -229,14 +241,22 @@ async def test_upsert_tighten_override_takes_effect(policy_project):
 async def test_upsert_rejects_relaxing_override(policy_project):
     tenant_id, project_id = policy_project
     async with tenant_scope(TenantContext(tenant_id)) as session:
-        repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
         with pytest.raises(PolicyOverrideError):
-            await repo.upsert(
+            await apply_policy_change(
+                session,
+                TenantContext(tenant_id),
                 project_id=project_id,
+                action_kind="set_autonomy_policy",
                 autonomy_level=int(L.A5),
                 overrides={"deploy_production": {"requires_approval": False}},
-                actor="test:setup",
             )
+        leftover = (
+            await session.execute(
+                text("SELECT count(*) FROM admin_actions WHERE project_id=:p"),
+                {"p": project_id},
+            )
+        ).scalar_one()
+        assert leftover == 0
 
 
 @pytest.mark.db
@@ -244,7 +264,13 @@ async def test_decision_for_fail_closed_on_invalid_persisted_override(policy_pro
     tenant_id, project_id = policy_project
     async with tenant_scope(TenantContext(tenant_id)) as session:
         repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
-        await repo.upsert(project_id=project_id, autonomy_level=int(L.A5), actor="test:setup")
+        await seed_gated_policy(
+            session=session,
+            ctx=TenantContext(tenant_id),
+            project_id=project_id,
+            autonomy_level=int(L.A5),
+            admin_engine=admin_engine,
+        )
     # Inject an invalid/relaxing override directly (admin bypasses validation).
     async with admin_engine.begin() as c:
         await c.execute(
@@ -266,7 +292,13 @@ async def test_decision_for_fail_closed_on_invalid_UNRELATED_override(policy_pro
     tenant_id, project_id = policy_project
     async with tenant_scope(TenantContext(tenant_id)) as session:
         repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
-        await repo.upsert(project_id=project_id, autonomy_level=int(L.A5), actor="test:setup")
+        await seed_gated_policy(
+            session=session,
+            ctx=TenantContext(tenant_id),
+            project_id=project_id,
+            autonomy_level=int(L.A5),
+            admin_engine=admin_engine,
+        )
     async with admin_engine.begin() as c:
         await c.execute(
             text(
@@ -287,7 +319,13 @@ async def test_decision_for_fail_closed_on_malformed_persisted_min_level(policy_
     tenant_id, project_id = policy_project
     async with tenant_scope(TenantContext(tenant_id)) as session:
         repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
-        await repo.upsert(project_id=project_id, autonomy_level=int(L.A5), actor="test:setup")
+        await seed_gated_policy(
+            session=session,
+            ctx=TenantContext(tenant_id),
+            project_id=project_id,
+            autonomy_level=int(L.A5),
+            admin_engine=admin_engine,
+        )
     # Admin-inject a malformed (non-integer) min_level (bypasses write validation).
     async with admin_engine.begin() as c:
         await c.execute(
@@ -306,35 +344,53 @@ async def test_decision_for_fail_closed_on_malformed_persisted_min_level(policy_
 @pytest.mark.db
 async def test_upsert_writes_audit_event(policy_project, admin_engine):
     tenant_id, project_id = policy_project
-    async with tenant_scope(TenantContext(tenant_id)) as session:
-        repo = AutonomyPolicyRepository(session, TenantContext(tenant_id))
-        await repo.upsert(
+    ctx = TenantContext(tenant_id)
+    async with tenant_scope(ctx) as session:
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
             project_id=project_id,
             autonomy_level=int(L.A2),
             overrides={"run_tests": {"requires_approval": True}},
-            actor="test:setup",
+            admin_engine=admin_engine,
         )
     async with admin_engine.connect() as c:
-        row = (
+        rows = (
             await c.execute(
                 text(
                     "SELECT tenant_id, action, payload FROM audit_logs "
-                    "WHERE action='autonomy_policy.upserted' AND payload->>'project_id' = :p"
+                    "WHERE target = :t AND action IN "
+                    "('admin_action.recorded', 'admin_policy_change.recorded') "
+                    "ORDER BY action"
                 ),
-                {"p": str(project_id)},
+                {"t": f"project:{project_id}"},
             )
-        ).one()
-    assert row[0] == tenant_id
-    assert row[1] == "autonomy_policy.upserted"
-    assert row[2]["new_level"] == int(L.A2)
-    assert row[2]["changed_override_keys"] == ["run_tests"]
-    # safe metadata only: no secret/value leakage of override internals
-    assert set(row[2].keys()) == {
-        "project_id",
-        "previous_level",
-        "new_level",
-        "changed_override_keys",
-    }
+        ).all()
+    names = {row[1] for row in rows}
+    assert names == {"admin_action.recorded", "admin_policy_change.recorded"}
+    for tenant, action, payload in rows:
+        assert tenant == tenant_id
+        if action == "admin_action.recorded":
+            assert set(payload) == {
+                "admin_action_id",
+                "action_kind",
+                "decision",
+                "required_role",
+                "actor_role",
+                "actor_provenance",
+            }
+        else:
+            assert set(payload) == {
+                "admin_policy_change_id",
+                "autonomy_policy_id",
+                "previous_autonomy_level",
+                "new_autonomy_level",
+                "override_key_count",
+            }
+            assert payload["new_autonomy_level"] == int(L.A2)
+            assert payload["override_key_count"] == 1
+        blob = str(payload).lower()
+        assert "uaidk_" not in blob and "sha256:" not in blob
 
 
 @pytest_asyncio.fixture
@@ -417,7 +473,9 @@ async def test_autonomy_policies_cross_tenant_write_blocked(rls_engine, two_poli
 
     with pytest.raises(Exception) as ei:
         await attempt()
-    assert "row-level security" in str(ei.value).lower() or "policy" in str(ei.value).lower()
+    orig = getattr(ei.value, "orig", ei.value)
+    assert getattr(orig, "sqlstate", "") == "42501" or "42501" in str(ei.value)
+    assert "autonomy_policies" in str(ei.value).lower()
 
 
 @pytest.mark.db
@@ -453,5 +511,7 @@ async def test_autonomy_policies_catalog_and_grants(admin_engine):
                 )
             ).all()
         }
-    assert grants == {"SELECT", "INSERT", "UPDATE"}
+    assert grants == {"SELECT"}
+    assert "INSERT" not in grants
+    assert "UPDATE" not in grants
     assert "DELETE" not in grants

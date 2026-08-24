@@ -386,6 +386,56 @@ Appendix C l.3010 and l.3012, and the roadmap Slice 61 exit, remain open.
 - **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
   `can_go_live_autonomously=False`.
 
+## Enterprise administration (Slice 63 — closes no spec section)
+`app/admin/` adds org/tenant administration, DB-enforced RBAC, and a real
+DB write lock on `autonomy_policies` for the runtime role. `uaid_app` **lost**
+`INSERT`/`UPDATE` on `autonomy_policies` and holds no `INSERT` on
+`admin_policy_changes`. `AutonomyPolicyRepository.upsert` was **removed** in
+favour of the single gated call `admin_write_autonomy_policy`, which spends
+its authorization in the same database call as the write.
+`scripts/bootstrap_rls_role.sql` must be run before migration `0062` (it
+creates `policy_admin_writer`). Operator path: `python -m scripts.admin_roles`.
+A freshly migrated database has zero role grants, so no runtime admin action
+can be `allowed` and no runtime policy write can succeed until an operator
+grants a role. Slice 63 **closes no spec section** and does **not** meet the
+roadmap Slice 61 exit. D-8, D-9, and D-10 stay OPEN (owner = Salim).
+Limitations: `read_api_not_role_gated`,
+`suspension_not_enforced_inside_tenant_scope`,
+`role_grant_delegation_not_implemented`,
+`matrix_floor_enforced_in_python_only`, `cost_budget_writes_not_rbac_gated`,
+`malformed_stored_override_refuses_tighten`, and an operator holding
+DB-owner credentials is not constrained by this RBAC — that actor can write
+policies and grants directly.
+- **Honesty crux.** This slice records enterprise administration over UAID's existing tenant model. It is not
+go-live authority, not an RLS bypass for `uaid_app`, not a human signature, not closing
+Slice 61, and not closing D-8/D-9/D-10. What the database enforces is that the runtime role
+holds no INSERT or UPDATE on `autonomy_policies` at all, so its only policy-write path is a
+SECURITY DEFINER function that refuses without an allowed, unspent, same-tenant admin action —
+one that spends that authorization in the same call and transaction as the write, so a policy
+can neither change without a ledger row nor be changed twice on one authorization — and which
+refuses a "tighten" that would relax the currently stored override map, including an
+empty map; that the runtime role cannot record an allowed admin action without a real active
+same-tenant role grant it has no privilege to create, and cannot record a lesser refusal while
+a sufficient higher grant is active; and that a suspended tenant's or organization's bearer key
+no longer resolves at the single HTTP→tenant boundary. What it does not enforce is that the
+recorded principal is the authenticated one (app-stamped), that a role grant carries real
+organizational authority (its provenance is an unverified operator admin session), that an
+operator with DB-owner credentials is constrained — that actor can still write policies and
+grants directly — that the §5/§2.6 matrix floor is checked in the database rather than in
+Python, that cost budgets are role-gated, that suspension halts work already inside
+`tenant_scope`, or that any read endpoint is role-gated — none is. A5 stays `slice54.v1`,
+readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal `False`.
+- Pre-change SHA-256 (§1.1): `app/repositories/autonomy_policies.py`
+  `9b563f6a8780da4a60cd1a57de377df6f3510a221d656564c115b89812288317`;
+  `scripts/bootstrap_rls_role.sql`
+  `7a611e198d1efff926646dcbfaebe95782e9de0d8ed3d2c20fd4c38bbccc9c61`.
+- Post-change SHA-256: `app/repositories/autonomy_policies.py`
+  `452ec2c489181b72fdcd3d6f7c60c5646251199a87ec80059964cdbd41d97fdd`;
+  `scripts/bootstrap_rls_role.sql`
+  `3e810268b005db05a0af2d65189ab09634e1ea127837600d3303f68ead684128`.
+- **Unchanged:** A5 `slice54.v1`, readiness `slice20.v1`, literal
+  `can_go_live_autonomously=False`. Slice 61 exit and D-8/D-9/D-10 stay OPEN.
+
 ## Document intake sandbox (§16.3)
 `app/intake/` treats customer-supplied documents as **untrusted data**. The architectural guarantee is
 **instruction/data separation**: document text is stored and labeled as data, **no LLM is wired**, and

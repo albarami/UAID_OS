@@ -18,7 +18,7 @@ from sqlalchemy import text
 
 from app.policy.levels import AutonomyLevel as L
 from app.repositories.approvals import ApprovalRepository
-from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from tests.admin_support import seed_gated_policy
 from app.repositories.production_autonomy import ProductionAutonomyRepository
 from app.repositories.qualification import QualificationRepository
 from app.repositories.tools import ToolAllowlistRepository
@@ -527,7 +527,7 @@ async def test_b7_cross_run_approval_does_not_satisfy(qual_ctx):
 
 
 @pytest.mark.db
-async def test_broker_reaches_downstream_when_qualified(qual_ctx):
+async def test_broker_reaches_downstream_when_qualified(qual_ctx, admin_engine):
     ctx = TenantContext(qual_ctx["t1"])
     async with tenant_scope(ctx) as session:
         d0 = await broker_call(
@@ -548,8 +548,12 @@ async def test_broker_reaches_downstream_when_qualified(qual_ctx):
         )
         await _approve_both(session, ctx, appr)
         await repo.qualify(realization_id=qual_ctx["real1"], run_id=run.id, qualified_by="boss")
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=qual_ctx["p1"], autonomy_level=int(L.A2), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=qual_ctx["p1"],
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
         )
     # qualified but NOT allowlisted ⇒ REACHES the allowlist gate ⇒ DENIED_NOT_ALLOWLISTED
     async with tenant_scope(ctx) as session:

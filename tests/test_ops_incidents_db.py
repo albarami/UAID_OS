@@ -31,6 +31,7 @@ from app.ops.incidents import (
 from app.release.production_autonomy import evaluate_production_autonomy
 from app.repositories.autonomy_policies import AutonomyPolicyRepository
 from app.tenancy import TenantContext, tenant_scope
+from tests.admin_support import seed_gated_policy
 from tests.ops_incidents_support import FINDINGS_GUARD_MD5
 
 
@@ -53,13 +54,15 @@ def _payload(
     )
 
 
-async def _set_policy(ctx, project_id, level, overrides=None):
+async def _set_policy(ctx, project_id, level, overrides=None, *, admin_engine):
     async with tenant_scope(ctx) as session:
-        await AutonomyPolicyRepository(session, ctx).upsert(
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
             project_id=project_id,
             autonomy_level=level,
             overrides=overrides or {},
-            actor="inc-test",
+            admin_engine=admin_engine,
         )
 
 
@@ -76,7 +79,7 @@ async def test_missing_policy_and_a0_persist_zero_tickets(inc_ctx, admin_engine)
     )
     assert missing.ticket_id is None
     assert _by_seq(missing.actions)[1].policy_decision == "deny"
-    await _set_policy(ctx, p1, 0)
+    await _set_policy(ctx, p1, 0, admin_engine=admin_engine)
     a0 = await open_incident(
         ctx, p1, actor="inc-test", payload=_payload(), idempotency_key=f"a0-{inc_ctx['suffix']}"
     )
@@ -92,16 +95,16 @@ async def test_missing_policy_and_a0_persist_zero_tickets(inc_ctx, admin_engine)
 
 
 @pytest.mark.db
-async def test_a1_writes_one_ticket_and_tightened_override_denies(inc_ctx):
+async def test_a1_writes_one_ticket_and_tightened_override_denies(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     p1 = inc_ctx["p1"]
-    await _set_policy(ctx, p1, 1)
+    await _set_policy(ctx, p1, 1, admin_engine=admin_engine)
     first = await open_incident(
         ctx, p1, actor="inc-test", payload=_payload(), idempotency_key=f"a1-{inc_ctx['suffix']}"
     )
     assert first.ticket_id is not None
     assert _by_seq(first.actions)[1].execution_posture == "local_ticket_written"
-    await _set_policy(ctx, p1, 1, {"create_project_tasks": {"allow": False}})
+    await _set_policy(ctx, p1, 1, {"create_project_tasks": {"allow": False}}, admin_engine=admin_engine)
     denied = await open_incident(
         ctx,
         p1,
@@ -114,10 +117,10 @@ async def test_a1_writes_one_ticket_and_tightened_override_denies(inc_ctx):
 
 
 @pytest.mark.db
-async def test_open_and_reeval_route_through_decision_for(inc_ctx, monkeypatch):
+async def test_open_and_reeval_route_through_decision_for(inc_ctx, monkeypatch, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     p1 = inc_ctx["p1"]
-    await _set_policy(ctx, p1, 1)
+    await _set_policy(ctx, p1, 1, admin_engine=admin_engine)
     seen: list[str] = []
     original = AutonomyPolicyRepository.decision_for
 
@@ -141,7 +144,7 @@ async def test_open_and_reeval_route_through_decision_for(inc_ctx, monkeypatch):
 async def test_a2_a5_transitions_diagnosis_and_idempotency(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     p1 = inc_ctx["p1"]
-    await _set_policy(ctx, p1, 2)
+    await _set_policy(ctx, p1, 2, admin_engine=admin_engine)
     a2 = await open_incident(
         ctx, p1, actor="inc-test", payload=_payload(), idempotency_key=f"a2-{inc_ctx['suffix']}"
     )
@@ -170,7 +173,7 @@ async def test_a2_a5_transitions_diagnosis_and_idempotency(inc_ctx, admin_engine
     diagnosed = await record_log_diagnosis_unavailable(ctx, p1, a2.id, actor="inc-test")
     assert not hasattr(diagnosed, "diagnosed")
     assert diagnosed.latest_evaluation_id == a2.latest_evaluation_id
-    await _set_policy(ctx, p1, 5)
+    await _set_policy(ctx, p1, 5, admin_engine=admin_engine)
     a5 = await open_incident(
         ctx,
         p1,
@@ -196,21 +199,21 @@ async def test_a2_a5_transitions_diagnosis_and_idempotency(inc_ctx, admin_engine
 
 
 @pytest.mark.db
-async def test_deny_then_allow_creates_ticket_repeated_allow_reuses(inc_ctx):
+async def test_deny_then_allow_creates_ticket_repeated_allow_reuses(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     p1 = inc_ctx["p1"]
     opened = await open_incident(
         ctx, p1, actor="inc-test", payload=_payload(), idempotency_key=f"flip-{inc_ctx['suffix']}"
     )
     assert opened.ticket_id is None
-    await _set_policy(ctx, p1, 1)
+    await _set_policy(ctx, p1, 1, admin_engine=admin_engine)
     allowed = await evaluate_post_launch_actions(ctx, p1, opened.id)
     assert _by_seq(allowed.actions)[1].ticket_id is not None
     latest = await latest_incident(ctx, p1)
     assert latest is not None and latest.ticket_id == _by_seq(allowed.actions)[1].ticket_id
     again = await evaluate_post_launch_actions(ctx, p1, opened.id)
     assert _by_seq(again.actions)[1].ticket_id == latest.ticket_id
-    await _set_policy(ctx, p1, 0)
+    await _set_policy(ctx, p1, 0, admin_engine=admin_engine)
     denied = await evaluate_post_launch_actions(ctx, p1, opened.id)
     assert _by_seq(denied.actions)[1].ticket_id is None
     still = await latest_incident(ctx, p1)
@@ -221,7 +224,7 @@ async def test_deny_then_allow_creates_ticket_repeated_allow_reuses(inc_ctx):
 async def test_invalid_binds_abort_and_valid_mapping_is_local(inc_ctx, admin_engine):
     ctx = TenantContext(inc_ctx["t1"])
     p1, p1b = inc_ctx["p1"], inc_ctx["p1b"]
-    await _set_policy(ctx, p1, 1)
+    await _set_policy(ctx, p1, 1, admin_engine=admin_engine)
     with pytest.raises(IncidentError):
         await open_incident(
             ctx,

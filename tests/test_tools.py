@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from app.policy.levels import AutonomyLevel as L
 from app.repositories.approvals import ApprovalRepository
-from app.repositories.autonomy_policies import AutonomyPolicyRepository
+from tests.admin_support import seed_gated_policy
 from app.repositories.tools import ToolAllowlistRepository
 from app.tenancy import TenantContext, tenant_scope
 from app.tools.broker import BrokerDecision, broker_call, broker_call_service
@@ -268,12 +268,16 @@ async def test_non_finite_float_param_denied_and_stored_empty(tool_ctx, admin_en
 
 
 @pytest.mark.db
-async def test_service_not_allowlisted_denied(tool_ctx):
+async def test_service_not_allowlisted_denied(tool_ctx, admin_engine):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A2), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=pid,
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
         )
         d = await broker_call_service(
             session, ctx, project_id=pid, service_id=_SERVICE, tool_name="ci.run_tests"
@@ -282,12 +286,16 @@ async def test_service_not_allowlisted_denied(tool_ctx):
 
 
 @pytest.mark.db
-async def test_service_allowlisted_policy_allow_yields_unverified_identity(tool_ctx):
+async def test_service_allowlisted_policy_allow_yields_unverified_identity(tool_ctx, admin_engine):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A2), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=pid,
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
         )
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id=_SERVICE, tool_name="ci.run_tests", actor="admin"
@@ -299,12 +307,16 @@ async def test_service_allowlisted_policy_allow_yields_unverified_identity(tool_
 
 
 @pytest.mark.db
-async def test_service_policy_deny(tool_ctx):
+async def test_service_policy_deny(tool_ctx, admin_engine):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A0), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=pid,
+            autonomy_level=int(L.A0),
+            admin_engine=admin_engine,
         )
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id=_SERVICE, tool_name="ci.run_tests", actor="admin"
@@ -316,12 +328,16 @@ async def test_service_policy_deny(tool_ctx):
 
 
 @pytest.mark.db
-async def test_service_mandatory_tool_needs_approval_then_unverified(tool_ctx):
+async def test_service_mandatory_tool_needs_approval_then_unverified(tool_ctx, admin_engine):
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A5), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=pid,
+            autonomy_level=int(L.A5),
+            admin_engine=admin_engine,
         )
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id=_SERVICE, tool_name="ci.deploy_production", actor="admin"
@@ -345,13 +361,17 @@ async def test_service_mandatory_tool_needs_approval_then_unverified(tool_ctx):
 
 
 @pytest.mark.db
-async def test_service_other_tool_approval_does_not_satisfy(tool_ctx):
+async def test_service_other_tool_approval_does_not_satisfy(tool_ctx, admin_engine):
     # An APPROVED approval scoped to a DIFFERENT tool must NOT authorize — no cross-tool reuse.
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A5), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=pid,
+            autonomy_level=int(L.A5),
+            admin_engine=admin_engine,
         )
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id=_SERVICE, tool_name="ci.deploy_production", actor="admin"
@@ -375,8 +395,12 @@ async def test_service_non_json_param_value_stored_json_safe(tool_ctx, admin_eng
     tid, pid = tool_ctx
     async with tenant_scope(TenantContext(tid)) as session:
         ctx = TenantContext(tid)
-        await AutonomyPolicyRepository(session, ctx).upsert(
-            project_id=pid, autonomy_level=int(L.A2), actor="t"
+        await seed_gated_policy(
+            session=session,
+            ctx=ctx,
+            project_id=pid,
+            autonomy_level=int(L.A2),
+            admin_engine=admin_engine,
         )
         await ToolAllowlistRepository(session, ctx).grant(
             agent_id=_SERVICE, tool_name="ci.run_tests", actor="admin"

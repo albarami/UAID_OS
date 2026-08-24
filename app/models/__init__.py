@@ -4,6 +4,8 @@ Importing this package imports every model so that ``Base.metadata`` is fully
 populated (Alembic autogenerate and the test schema build both depend on this).
 """
 
+from app.models.admin_policy import AdminPolicyChange, TenantAdminEvent
+from app.models.admin_rbac import AdminAction, AdminRoleGrant
 from app.models.agent_blueprint import AgentBlueprint
 from app.models.agent_failure_event import AgentFailureEvent
 from app.models.agent_instance import AgentInstance
@@ -167,6 +169,10 @@ from app.models.tool_call import ToolCall
 
 __all__ = [
     "Base",
+    "AdminAction",
+    "AdminPolicyChange",
+    "AdminRoleGrant",
+    "TenantAdminEvent",
     "Organization",
     "OpsIncident",
     "OpsIncidentActionEvaluation",

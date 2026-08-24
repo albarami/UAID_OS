@@ -1,15 +1,33 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-24T00:20:00Z",
-  "source": "slice-62-closeout",
+  "timestamp": "2026-08-24T01:55:00Z",
+  "source": "slice-63-plan-v4-awaiting-review",
   "partial": false,
   "phase": "Phase 7",
   "phase_name": "Scale & ecosystem",
   "phase_dir": ".planning",
-  "plan": ".planning/SLICE-62-PLAN.md",
+  "plan": ".planning/SLICE-63-PLAN.md",
   "task": "Slice 63",
   "total_tasks": null,
-  "status": "slice_62_merged",
+  "status": "slice_63_plan_v4_awaiting_review",
+  "slice_63_plan_review": {
+    "version": "v4",
+    "verdict": "pending",
+    "consecutive_plan_rejects": 0,
+    "halted": false,
+    "owner_ruling": "2026-08-24: v4 authorized; overlapping-guard probe-pair bar amended; consecutive reject count reset to 0; one REJECT of v4 halts, no v5 without owner",
+    "planner_agent_v4": "c7c6e513-da45-41ba-b767-79f90581e884",
+    "reviewer_agent_v3": "369abc89-7144-4f42-b810-72f6ec367a64",
+    "reviewer_agent_v2": "5aca1998-528c-42d9-97a2-f961e6d0757a",
+    "planner_agent": "699e14a3-f8d3-4584-b67e-4a54dd87cf05",
+    "history": [
+      "v1 REJECT — 6 defects (policy lock bypass, tighten can relax, four CHECKs unprobed, probe/mutation mismatches, role events unbound, decision partition not DB-true)",
+      "v2 REJECT — 4 defects (spend not atomic, second connection vs uncommitted fixtures, missing GUC/no-policy/grant-status/org-status probes, TRUNCATE 0A000)",
+      "v3 REJECT — 1 defect: §5.2.a:1169–1177 writer-function mutations remain masked by admin_policy_changes_guard; live PG16 probes commit only when that neighbouring trigger is also disabled. P-writer-no-existing-policy therefore does not close v2 defect 3."
+    ],
+    "halt_rule": "one REJECT of v4 ⇒ halt, no v5 without owner",
+    "owner_action_required": null
+  },
   "seats": {
     "planner": {
       "model": "Claude seat (main session; identifies as Claude Opus 5)",
@@ -18,7 +36,8 @@
       "rationale": "Planner writes the discussion doc where required and SLICE-N-PLAN.md, after a full ORIENT re-read of authority docs.",
       "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work.",
       "slice_61a_authorship": "Authored the superseded v1-v3 and the from-scratch SLICE-61A-PLAN.md v1, v2, and v3 in full. Builder seat never invoked on any plan version. Sol APPROVED v3. Owner accepted the narrowing on 2026-08-23 and directed immediate build.",
-      "slice_62_authorship": "Authored SLICE-62-PLAN.md v1-v4 in full. Builder never edited the plan. Sol (4ac9facc-44e1-4172-9cb6-37cef628d36c) APPROVED v4."
+      "slice_62_authorship": "Authored SLICE-62-PLAN.md v1-v4 in full. Builder never edited the plan. Sol (4ac9facc-44e1-4172-9cb6-37cef628d36c) APPROVED v4.",
+      "slice_63_authorship": "Authored SLICE-63-PLAN.md v1–v3 (agent 699e14a3-f8d3-4584-b67e-4a54dd87cf05) and v4 (agent c7c6e513-da45-41ba-b767-79f90581e884) in full. Builder never edited the plan. Live Alembic head remains 0061. Owner authorized v4 on 2026-08-24 under the overlapping-guard probe-pair bar."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
@@ -52,7 +71,7 @@
     "Slice 62 merged via PR #114 (squash commit 96faa864c19d7cbffb3677600530de5071c12b2c) as TENANT-SAFE AGGREGATES + DECISION-ONLY COST OPTIMIZER; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0061"
   ],
   "remaining_tasks": [
-    "Slice 63 enterprise administration; D-8/D-9/D-10 stay OPEN (owner=Salim); after merge stop for the Slice 55-63 final report"
+    "Slice 63 plan v4 awaiting Sol review. D-8/D-9/D-10 stay OPEN. After merge stop for the Slice 55-63 final report."
   ],
   "blockers": [],
   "human_actions_pending": [],
@@ -147,7 +166,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Slice 63 plan v1 by the Claude planner seat from live Alembic head 0061 (expect migration 0062 — verify). Send to Sol. Builder must not write the plan. Do not close D-8/D-9/D-10.",
+  "next_action": "Sol probe-backed review of Slice 63 plan v4 (commit d125669). Consecutive reject count is 0. On APPROVE, build immediately. On REJECT, halt — no v5 without owner.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
