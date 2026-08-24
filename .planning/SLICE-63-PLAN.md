@@ -4,22 +4,64 @@
 BUILDER = Cursor Grok 4.6 Extra High. REVIEWER = GPT-5.6 Sol, sole approval authority on
 plan and code, probe-backed verdicts only. **The builder never edits this plan.**
 
-**Version.** **v4.** Sol REJECTED v1, v2, and v3. The v3 REJECT
+**Version.** **v4.1** (amendment to the approved v4; **plan REJECT count stays 0** — this
+amendment does not restart it).
+
+**v4 history, unchanged.** Sol REJECTED v1, v2, and v3 **as plans**. The v3 REJECT
 (`369abc89-7144-4f42-b810-72f6ec367a64`) found that the four writer-function mutations at
 §5.2.a remained **masked by a neighbouring trigger** (`admin_policy_changes_guard`), so
 `P-writer-no-existing-policy` did not close v2 defect 3. **The owner (Salim, 2026-08-24) ruled
 that all three rejects were correct against the standard he had set, and that the standard
 itself was wrong for overlapping guards.** He amended it (the **overlapping-guard probe pair**,
 now §5.0 rule 8), authorized v4, and **reset the consecutive plan REJECT count to 0**. v4
-changes **only** what that amendment requires: §5.0 gains rule 8, the five §5.2.a rows the
-amendment covers become named **pairs** in the new §5.2.a.1, and §10 records it. Every v1 and v2
-defect stays closed as accepted and is not re-litigated; no new scope, no new table, no HTTP, no
-go-live flip, no D-8/D-9/D-10 close. **Halt rule: one REJECT of v4 halts this line — there is
-no v5 without the owner.** Every claim v2 was rejected for is still backed by the live
-PostgreSQL 16 results in §0.1 facts 13–16, and **which** rows overlap was **measured live** on
-PostgreSQL 16.14 while writing v4 (§5.2.a.1, C1–C7) rather than assumed — including the two
-findings recorded against the plan's own interest: one case has a **second** neighbour inside the
-writer function itself, and the GUC case's real neighbour is **RLS**, not the ledger trigger.
+changed **only** what that amendment required: §5.0 gained rule 8, the five §5.2.a rows the
+amendment covers became named **pairs** in the new §5.2.a.1, and §10 recorded it. Every claim v2
+was rejected for is still backed by the live PostgreSQL 16 results in §0.1 facts 13–16, and
+**which** rows overlap was **measured live** on PostgreSQL 16.14 while writing v4 (§5.2.a.1,
+C1–C7) rather than assumed — including the two findings recorded against the plan's own interest:
+one case has a **second** neighbour inside the writer function itself, and the GUC case's real
+neighbour is **RLS**, not the ledger trigger. **v4 was APPROVED as a plan and built** on
+`feat/slice-63-enterprise-admin` at `ddb3869`.
+
+**Why v4.1 exists.** Sol then **REJECTED the code**
+(`380cc908-3745-46fb-b762-504f4e1bd4fd`) for a **concurrent first-policy-write race** that the
+approved v4 step sequence itself produces. Measured by Sol on PostgreSQL 16.14: two authorized
+writers both observed **no** policy row, the final stored level was `2`, and the two
+`admin_policy_changes` rows were `[(NULL, 3), (NULL, 2)]` — the second write overwrote level 3
+while recording `previous_autonomy_level = NULL`, so the ledger no longer described what changed.
+**Root cause: approved v4 §OD-11 steps 5–7** — `SELECT … FOR UPDATE` on an **absent** row, then
+`INSERT … ON CONFLICT DO UPDATE`, with the ledger's `previous_autonomy_level` taken from the
+empty pre-insert read. **`FOR UPDATE` on an absent row locks nothing**, so the two writers never
+serialized and both believed they were the first. The finding is accepted in full: it is a defect
+in this plan's sequence, not in the build. The builder **correctly refused** to patch outside the
+approved plan, so the sequence is amended **here**.
+
+**Scope of v4.1 — §OD-11 and the owner's required test surface, nothing else.** The writer's
+absent-row path is replaced (§OD-11 step 3.7: `INSERT … ON CONFLICT DO NOTHING` to serialize
+creation, **then** lock / read / update, with `previous_autonomy_level` read only **after** the
+row is guaranteed to exist); the owner's standing addition to the test bar lands as **§5.0
+rule 9**; its named probe **`P-writer-concurrent-first-write`** lands as **§5.2.a.2**; §9's
+probe bar moves from eight conditions to nine; §10 gains a **v4.1** entry. **Everything else in
+v4 stands as approved and is not reopened** — §5.0 rule 8, the five §5.2.a.1 reachable/own-reason
+pairs, and every v1–v3 accepted fix. No new tables, no new columns, no HTTP, no go-live flip, no
+D-8/D-9/D-10 close, **no new migration and no renumber**: this slice's migration is `0062` and
+v4.1 does not touch it (the writer body is created by `0062` from
+`app/admin/policy_sql.py`, so the amended sequence ships as a change to that module's clause
+text, not as a second migration).
+
+**One correction inside v4.1, before review (coordinator finding, 2026-08-24).** The finding held
+that §5.2.a.2's interleaving could not reproduce the race, on the reading that the second writer
+would wait at its existence probe on the first writer's uncommitted row and therefore behave
+correctly under the v4 body too. That premise was measured and **does not hold**: a tuple
+invisible to the reader's snapshot cannot be row-locked, so that `SELECT … FOR UPDATE` returns no
+row **without waiting** (§OD-11 R6), and under the specified interleaving the v4 body reproduced
+`[(NULL, 3), (NULL, 2)]` (R7) while v4.1 produced `[(NULL, 3), (3, 2)]` (R8). The window is
+therefore kept and the **step sequence is unchanged**; what changed is the **evidence**: the
+mechanism is now stated in the probe rather than left to inference, assertion 6 gained an observer
+half that pins the waiter to the write rather than the probe, rule 9 gained the by-construction
+and blocking-site requirements, and R6–R8 were recorded. This is still v4.1, not a v5.
+
+**Halt rule: one REJECT of v4.1 halts this line — there is no v5 without the owner.**
 
 > **This slice closes NO spec section and does NOT satisfy the roadmap Slice 61 exit.**
 > D-8, D-9, and D-10 stay **OPEN** (owner = Salim). Slice 63 is the last scheduled slice:
@@ -234,7 +276,12 @@ exists at all. An unauthenticated actor can only be recorded as
 **Ledger fidelity.** An `admin_policy_changes` row exists only if it references such an
 `allowed` policy-kind action (spent once) and records the autonomy level the referenced
 `autonomy_policies` row actually holds; its `previous_autonomy_level` and `override_key_count`
-are derived by the function from the rows themselves, never accepted from a caller.
+are derived by the function from the rows themselves, never accepted from a caller. **v4.1:**
+`previous_autonomy_level` is derived only **after** the policy row is guaranteed to exist —
+creation is serialized on `UNIQUE (tenant_id, project_id)` — so two concurrent first writers
+cannot both record a NULL previous level while one silently overwrites the other (§OD-11 step
+3.7; standing proof `P-writer-concurrent-first-write`, §5.2.a.2). Derivation is only worth
+something if it is correct under contention, which is the defect Sol's code REJECT found.
 A `tenant_admin_events` role event is composite-FK
 bound to the exact grant row's `(id, tenant_id, principal_subject, admin_role)`, so it cannot
 name a principal or role the grant does not carry. A bearer key whose tenant or organization
@@ -632,6 +679,18 @@ text columns are principal subjects, role names, operator labels, and enum value
 write is not "DB-enforced policy management". v2 takes Sol's preferred branch — the real DB
 lock — because fact 0.1.9 shows **no product path breaks**.
 
+**Amended in v4.1 (owner ruling 2026-08-24, after Sol's code REJECT
+`380cc908-3745-46fb-b762-504f4e1bd4fd`).** Steps **3.5 – 3.7** below are rewritten. The approved
+v4 sequence took `SELECT … FOR UPDATE` on a possibly-absent row, then upserted with
+`ON CONFLICT DO UPDATE`, and derived the ledger's `previous_autonomy_level` from that pre-insert
+read. **`FOR UPDATE` on an absent row locks nothing**, so two authorized first writers both saw
+"no policy" and both recorded `previous_autonomy_level = NULL` while the second silently
+overwrote the first's level. v4.1 serializes creation on the unique index with
+`INSERT … ON CONFLICT DO NOTHING`, and reads `previous_autonomy_level` only **after** the row is
+guaranteed to exist. Nothing else in §OD-11 changes: the REVOKE, the `policy_admin_writer` role,
+the single-call write-and-spend, RLS confinement inside the definer, and the "only runtime
+writer" claim all stand as approved.
+
 1. `REVOKE INSERT, UPDATE ON public.autonomy_policies FROM uaid_app`. `SELECT` is untouched,
    so `decision_for` / `snapshot_decisions` / readiness / control-loop / broker reads are
    unaffected. `DELETE` was never granted (`0004`'s "NO DELETE"), so the runtime role now has
@@ -663,15 +722,62 @@ lock — because fact 0.1.9 shows **no product path breaks**.
    3. `decision = 'allowed'` else `admin_action_not_allowed`.
    4. `action_kind IN ('set_autonomy_policy','tighten_autonomy_overrides')` else
       `admin_action_not_policy_kind`.
-   5. `SELECT id, autonomy_level, overrides ... FOR UPDATE` the current `autonomy_policies`
-      row for `(v_tenant, p_project_id)`; `v_previous_level` is its level, or NULL if absent.
+   5. **Existence probe.** `SELECT id, autonomy_level, overrides ... FOR UPDATE` the current
+      `autonomy_policies` row for `(v_tenant, p_project_id)`; `v_found := FOUND`. **Honest
+      about what this statement does (v4.1):** when the row exists it really locks it, which is
+      what step 3.6 and step 3.7(a) rely on; when the row does **not** exist, `FOR UPDATE`
+      locks **nothing** — there is no row to lock, so this is an existence probe and no more.
+      Its level is therefore used only for the step-3.6 tighten comparisons (which require an
+      existing row) and is **never** the ledger's `previous_autonomy_level` on the absent-row
+      path. That confusion is exactly the v4 defect.
    6. `action_kind='tighten_autonomy_overrides'` ⇒ the row must exist
       (`no_existing_policy`), `p_autonomy_level` must equal the stored level
       (`tighten_may_not_change_level`), and
       `public.admin_overrides_is_monotonic(stored, p_overrides)` must be true
-      (`tighten_would_relax_overrides`) — §OD-12.
-   7. `INSERT ... ON CONFLICT (tenant_id, project_id) DO UPDATE SET autonomy_level,
-      overrides, updated_at = now() RETURNING id INTO o_autonomy_policy_id`.
+      (`tighten_would_relax_overrides`) — §OD-12. **This block runs BEFORE any INSERT (v4.1),
+      and that ordering is load-bearing.** A tighten against an absent row refuses
+      `no_existing_policy` while `autonomy_policies` still holds **zero** rows for the project:
+      the step-3.7 serialize-INSERT is reachable **only** on the `NOT v_found` path, which a
+      tighten can never reach because this clause has already raised. The function therefore
+      never creates a row in order to then refuse the tighten that would have used it — that
+      would leave an orphan policy nobody authorized, and a `set_autonomy_policy` level for a
+      project whose administrator only ever asked to tighten. Measured (v4.1 probe R3):
+      `pol_rows_before = 0`, refusal `no_existing_policy` (SQLSTATE `P0001`),
+      `pol_rows_after = 0`, `chg_rows_after = 0`.
+   7. **The write — v4.1 replaces v4's single `ON CONFLICT DO UPDATE` upsert.** Two booleans
+      carry the state (`v_found` from step 3.5, plus a new `v_created`), alongside the existing
+      `v_previous_level` / `v_stored_overrides`:
+      - **(a) Present row** (`v_found` true): nothing to serialize — this transaction already
+        holds the row lock from step 3.5, and `v_previous_level` is that locked read's level.
+        Continue at (d).
+      - **(b) Absent row — serialize creation.** `INSERT INTO public.autonomy_policies
+        (tenant_id, project_id, autonomy_level, overrides, updated_at) VALUES (v_tenant,
+        p_project_id, p_autonomy_level, COALESCE(p_overrides,'{}'::jsonb), now())
+        ON CONFLICT (tenant_id, project_id) DO NOTHING RETURNING id INTO
+        o_autonomy_policy_id;` then `v_created := FOUND`. The `UNIQUE (tenant_id, project_id)`
+        index is what serializes: a concurrent first writer's in-flight speculative insertion
+        makes this statement **wait** for that transaction, and `DO NOTHING` then reports no row
+        inserted. So `v_created` distinguishes *"I created it"* from *"someone else did and I
+        waited for them"* — the distinction v4 had no way to make. If the transaction we waited
+        for **aborted**, the index entry is released and our INSERT proceeds, so `v_created` is
+        true and the ledger honestly records a creation: a rolled-back first write must never
+        leave the next writer citing a previous level that was never committed.
+      - **(c) Authoritative read, taken only after the row is guaranteed to exist.** Re-run
+        `SELECT id, autonomy_level, overrides ... FOR UPDATE` for `(v_tenant, p_project_id)`
+        into `o_autonomy_policy_id, v_previous_level, v_stored_overrides`. The row provably
+        exists now — this transaction either inserted it at (b) or waited for the transaction
+        that committed it — so this `FOR UPDATE` really locks. `IF NOT FOUND THEN RAISE
+        'policy_write_row_unavailable'` is the fail-closed backstop for a snapshot that cannot
+        see it; the function never proceeds on a row it could not read. Then `IF v_created THEN
+        v_previous_level := NULL; END IF;` — a genuine creation has no previous level, and
+        (b)'s `RETURNING` is the only thing entitled to assert that. **Every other value of
+        `previous_autonomy_level` comes from this post-insert locked read, never from the
+        step-3.5 probe.**
+      - **(d) Update the locked row** to `(p_autonomy_level, COALESCE(p_overrides,'{}'::jsonb),
+        now())`, `RETURNING id INTO o_autonomy_policy_id`. The row exists and is locked by this
+        transaction, so a plain `UPDATE` is sufficient and there is no second conflict path to
+        reason about. For the creator this rewrites its own just-inserted values, which is a
+        deliberate no-op kept in order to have one write path instead of two.
    8. **Spend the authorization in the same function, same transaction.** `INSERT INTO
       public.admin_policy_changes (tenant_id, project_id, admin_action_id,
       autonomy_policy_id, previous_autonomy_level, new_autonomy_level, override_key_count)`
@@ -680,14 +786,65 @@ lock — because fact 0.1.9 shows **no product path breaks**.
       'admin_action_already_spent' … END`. `uq_admin_policy_changes_action` is the **sole**
       spend authority — there is deliberately **no** separate "already spent?" `SELECT`,
       because a pre-check would mask the constraint and could not carry a load-bearing
-      mutation (§5.0 rule 1). `previous_autonomy_level` and `override_key_count`
-      (`jsonb_object_keys` cardinality) are **derived here**, never accepted from the caller,
-      so the ledger cannot be falsified even by the one privileged caller.
-   9. Ordering is load-bearing in one direction: the policy upsert must precede the ledger
+      mutation (§5.0 rule 1). `override_key_count` (`jsonb_object_keys` cardinality) is
+      **derived here** and `previous_autonomy_level` is the value derived at step 3.7 — neither
+      is ever accepted from the caller, so the ledger cannot be falsified even by the one
+      privileged caller. **v4.1:** "derived" is only worth something if the derivation is
+      correct under concurrency, which is what step 3.7 now provides and
+      `P-writer-concurrent-first-write` (§5.2.a.2) is the standing proof of.
+   9. Ordering is load-bearing in one direction: the policy write must precede the ledger
       INSERT, because `admin_policy_changes_guard` (§3.3) requires `new_autonomy_level` to
       equal the **stored** policy level. Fact 0.1.14 measured the consequence that matters —
       a refused spend unwinds the policy write, so there is no window in which a policy is
       changed without a ledger row.
+
+   **Isolation, stated rather than assumed (v4.1).** The production entry point
+   `apply_policy_change_in_scope` opens `tenant_scope(ctx)` with no `isolation_level`, so the
+   engine default **READ COMMITTED** is the isolation this sequence is designed for and probed
+   at: step 3.7(c) is a new statement and therefore takes a fresh snapshot, which is why it can
+   see the row the writer it waited for has just committed. At **REPEATABLE READ** or
+   **SERIALIZABLE** the loser does **not** silently record a wrong `previous_autonomy_level`:
+   measured on PostgreSQL 16.14 (v4.1 probe R4), the step-3.7(b) `ON CONFLICT DO NOTHING` itself
+   raised SQLSTATE **`40001`** (`could not serialize access due to concurrent update`), the
+   transaction rolled back, and no ledger row was written — fail closed. The
+   `policy_write_row_unavailable` clause at 3.7(c) is a **backstop that did not fire in that
+   build**, and the plan claims nothing more for it than that: it exists so that a snapshot which
+   cannot see the row can never fall through to a write, not because a path to it has been
+   demonstrated.
+
+   **Measured, on a throwaway database (v4.1, PostgreSQL 16.14, container
+   `uaid_os-postgres-1`; database `s63v41_tmp` created and dropped in the same session, no app
+   database touched).** The harness reproduces this writer's clause structure and the
+   §3.3:938–944 `admin_policy_changes_guard`; these are harness results, and **the builder must
+   reproduce them against the real `0062` objects**:
+
+   | # | Scenario | Result |
+   |---|---|---|
+   | R1 | **v4 sequence** (`FOR UPDATE` on the absent row, then `ON CONFLICT DO UPDATE`), two concurrent first writers (levels 3 then 2) | **Defect reproduced** — ledger `[(NULL, 3), (NULL, 2)]`, stored level `2`; matches Sol's `380cc908` measurement exactly, so the harness is credible before it is used to bless the fix |
+   | R2 | **v4.1 sequence**, same two concurrent first writers | **Correct** — writer B blocked until A committed (B called at `31.740`, returned `33.049`, A committed `33.047`), both calls returned the **same** `o_autonomy_policy_id`, ledger `[(NULL, 3), (3, 2)]`, stored level `2`, two distinct spends |
+   | R3 | **v4.1 sequence**, tighten against an absent row | Refused `no_existing_policy` (`P0001`) with `pol_rows` `0 → 0` and `chg_rows = 0` — the refusal precedes any INSERT |
+   | R4 | **v4.1 sequence**, loser at `REPEATABLE READ` | Refused `40001` at step 3.7(b); no policy overwrite, no ledger row |
+   | R5 | **v4.1 sequence**, sequential sanity: first write, second write, monotone tighten, relaxing tighten | `[(NULL, 3), (3, 2), (2, 2)]` then `tighten_would_relax_overrides` (`P0001`) — the present-row path, the tighten level-equality path and §OD-12 all still behave as approved in v4 |
+   | R6 | **Lock mechanics of the absent row**, isolated from the writer: session A holds an **uncommitted** `INSERT` for `(tenant, project)`; session B then runs `SELECT … FOR UPDATE` on that key, and afterwards `INSERT … ON CONFLICT DO NOTHING` on the same key | The `SELECT … FOR UPDATE` returned **0 rows in 0.252 ms — it did not wait**; the `INSERT … ON CONFLICT DO NOTHING` **blocked 2916.840 ms** and returned at `24.933` immediately after A committed at `24.932`. A tuple invisible to the reader's snapshot is not lockable, so **the existence probe is not a serialization point and the unique index is** — this is the mechanical reason step 3.7(b) is the fix and the reason the §5.2.a.2 interleaving reaches the TOCTOU window |
+   | R7 | **v4 sequence** under the §5.2.a.2 forced interleaving exactly as specified — W2's call issued **1.79 s after W1's call returned** (so W1 had already INSERTed, uncommitted), W1 committing only after W2 was observed pending | **Defect reproduced** — W2's step-3.5 probe reported `probe_found=f previous=<NULL>` (it did **not** block), W2 then blocked **3219.597 ms** on an ungranted `transactionid ShareLock` with `pg_blocking_pids = {W1}`, and the result was ledger `[(NULL, 3), (NULL, 2)]`, stored level `2`, **1** policy row, **2** distinct spends — Sol's `380cc908` shape, from this probe's own interleaving and with **no** barrier added to the mutated body |
+   | R8 | **v4.1 sequence** under the **identical** interleaving and observer | **Correct** — W2's probe likewise reported `probe_found=f` (the same TOCTOU window is entered), W2 blocked **3477.491 ms**, the observer captured W2 `state='active'`, `wait_event_type='Lock'`, `wait_event='transactionid'`, `pg_blocking_pids = {W1}` **while W1 was still open**, and 3.7(c) then reported `created=f previous_after=3` — ledger `[(NULL, 3), (3, 2)]`, stored level `2`, **1** policy row, **2** distinct spends |
+
+   **What v4.1 does not change.** The clause names the §5.2.a.1 pairs mutate — the GUC clause,
+   the `decision`/`action_kind` clauses, and the tighten existence / level-equality / monotonic
+   clauses — keep their identity, their `RAISE` texts and their order, so all five approved pairs
+   stand as written. The one wording consequence: in a `/reachable` half whose payload has **no**
+   stored policy row (Pair 4), the row that appears is created by step 3.7(b)'s serialize-INSERT
+   rather than by v4's `ON CONFLICT DO UPDATE`. The asserted harm — a policy row created by
+   "tightening", with a ledger row endorsing it — is identical, and neither half of any pair needs
+   restating.
+
+   **Where the amended sequence lands.** `0062` installs this body by executing
+   `WRITER_CREATE_SQL` from `app/admin/policy_sql.py` (via `app/admin/ddl.py`), so the fix is a
+   change to that module's clause text and `0062` is **not** renumbered and **no** second
+   migration is added. The branch is unmerged, so no deployed database holds the v4 body; a
+   developer database already migrated by the pre-amendment `0062` on this branch must be
+   dropped and re-migrated (`make test-db-drop test-db-create test-db-migrate`) rather than
+   patched in place, and the builder should say so in the PR body.
 4. **RLS still applies inside the definer function.** `policy_admin_writer` is neither the
    owner of `autonomy_policies` nor `BYPASSRLS`, the table is `FORCE ROW LEVEL SECURITY`, and
    `0004`'s `tenant_isolation` policy has no `TO` clause (so it applies to that role too).
@@ -1079,8 +1236,10 @@ operator grants a role.
 ### 5.0 The owner test standard (applies to every probe in §5.2)
 
 Sol's Slice-62 finding is carried forward, v2 adds rules 4–6 to close defect 4, v3 adds rule 7,
-and **v4 adds rule 8 — the owner's amended standard for overlapping guards (ruling 2026-08-24)**.
-Rules 1–3 are the single-guard bar and are unchanged.
+**v4 adds rule 8 — the owner's amended standard for overlapping guards (ruling 2026-08-24)** —
+and **v4.1 adds rule 9, the owner's standing addition for writers whose target row may not yet
+exist (same ruling, after Sol's code REJECT)**. Rules 1–3 are the single-guard bar and are
+unchanged. Rules 1–8 are **not** deleted or renumbered by rule 9.
 
 1. **The mutation must actually be able to commit if the guard were absent.** Each refusal
    probe pairs with an explicit mutation — `ALTER TABLE … DISABLE TRIGGER <exact name>`,
@@ -1155,6 +1314,48 @@ Rules 1–3 are the single-guard bar and are unchanged.
    live PostgreSQL 16 result, and a row the neighbour does **not** independently refuse stays
    single-guard under rules 1–3 (§5.2.a.1 records both outcomes). A "neighbour" may be another
    object (a trigger, a UNIQUE, a privilege, RLS) **or another clause of the same function**.
+9. **A writer whose target row may not yet exist is proven with a TWO-WRITER PROBE, never with
+   a single-writer path test** (v4.1, owner ruling 2026-08-24; **standing — it applies to every
+   later slice and to any later audit of this one**). `SELECT … FOR UPDATE` on an **absent** row
+   locks nothing, so a single-session test can execute the entire first-write path, pass, and
+   still leave the writer racy — which is precisely what happened to the approved v4 sequence
+   (§OD-11, Sol code REJECT `380cc908-3745-46fb-b762-504f4e1bd4fd`). For every writer of this
+   class the plan must name a probe that:
+   - runs **two concurrent sessions**, each in its **own transaction on its own connection**, at
+     the **production entry point's isolation level** (named in the probe, not assumed);
+   - gives each session its **own** authorization row — two distinct allowed `admin_actions` for
+     the same tenant and project — so neither can be blamed on a shared or replayed
+     authorization, and both spends must succeed;
+   - starts from the **absent-row** state (no pre-existing target row), and **forces the
+     interleaving** rather than hoping for it: writer 1 calls and holds its transaction open,
+     writer 2 then calls and must **block**, writer 1 commits, writer 2 proceeds;
+   - asserts **that writer 2 actually waited, and where** — its call is still pending immediately
+     before writer 1 commits, **and** an observer session shows it blocked at the **write**
+     (the unique-index / `transactionid` wait, blocked by writer 1's pid), not at the existence
+     probe. A correct final state reached without contention proves nothing about serialization,
+     and a wait at the probe would mean the pre-write window was never entered;
+   - **enters the pre-write window by construction, not by timing.** The interleaving must be one
+     in which **both** writers complete the existence probe against an absent row before either
+     commits. Holding writer 1 open until writer 2 is confirmed pending achieves this, because a
+     tuple invisible to writer 2's snapshot cannot be row-locked (§OD-11 R6), so writer 2's probe
+     cannot wait on writer 1's uncommitted row. A third-session `LOCK TABLE … EXCLUSIVE` followed
+     by a dual start does **not** achieve it: once the table lock is released, one writer can
+     finish its probe and its write before the other probes at all. The probe must say which
+     mechanism it relies on and why;
+   - asserts the **full derived record**, not merely the absence of an exception: exactly one
+     target row, one ledger row per writer, exactly one ledger row whose "previous" column is
+     NULL and which belongs to the **first** writer, the other ledger row citing the first
+     writer's value, and the stored value equal to the **last committed** writer's;
+   - carries a **rule-1 mutation in its concurrency form**: reinstall the **previous** (racy)
+     body — the body and **nothing else**, with no barrier, sleep or hook added to make the race
+     reachable — re-run **the identical scenario under the identical interleaving**, and assert
+     the **falsified record** appears; here the harm is not a refused statement but a ledger that
+     lies. Then restore the production body, re-assert it by the same comparison the §5.2.a.1
+     pairs use, and re-run the probe green. If the mutation comes back green, the interleaving is
+     wrong and the probe — not the fix — is what must be repaired.
+
+   A "no exception was raised" assertion, a sequential two-call test, or a probe that cannot
+   demonstrate the old sequence failing is **not** evidence for this class and is a REJECT.
 
 Global: use `DISABLE TRIGGER` / `DROP CONSTRAINT` / `DISABLE ROW LEVEL SECURITY` /
 `CREATE OR REPLACE FUNCTION` on the **named** object only; never
@@ -1413,6 +1614,142 @@ C5 shows the neighbour independently refuses it, exactly as the owner anticipate
 
 - **Restore + re-assert:** roll back; assert the function body and `tgenabled='O'`; re-assert
   the refusal, and assert the stored `autonomy_level` is still 2.
+
+#### 5.2.a.2 Concurrency probe (v4.1, §5.0 rule 9)
+
+**Why this subsection exists.** Sol's code REJECT (`380cc908-3745-46fb-b762-504f4e1bd4fd`) of
+`ddb3869` measured two authorized writers racing on the **first** policy write for a project:
+the final stored level was `2` and the two ledger rows were `[(NULL, 3), (NULL, 2)]` — the second
+write overwrote level 3 while recording `previous_autonomy_level = NULL`. The build was faithful
+to the approved v4 sequence, so the defect is this plan's: **`SELECT … FOR UPDATE` on an absent
+row locks nothing.** §OD-11 step 3.7 is amended, and this probe is the standing proof that it
+stayed fixed.
+
+---
+
+**`P-writer-concurrent-first-write`**
+
+- **Target under test:** §OD-11 step 3.7 as a whole — the serialize-then-lock-then-read sequence
+  and the rule that `previous_autonomy_level` is derived **after** the row is guaranteed to
+  exist. This is not a refusal probe: the correct outcome is that **both** calls succeed and the
+  **record is truthful**.
+- **Isolation:** the production path's own — `apply_policy_change_in_scope` opens
+  `tenant_scope(ctx)` with no `isolation_level`, so **READ COMMITTED**. The probe states this in
+  its docstring; it does not silently pick an isolation the product does not use. (§OD-11's
+  isolation note records the measured `40001` fail-closed behaviour at REPEATABLE READ; a
+  separate case for it is optional and, if written, must assert `40001` and **no** ledger row —
+  never a "wrong previous".)
+- **Setup, committed before either writer starts** (so both connections can see it — the
+  §OD-14 runtime-mode precondition applies unchanged): one organization, one tenant, one project;
+  an **active `tenant_admin`** grant for the test principal; **two distinct `allowed`
+  `set_autonomy_policy` `admin_actions` rows** for that same tenant **and** project, both
+  **unspent**; and **no `autonomy_policies` row** for the project (asserted, not assumed).
+- **Execution.** Two `uaid_app` sessions, each on its **own** connection inside its **own**
+  `tenant_scope`, each setting `app.current_tenant` to that tenant, each calling the production
+  writer once — `apply_policy_change(session, ctx, …)` or, equivalently,
+  `SELECT * FROM public.admin_write_autonomy_policy(...)` — with its **own** `admin_action_id`:
+  **W1 → level 3**, **W2 → level 2**. The interleaving is **forced, not raced**, in three ordered
+  steps, each gated on an observation rather than on a sleep:
+
+  1. **W1 calls the writer and holds its transaction open.** Signal an `asyncio.Event` once the
+     call **returns**; W1 does not commit yet.
+  2. **W2 calls the writer.** It **must block**. Confirm this **positively** before releasing W1
+     — see assertion 6 — rather than assuming it from timing.
+  3. **W1 commits.** W2's call then returns and W2 commits.
+
+  Both call-return instants and W1's commit instant are recorded.
+
+  **Why this window is the TOCTOU window** (state this in the probe's docstring, because the
+  contrary reading is plausible and wrong). It is tempting to think that once W1's call has
+  returned, W1's uncommitted `autonomy_policies` row makes W2 wait at its step-3.5
+  `SELECT … FOR UPDATE`, so that W2 would observe the row and both bodies would behave. **It does
+  not.** A tuple that is invisible to W2's snapshot cannot be row-locked, so W2's step-3.5 probe
+  finds **no row and does not wait** — measured, R6: `SELECT … FOR UPDATE` against another
+  session's uncommitted insert returned 0 rows in 0.252 ms. W2 therefore reaches its write with
+  `v_found = false` and, under the v4 body, with `v_previous_level` already frozen at `NULL`.
+  Because W1 is held open until W2 is confirmed pending, **both writers completing the empty
+  existence probe before either commits is guaranteed by construction, not by luck** — which is
+  exactly Sol's race. The first thing that can make W2 wait is the unique index (R6: the same
+  key's `INSERT … ON CONFLICT` blocked 2916.840 ms), which is why this single interleaving both
+  reproduces the defect on the mutated body (R7) and proves the fix on the production body (R8).
+  A `LOCK TABLE … EXCLUSIVE` third session plus a dual start is **not** used and would be weaker:
+  after the table lock is released, one writer can complete its probe **and** its INSERT before
+  the other runs its probe, collapsing the window non-deterministically. No `pg_sleep`,
+  advisory-lock wait or other barrier is added to **either** body.
+
+  **Expected (all six, per §5.0 rule 9):**
+
+  1. **Both calls succeed**, each returning a non-NULL `o_autonomy_policy_id` and
+     `o_admin_policy_change_id`, on **two distinct** `admin_action_id`s — i.e. **both spends
+     succeed**, and `uq_admin_policy_changes_action` refused neither.
+  2. Exactly **one** `autonomy_policies` row exists for `(tenant, project)`, and **both** calls
+     returned that **same** `o_autonomy_policy_id` — the race produced one policy, not two.
+  3. Exactly **one** `admin_policy_changes` row has `previous_autonomy_level IS NULL`, and it is
+     **W1's** row (`admin_action_id` = W1's), with `new_autonomy_level = 3`.
+  4. The **other** row is W2's, with `previous_autonomy_level = 3` — W1's `new_autonomy_level` —
+     and `new_autonomy_level = 2`.
+  5. `autonomy_policies.autonomy_level = 2` — the **last committed** writer's level — and
+     exactly **two** ledger rows exist for that project.
+  6. **W2 provably waited, at the write and not at the probe.** Two parts, both required, because
+     a green final state reached without W2 ever blocking would not prove serialization and a
+     green state reached because W2 blocked *at its existence probe* would not prove that the
+     TOCTOU window was entered:
+     - **(a) Pending.** W2's writer call is **still pending** at the instant immediately before
+       W1 commits (an awaited task that has not completed). A wall-clock comparison showing W2's
+       return instant after W1's commit instant is a secondary check, not the assertion.
+     - **(b) Blocking site.** While W2 is pending and W1 is still open, a **third observer
+       session** finds W2's backend with `state = 'active'`,
+       `wait_event_type = 'Lock'`, `wait_event = 'transactionid'` and
+       `pg_blocking_pids(pid)` containing **W1's** pid, and an **ungranted** `transactionid`
+       lock in `pg_locks` — the unique-index wait of step 3.7(b), which is only reachable
+       *after* an empty step-3.5 probe. Measured green as R8 and, with the mutated body, R7.
+
+- **Mutation (§5.0 rule 1 in its concurrency form).** Reinstall the **approved-v4 body** — the
+  step-3.5 `FOR UPDATE` read followed by `INSERT … ON CONFLICT (tenant_id, project_id) DO UPDATE`
+  with `previous_autonomy_level` taken from that pre-insert read — via
+  `CREATE OR REPLACE FUNCTION public.admin_write_autonomy_policy(...)` and **nothing wider**;
+  re-run **the identical two-writer scenario, with the same three-step interleaving and the same
+  observer** — the mutation replaces the body and changes nothing about how the probe is driven.
+  It **must reproduce the defect**: **two** ledger rows with `previous_autonomy_level IS NULL`
+  (`[(NULL, 3), (NULL, 2)]`) while the stored level is `2` — the harm here is a **ledger that
+  lies**, not a refused statement. Measured twice: in the first v4.1 harness (R1) and again under
+  this probe's exact specified interleaving (R7), and by Sol on the real build. A mutation that
+  *cannot* reproduce it would mean the probe is not exercising the sequence and is itself the
+  defect (§5.0 rule 1), so if the builder's run of the mutation comes back green, that is a
+  **blocker to report, not a pass**.
+
+  **No barrier is added to make the race reachable.** The mutated body is v4's sequence and
+  nothing else — no `pg_sleep`, no advisory-lock wait, no test-only hook, and therefore nothing
+  that could be mistaken for a product feature or a GUC the production body reads. The race is
+  reachable because W1 is held open until W2 is confirmed pending and W2's step-3.5 probe cannot
+  wait on W1's invisible row (R6). This is stated so that a reviewer does not have to infer it.
+- **Restore + re-assert.** Roll back the DDL (pure-DDL mutation, §5.0 global rule), then assert
+  the installed body matches the production body **by the same comparison the §5.2.a.1 pairs
+  already use** — `pg_get_functiondef('public.admin_write_autonomy_policy'::regproc)` against the
+  text generated from `app/admin/policy_sql.py`, one source of truth, no new convention — and
+  **re-run the probe green**. A restore is not proven by the rollback alone.
+- **Sibling case `P-writer-concurrent-first-write/tighten-no-orphan`** (the "measure if needed"
+  half of the owner's ruling, measured as v4.1 R3 and re-measured unchanged against the v4.1 body
+  after R8: `probe_found=f`, refused `no_existing_policy`, policy rows `0 → 0` across the refusal
+  **and** after the enclosing commit, ledger rows `0`). **Deliberately single-session, and §5.0
+  rule 9 does not apply to it:** rule 9 governs writers that may *create* the row, and this case
+  asserts that this path creates **nothing**, so a second writer would add no window — there is no
+  row for two sessions to race for. With **no**
+  `autonomy_policies` row for the project and an `allowed` `tighten_autonomy_overrides` action,
+  the call is refused with SQLSTATE `P0001` and message exactly `no_existing_policy`, **and**
+  `autonomy_policies` still holds **zero** rows for that project and `admin_policy_changes`
+  **zero** rows. This is what proves step 3.6 precedes step 3.7: the serialize-INSERT never
+  creates a row that a tighten then refuses, so the fix cannot leave an orphan policy. Its
+  mutation is the §5.2.a.1 Pair 4 `/reachable` mutation (both writer clauses plus the ledger
+  guard removed), which is already required to **commit** — so the "absent guard would commit"
+  obligation is discharged by a probe this plan already carries, and is cross-referenced rather
+  than duplicated.
+
+**Honest scope of this probe.** It proves that **this** writer serializes **first creation** of
+**this** row on **this** PostgreSQL 16 build at READ COMMITTED, and that the ledger it derives is
+truthful for two writers. It does **not** prove there is no other race anywhere in the slice, does
+not prove anything about crash-recovery, and does not make the ledger a human signature. What it
+removes is one specific, measured falsification.
 
 #### 5.2.b `admin_actions` authority — trigger layer (§OD-5, defect 6)
 
@@ -1705,9 +2042,17 @@ go-live or §2.6. No Slice 64.
   P-writer-spends-action-atomically, and P-tighten-relax-empty-map (the three proofs the v1
   and v2 rejections turned on) before the feature code.
 - Every guard in §3 and §OD-11/§OD-12/§OD-13 has a named probe in §5.2 and must satisfy all
-  **eight** §5.0 conditions. Where §5.0 rule 8 applies, **both halves** of the §5.2.a.1 pair
+  **nine** §5.0 conditions. Where §5.0 rule 8 applies, **both halves** of the §5.2.a.1 pair
   must land — a lone `/own-reason` half is the v3 defect and a lone `/reachable` half proves no
-  guard. A probe whose mutation cannot commit is a defect, not a pass; if a
+  guard. Where §5.0 rule 9 applies — the policy writer is the one writer of that class in this
+  slice — **`P-writer-concurrent-first-write` (§5.2.a.2) must land with all six assertions
+  (including assertion 6's observer half, which pins the waiter to the **write** rather than the
+  existence probe) and its racy-body mutation**, driven by the three-step interleaving §5.2.a.2
+  specifies and **no** added barrier in either body, and its `/tighten-no-orphan` sibling with it;
+  a single-writer path test over the absent-row branch is not evidence and is the v4 code defect.
+  A probe whose mutation cannot commit (or, for rule 9, cannot reproduce the falsified ledger) is
+  a defect, not a pass — for rule 9 specifically, a green mutation means the interleaving never
+  entered the pre-write window and the **probe** is what to repair; if a
   guard genuinely cannot carry a load-bearing probe, demote it to §5.3 and say so — do not
   dress an assertion as a refusal.
 - All forgery/privilege probes run as **`uaid_app`** via `rls_engine`, except those that must
@@ -1909,4 +2254,79 @@ of any v1 or v2 defect (all stay closed as accepted). One defect, accepted in fu
    `0062` objects, and a pair that does not reproduce is a defect to report, never a licence to
    drop a half.
 
-**Halt rule for v4.** If Sol REJECTS v4, this line **halts**: there is no v5 without the owner.
+**v4.1.** v4 was APPROVED as a plan and built at `ddb3869`. Sol then **REJECTED the code**
+(`380cc908-3745-46fb-b762-504f4e1bd4fd`): a **concurrent first-policy-write race**. Measured on
+PostgreSQL 16.14 — two authorized writers both observed no policy row, the final stored level was
+`2`, and the ledgers were `[(NULL, 3), (NULL, 2)]`, so the second write overwrote level 3 while
+recording `previous_autonomy_level = NULL`. **The defect is in this plan, not the build:** approved
+v4 §OD-11 steps 5–7 took `SELECT … FOR UPDATE` on an **absent** row (which locks nothing), then
+`INSERT … ON CONFLICT DO UPDATE`, and derived the ledger's previous level from the empty pre-insert
+read. The builder **correctly refused** to patch outside the approved plan; the owner (Salim,
+2026-08-24) authorized this amendment, scoped to **OD-11 plus the required test surface**, and
+ruled that **the plan REJECT count stays 0** — v4.1 does not restart it. One defect, accepted in
+full:
+
+1. **The writer's absent-row path did not serialize, and the ledger's previous level came from a
+   read taken before the row existed.** Accepted. §OD-11 steps **3.5–3.7** are rewritten: 3.5 is
+   named an **existence probe** (with the fact that `FOR UPDATE` on an absent row locks nothing
+   stated where it can no longer be forgotten); 3.6's tighten block is stated to run **before any
+   INSERT**, so a tighten against an absent row still refuses `no_existing_policy` with zero rows
+   created — the fix must not buy serialization by leaving an orphan policy; and 3.7 becomes
+   **(a)** present row → already locked, **(b)** absent row → `INSERT … ON CONFLICT
+   (tenant_id, project_id) DO NOTHING RETURNING id` to serialize creation on the unique index,
+   with `v_created := FOUND` distinguishing *"I created it"* from *"I waited for whoever did"*,
+   **(c)** an authoritative `FOR UPDATE` read taken **after** the row is guaranteed to exist
+   (`previous_autonomy_level` comes from here, or is NULL only when (b) reported a real creation),
+   plus the fail-closed `policy_write_row_unavailable` backstop, and **(d)** a plain `UPDATE` of
+   the now-locked row. The owner's standing test-bar addition lands as **§5.0 rule 9** — a writer
+   whose target row may not exist is proven with a **two-writer probe**, never a single-writer
+   path test — and its named probe **`P-writer-concurrent-first-write`** lands as **§5.2.a.2**
+   with six assertions (both spends succeed; one policy row and one shared policy id; exactly one
+   NULL-previous ledger row, belonging to the first writer; the other row citing the first
+   writer's level; the stored level equal to the last committed writer's; and **proof that the
+   second writer actually blocked**), a rule-1 mutation that **reinstalls the racy v4 body and
+   must reproduce `[(NULL, 3), (NULL, 2)]`**, and the `/tighten-no-orphan` sibling. §9's probe bar
+   moves from eight conditions to **nine**. Measured while writing v4.1 on a throwaway database
+   (PostgreSQL 16.14, created and dropped in the same session, no app database touched): the
+   harness **reproduced Sol's exact defect** with the v4 body before it was used to check the fix
+   (R1), the v4.1 body produced `[(NULL, 3), (3, 2)]` with the second writer provably blocked
+   (R2), the tighten path refused with zero rows created (R3), a REPEATABLE READ loser failed
+   closed with `40001` and no ledger row (R4), and the sequential present-row, tighten and
+   §OD-12 paths were unchanged (R5).
+
+   **Probe window, corrected within v4.1 (coordinator finding, 2026-08-24, before Sol review; not
+   a v5).** The coordinator read §5.2.a.2's interleaving — writer 1 held open after its call
+   *returns*, writer 2 then calls — as the **wrong** window, on the reasoning that writer 1 has by
+   then INSERTed its (uncommitted) row, so writer 2 would wait at its step-3.5 `SELECT … FOR
+   UPDATE`, observe the row, and behave correctly **under the v4 body too** — making the mutation
+   unable to reproduce the harm, which under rule 1 would itself be a REJECT. **Measured, and the
+   premise does not hold on PostgreSQL 16.14:** a tuple invisible to the reader's snapshot cannot
+   be row-locked, so that `SELECT … FOR UPDATE` returns **0 rows in 0.252 ms without waiting**,
+   and the first thing that waits is the unique index (R6). Driven exactly as specified — writer 2
+   issued 1.79 s after writer 1's call returned, writer 1 committing only after writer 2 was
+   observed pending — the **v4 body reproduced `[(NULL, 3), (NULL, 2)]`** with both probes empty
+   and writer 2 blocked 3219.597 ms on a `transactionid` lock held by writer 1 (R7), while the
+   **v4.1 body on the identical interleaving produced `[(NULL, 3), (3, 2)]`** (R8). The specified
+   window **is** the TOCTOU window, and it is guaranteed by construction rather than by timing,
+   because writer 1 is held open until writer 2 is confirmed pending. The rejected alternative —
+   a third session's `LOCK TABLE … EXCLUSIVE` plus a dual start — is **weaker**, since after the
+   release one writer can finish probe *and* write before the other probes; and no test-only
+   `pg_sleep` or advisory-lock barrier is added to either body, so nothing in the mutation can be
+   mistaken for product scope. What v4.1 changes in response is **evidence, not sequence**: the
+   probe now states this mechanism in its docstring so a reviewer need not infer it, assertion 6
+   gains a second half requiring an observer to pin the **blocking site** (`wait_event_type='Lock'`,
+   `wait_event='transactionid'`, `pg_blocking_pids` containing writer 1) so a wait at the *probe*
+   can never be mistaken for a wait at the *write*, rule 9 gains the by-construction and
+   blocking-site requirements plus the rule that a green mutation means the probe is the defect,
+   and R6–R8 join the §OD-11 measurement table. `/tighten-no-orphan` is **confirmed correct as
+   written** — single-session by design, and rule 9 does not reach it because the path it asserts
+   creates no row for two writers to race for; it was re-measured unchanged.
+
+   **Nothing else moved:** §5.0 rule 8 and all five §5.2.a.1
+   pairs stand as approved (the only consequence is that Pair 4's `/reachable` row is now created
+   by 3.7(b) instead of the old upsert — same asserted harm), every v1–v3 fix stays closed, no
+   new table, column, migration, renumber, HTTP route, or go-live change, and D-8/D-9/D-10 stay
+   OPEN.
+
+**Halt rule for v4.1.** If Sol REJECTS v4.1, this line **halts**: there is no v5 without the
+owner.
