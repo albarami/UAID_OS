@@ -8,9 +8,11 @@ from decimal import Decimal
 from typing import Mapping, Sequence
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
+from app.concurrency import ConcurrentWriteUnresolved
 from app.cost import BudgetCeilings, evaluate_stop
 from app.cost_forecast import (
     COST_POLICY_CONTRACT_HASH,
@@ -107,28 +109,52 @@ class CostForecastRepository(_CostForecastPersistenceMixin, _CostForecastCoverag
         ).scalar_one_or_none()
         if existing is not None:
             return existing
-        row = CostForecastPolicyVersion(
-            tenant_id=self.context.tenant_id,
-            project_id=project_id,
-            policy_contract_version=COST_POLICY_CONTRACT_VERSION,
-            policy_contract_hash=COST_POLICY_CONTRACT_HASH,
-            policy_digest=digest,
-            max_total_model_cost_usd=parsed.max_total_model_cost_usd,
-            max_daily_model_cost_usd=parsed.max_daily_model_cost_usd,
-            max_cloud_spend_usd=parsed.max_cloud_spend_usd,
-            max_ci_minutes_per_day=parsed.max_ci_minutes_per_day,
-            require_approval_above_forecast_percentage=parsed.require_approval_above_forecast_percentage,
-            cheap_first_for_low_risk=parsed.cheap_first_for_low_risk,
-            frontier_for_high_risk=parsed.frontier_for_high_risk,
-            use_cached_context_when_possible=parsed.use_cached_context_when_possible,
-            stop_conditions=list(parsed.stop_conditions),
-            stop_condition_count=4,
-            source_provenance=POLICY_PROVENANCE,
-            source_label=source_label,
-            evidence_ref=evidence_ref,
+        stmt = (
+            pg_insert(CostForecastPolicyVersion)
+            .values(
+                tenant_id=self.context.tenant_id,
+                project_id=project_id,
+                policy_contract_version=COST_POLICY_CONTRACT_VERSION,
+                policy_contract_hash=COST_POLICY_CONTRACT_HASH,
+                policy_digest=digest,
+                max_total_model_cost_usd=parsed.max_total_model_cost_usd,
+                max_daily_model_cost_usd=parsed.max_daily_model_cost_usd,
+                max_cloud_spend_usd=parsed.max_cloud_spend_usd,
+                max_ci_minutes_per_day=parsed.max_ci_minutes_per_day,
+                require_approval_above_forecast_percentage=(
+                    parsed.require_approval_above_forecast_percentage
+                ),
+                cheap_first_for_low_risk=parsed.cheap_first_for_low_risk,
+                frontier_for_high_risk=parsed.frontier_for_high_risk,
+                use_cached_context_when_possible=parsed.use_cached_context_when_possible,
+                stop_conditions=list(parsed.stop_conditions),
+                stop_condition_count=4,
+                source_provenance=POLICY_PROVENANCE,
+                source_label=source_label,
+                evidence_ref=evidence_ref,
+            )
+            .on_conflict_do_nothing(constraint="uq_cfpv_project_digest")
+            .returning(CostForecastPolicyVersion.id)
         )
-        self.session.add(row)
-        await self.session.flush()
+        new_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if new_id is None:
+            winner = (
+                await self.session.execute(
+                    select(CostForecastPolicyVersion).where(
+                        CostForecastPolicyVersion.tenant_id == self.context.tenant_id,
+                        CostForecastPolicyVersion.project_id == project_id,
+                        CostForecastPolicyVersion.policy_digest == digest,
+                    )
+                )
+            ).scalar_one_or_none()
+            if winner is None:
+                raise ConcurrentWriteUnresolved("uq_cfpv_project_digest")
+            return winner
+        row = (
+            await self.session.execute(
+                select(CostForecastPolicyVersion).where(CostForecastPolicyVersion.id == new_id)
+            )
+        ).scalar_one()
         await audit_record(
             self.session,
             action="cost_forecast.policy_recorded",

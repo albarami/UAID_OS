@@ -5,9 +5,11 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
+from app.concurrency import ConcurrentWriteUnresolved
 from app.ecosystem.catalog import (
     ADOPTED_BY_MAX,
     CatalogError,
@@ -51,15 +53,37 @@ class CatalogAdoptionRepository(TenantScopedRepository):
         if existing is not None:
             return existing
         actor = require_bounded_text("adopted_by", adopted_by, ADOPTED_BY_MAX)
-        row = TenantCatalogAdoption(
-            tenant_id=self.context.tenant_id,
-            project_id=project_id,
-            listing_id=listing.id,
-            asset_id=listing.asset_id,
-            adopted_by=actor,
+        stmt = (
+            pg_insert(TenantCatalogAdoption)
+            .values(
+                tenant_id=self.context.tenant_id,
+                project_id=project_id,
+                listing_id=listing.id,
+                asset_id=listing.asset_id,
+                adopted_by=actor,
+            )
+            .on_conflict_do_nothing(constraint="uq_tca_tenant_project_listing")
+            .returning(TenantCatalogAdoption.id)
         )
-        self.session.add(row)
-        await self.session.flush()
+        new_id = (await self.session.execute(stmt)).scalar_one_or_none()
+        if new_id is None:
+            winner = (
+                await self.session.execute(
+                    select(TenantCatalogAdoption).where(
+                        TenantCatalogAdoption.tenant_id == self.context.tenant_id,
+                        TenantCatalogAdoption.project_id == project_id,
+                        TenantCatalogAdoption.listing_id == listing_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if winner is None:
+                raise ConcurrentWriteUnresolved("uq_tca_tenant_project_listing")
+            return winner
+        row = (
+            await self.session.execute(
+                select(TenantCatalogAdoption).where(TenantCatalogAdoption.id == new_id)
+            )
+        ).scalar_one()
         asset = await self.session.get(CatalogAsset, listing.asset_id)
         if asset is None:
             raise CatalogAdoptionError("listing asset missing")

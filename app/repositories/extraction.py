@@ -41,8 +41,13 @@ from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_run import ExtractionRun
 from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.repositories.documents import DocumentRepository
-from app.repositories.extraction_promotion import _ExtractionPromotionMixin
+from app.repositories.extraction_promotion import (
+    PromotionRefConflict,
+    _ExtractionPromotionMixin,
+)
 from app.tenancy import TenantContext, TenantScopedRepository
+
+__all__ = ["ExtractionRepository", "PromotionRefConflict"]
 
 
 def _positive_int(value) -> bool:

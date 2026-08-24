@@ -6,12 +6,15 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.approvals.states import Status
 from app.audit import record as audit_record
+from app.concurrency import ConcurrentWriteUnresolved, unique_violation_constraint
 from app.intake.compiler import SourceInput
 from app.intake.extraction import PROMOTABLE_KINDS, promotion_ref, verify_evidence
+from app.models.extraction_proposal import ExtractionProposal
 from app.models.extraction_promotion import ExtractionPromotion
 from app.models.intake_artifact import IntakeArtifact
 from app.repositories.approvals import ApprovalRepository
@@ -21,6 +24,13 @@ from app.tenancy import TenantContext
 
 # Slice 14b — subject-scoped approval gate for promoting a needs_approval assumption.
 _PROMOTE_ASSUMPTION_ACTION = "intake.promote_assumption"
+_PROMOTION_CONFLICT_CONSTRAINTS = frozenset(
+    {"uq_intake_artifacts_ref", "uq_extraction_promotions_proposal"}
+)
+
+
+class PromotionRefConflict(ValueError):
+    """The artifact ref already belongs to a different proposal's promotion."""
 
 
 def _subject_ref(proposal_id: uuid.UUID) -> str:
@@ -30,6 +40,10 @@ def _subject_ref(proposal_id: uuid.UUID) -> str:
 class _ExtractionPromotionMixin:
     session: AsyncSession
     context: TenantContext
+
+    async def _get_proposal(self, proposal_id: uuid.UUID) -> ExtractionProposal | None:
+        """Implemented by ``ExtractionRepository``."""
+        raise NotImplementedError
 
     async def request_promotion_approval(self, *, proposal_id: uuid.UUID, requested_by: str):
         """Idempotently open the §16.5 promotion approval for a needs_approval assumption.
@@ -91,9 +105,7 @@ class _ExtractionPromotionMixin:
         # Idempotent: already promoted ⇒ return the existing artifact, no duplicate.
         existing = await self.promotion_for(proposal_id)
         if existing is not None:
-            return await IntakeRepository(self.session, self.context).get_artifact(
-                existing.artifact_id
-            )
+            return await self._require_promoted_artifact(existing.artifact_id)
         if prop.status != "approved":
             raise ValueError(f"proposal {proposal_id} is not approved (status={prop.status})")
         if prop.proposed_kind not in PROMOTABLE_KINDS:
@@ -137,33 +149,50 @@ class _ExtractionPromotionMixin:
             if parent.kind != "requirement":
                 raise ValueError("parent must be a requirement")
 
-        artifact = await intake.add_artifact(
-            project_id=prop.project_id,
-            kind=prop.proposed_kind,
-            ref=ref or promotion_ref(prop.proposed_kind, proposal_id),
-            title=prop.proposed_text,
-            body=None,
-            data={"extraction_proposal_id": str(proposal_id)},
-            classification=prop.proposed_classification,
-            parent_id=parent_id,
-            sources=[
-                SourceInput(
-                    origin=f"document:{prop.source_document_id}",
-                    locator=prop.evidence_quote,
-                    document_id=prop.source_document_id,
+        artifact: IntakeArtifact
+        try:
+            async with self.session.begin_nested():
+                artifact = await intake.add_artifact(
+                    project_id=prop.project_id,
+                    kind=prop.proposed_kind,
+                    ref=ref or promotion_ref(prop.proposed_kind, proposal_id),
+                    title=prop.proposed_text,
+                    body=None,
+                    data={"extraction_proposal_id": str(proposal_id)},
+                    classification=prop.proposed_classification,
+                    parent_id=parent_id,
+                    sources=[
+                        SourceInput(
+                            origin=f"document:{prop.source_document_id}",
+                            locator=prop.evidence_quote,
+                            document_id=prop.source_document_id,
+                        )
+                    ],
+                    actor=actor,
                 )
-            ],
-            actor=actor,
-        )
-        link = ExtractionPromotion(
-            tenant_id=self.context.tenant_id,
-            project_id=prop.project_id,
-            extraction_proposal_id=proposal_id,
-            artifact_id=artifact.id,
-            promoted_by=actor,
-        )
-        self.session.add(link)
-        await self.session.flush()
+                link = ExtractionPromotion(
+                    tenant_id=self.context.tenant_id,
+                    project_id=prop.project_id,
+                    extraction_proposal_id=proposal_id,
+                    artifact_id=artifact.id,
+                    promoted_by=actor,
+                )
+                self.session.add(link)
+                await self.session.flush()
+        except IntegrityError as exc:
+            constraint = unique_violation_constraint(exc)
+            if constraint not in _PROMOTION_CONFLICT_CONSTRAINTS:
+                raise
+            recovered = await self.promotion_for(proposal_id)
+            if constraint == "uq_extraction_promotions_proposal":
+                if recovered is not None:
+                    return await self._require_promoted_artifact(recovered.artifact_id)
+                raise ConcurrentWriteUnresolved("uq_extraction_promotions_proposal") from exc
+            if recovered is not None:
+                return await self._require_promoted_artifact(recovered.artifact_id)
+            raise PromotionRefConflict(
+                "artifact ref already used by a different promotion"
+            ) from exc
         await audit_record(
             self.session,
             action="intake.proposal_promoted",
@@ -178,6 +207,12 @@ class _ExtractionPromotionMixin:
             },
         )
         return artifact
+
+    async def _require_promoted_artifact(self, artifact_id: uuid.UUID) -> IntakeArtifact:
+        found = await IntakeRepository(self.session, self.context).get_artifact(artifact_id)
+        if found is None:
+            raise ConcurrentWriteUnresolved("promoted artifact not visible after conflict")
+        return found
 
     async def promotion_for(self, proposal_id: uuid.UUID) -> ExtractionPromotion | None:
         stmt = select(ExtractionPromotion).where(

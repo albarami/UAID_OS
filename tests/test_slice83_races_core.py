@@ -1,19 +1,17 @@
-"""Slice 83 commit-3 RED: six first-write 23505 signatures plus the census survey."""
+"""Slice 83 commit-4 GREEN: six first-write races (OD-6 retained scenarios)."""
 
 from __future__ import annotations
 
 import ast
-import hashlib
 import uuid
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.registry import register_blueprint, register_version
-from app.intake.extraction import promotion_ref
 from app.repositories.catalog_adoptions import CatalogAdoptionRepository
 from app.repositories.cost import BudgetRepository
 from app.repositories.cost_forecasts import CostForecastRepository
@@ -23,9 +21,12 @@ from tests.admin_support import pg_state
 from tests.ecosystem_catalog_support import register_vet_list_pm, seed_project
 from tests.slice83_support import (
     READ_COMMITTED,
-    assert_integrity_error_on,
-    reported_constraint,
+    assert_green_race,
+    audit_action_count,
+    component_hashes,
+    forecast_policy_payload,
     run_two_writers,
+    seed_approved_requirement,
     seed_org_tenant_project,
     two_admin_writers,
     unique_row_count,
@@ -34,51 +35,11 @@ from tests.slice83_support import (
 pytestmark = pytest.mark.db
 
 
-def _policy_payload() -> dict:
-    return {
-        "cost_and_resource_policy": {
-            "max_total_model_cost_usd": 100,
-            "max_daily_model_cost_usd": 50,
-            "max_cloud_spend_usd": 100,
-            "max_ci_minutes_per_day": 100,
-            "require_approval_above_forecast_percentage": 90,
-            "model_routing": {
-                "cheap_first_for_low_risk": True,
-                "frontier_for_high_risk": True,
-                "use_cached_context_when_possible": True,
-            },
-            "stop_conditions": [
-                "budget_exceeded",
-                "repeated_failure_without_new_strategy",
-                "tool_loop_detected",
-                "model_provider_outage_extended",
-            ],
-        }
-    }
+async def test_p_green_1_budget_upsert_first_write(rls_engine, admin_engine):
+    """P-GREEN-1: raced BudgetRepository.upsert returns one row with this call's caps.
 
-
-def _hashes(prompt: str = "a" * 64) -> dict[str, str]:
-    return {
-        "prompt_hash": f"sha256:{prompt}",
-        "tool_policy_hash": "sha256:" + "1" * 64,
-        "context_policy_hash": "sha256:" + "2" * 64,
-        "eval_suite_hash": "sha256:" + "3" * 64,
-        "critical_dependencies_hash": "sha256:" + "4" * 64,
-        "output_schema_hash": "sha256:" + "5" * 64,
-    }
-
-
-def _assert_red_race(result, *, constraint: str | None = None) -> None:
-    assert result.pending_before_commit is True
-    assert result.blocked_at_write is True
-    assert result.w1_error is None
-    assert result.w2_error is not None
-    assert_integrity_error_on(result.w2_error, constraint)
-    assert result.unique_row_count == 1
-
-
-async def test_p_red_1_budget_upsert_first_write(rls_engine, admin_engine):
-    """P-RED-1: concurrent first BudgetRepository.upsert raises 23505."""
+    Audited ``old_total`` is observed-before-write (both pre-reads saw absence).
+    """
     world = await seed_org_tenant_project(admin_engine)
     ctx = TenantContext(world["tenant"])
 
@@ -87,7 +48,7 @@ async def test_p_red_1_budget_upsert_first_write(rls_engine, admin_engine):
             project_id=world["project"],
             max_total_cost_usd="1",
             max_daily_cost_usd="1",
-            actor="s83-red",
+            actor="s83-green",
         )
 
     result = await run_two_writers(
@@ -99,18 +60,25 @@ async def test_p_red_1_budget_upsert_first_write(rls_engine, admin_engine):
         count_sql="SELECT count(*) FROM budgets WHERE tenant_id=:t AND project_id=:p",
         count_params={"t": world["tenant"], "p": world["project"]},
     )
-    _assert_red_race(result, constraint="uq_budgets_tenant_id_project_id")
+    assert_green_race(result)
+    assert result.w1_error is None and result.w2_error is None
+    assert result.w1_value.id == result.w2_value.id
+    for row in (result.w1_value, result.w2_value):
+        assert row.max_total_cost_usd == Decimal("1")
+        assert row.max_daily_cost_usd == Decimal("1")
+    audits = await audit_action_count(admin_engine, tenant_id=world["tenant"], action="budget.set")
+    assert audits == 2
     print(
-        "P-RED-1",
-        type(result.w2_error).__name__,
-        pg_state(result.w2_error),
-        reported_constraint(result.w2_error),
+        "P-GREEN-1",
+        result.w1_value.id,
         result.unique_row_count,
+        audits,
+        pg_state(result.w2_error),
     )
 
 
-async def test_p_red_2_register_blueprint_first_write(admin_engine):
-    """P-RED-2: concurrent first register_blueprint raises 23505."""
+async def test_p_green_2_register_blueprint_first_write(admin_engine):
+    """P-GREEN-2: raced register_blueprint returns the winner's blueprint id."""
     key = f"s83-bp-{uuid.uuid4().hex[:12]}"
 
     async def writer(session: AsyncSession):
@@ -120,7 +88,7 @@ async def test_p_red_2_register_blueprint_first_write(admin_engine):
             role="builder",
             mission="probe",
             archetype="builder",
-            actor="s83-red",
+            actor="s83-green",
         )
 
     result = await two_admin_writers(
@@ -130,18 +98,14 @@ async def test_p_red_2_register_blueprint_first_write(admin_engine):
         count_sql="SELECT count(*) FROM agent_blueprints WHERE key=:k",
         count_params={"k": key},
     )
-    _assert_red_race(result, constraint="uq_agent_blueprints_key")
-    print(
-        "P-RED-2",
-        type(result.w2_error).__name__,
-        pg_state(result.w2_error),
-        reported_constraint(result.w2_error),
-        result.unique_row_count,
-    )
+    assert_green_race(result)
+    assert result.w1_error is None and result.w2_error is None
+    assert result.w1_value.id == result.w2_value.id
+    print("P-GREEN-2", result.w1_value.id, result.unique_row_count)
 
 
-async def test_p_red_3_register_version_first_write(admin_engine):
-    """P-RED-3: concurrent first register_version raises 23505 on a named unique."""
+async def test_p_green_3a_register_version_identical_content(admin_engine):
+    """P-GREEN-3a: ladder rung 2 — identical content, both callers get one version."""
     async with AsyncSession(admin_engine) as session:
         blueprint = await register_blueprint(
             session,
@@ -149,11 +113,11 @@ async def test_p_red_3_register_version_first_write(admin_engine):
             role="builder",
             mission="probe",
             archetype="builder",
-            actor="s83-red",
+            actor="s83-green",
         )
         blueprint_id = blueprint.id
         await session.commit()
-    hashes = _hashes()
+    hashes = component_hashes()
 
     async def writer(session: AsyncSession):
         return await register_version(
@@ -161,7 +125,7 @@ async def test_p_red_3_register_version_first_write(admin_engine):
             blueprint_id=blueprint_id,
             version_label="v1",
             model_route="fake",
-            actor="s83-red",
+            actor="s83-green",
             **hashes,
         )
 
@@ -174,23 +138,14 @@ async def test_p_red_3_register_version_first_write(admin_engine):
         ),
         count_params={"b": blueprint_id},
     )
-    named = reported_constraint(result.w2_error)
-    assert named in {
-        "uq_agent_versions_blueprint_id_version_label",
-        "uq_agent_versions_content_hash",
-    }, named
-    _assert_red_race(result, constraint=named)
-    print(
-        "P-RED-3",
-        type(result.w2_error).__name__,
-        pg_state(result.w2_error),
-        named,
-        result.unique_row_count,
-    )
+    assert_green_race(result)
+    assert result.w1_error is None and result.w2_error is None
+    assert result.w1_value.id == result.w2_value.id
+    print("P-GREEN-3a", result.w1_value.id, result.unique_row_count)
 
 
-async def test_p_red_4_catalog_adopt_first_write(rls_engine, admin_engine):
-    """P-RED-4: concurrent first CatalogAdoptionRepository.adopt raises 23505."""
+async def test_p_green_4_catalog_adopt_first_write(rls_engine, admin_engine):
+    """P-GREEN-4: raced adopt returns the winner; loser writes no audit row."""
     async with AsyncSession(admin_engine) as session:
         seeded = await seed_project(session)
         _asset, _vetting, listing = await register_vet_list_pm(session)
@@ -202,7 +157,7 @@ async def test_p_red_4_catalog_adopt_first_write(rls_engine, admin_engine):
 
     async def writer(session: AsyncSession):
         return await CatalogAdoptionRepository(session, ctx).adopt(
-            project, listing_id, adopted_by="s83-red"
+            project, listing_id, adopted_by="s83-green"
         )
 
     result = await run_two_writers(
@@ -217,21 +172,19 @@ async def test_p_red_4_catalog_adopt_first_write(rls_engine, admin_engine):
         ),
         count_params={"t": tenant, "p": project, "l": listing_id},
     )
-    _assert_red_race(result, constraint="uq_tca_tenant_project_listing")
-    print(
-        "P-RED-4",
-        type(result.w2_error).__name__,
-        pg_state(result.w2_error),
-        reported_constraint(result.w2_error),
-        result.unique_row_count,
-    )
+    assert_green_race(result)
+    assert result.w1_error is None and result.w2_error is None
+    assert result.w1_value.id == result.w2_value.id
+    audits = await audit_action_count(admin_engine, tenant_id=tenant, action="catalog.adopted")
+    assert audits == 1
+    print("P-GREEN-4", result.w1_value.id, result.unique_row_count, audits)
 
 
-async def test_p_red_5_forecast_policy_version_first_write(rls_engine, admin_engine):
-    """P-RED-5: concurrent first record_policy_version raises 23505."""
+async def test_p_green_5_forecast_policy_version_first_write(rls_engine, admin_engine):
+    """P-GREEN-5: raced record_policy_version returns the winner; loser writes no audit."""
     world = await seed_org_tenant_project(admin_engine)
     ctx = TenantContext(world["tenant"])
-    payload = _policy_payload()
+    payload = forecast_policy_payload()
 
     async def writer(session: AsyncSession):
         return await CostForecastRepository(session, ctx).record_policy_version(
@@ -239,7 +192,7 @@ async def test_p_red_5_forecast_policy_version_first_write(rls_engine, admin_eng
             payload=payload,
             source_label="s83-policy",
             evidence_ref="s83-evidence",
-            actor="s83-red",
+            actor="s83-green",
         )
 
     result = await run_two_writers(
@@ -254,89 +207,28 @@ async def test_p_red_5_forecast_policy_version_first_write(rls_engine, admin_eng
         ),
         count_params={"t": world["tenant"], "p": world["project"]},
     )
-    _assert_red_race(result, constraint="uq_cfpv_project_digest")
-    print(
-        "P-RED-5",
-        type(result.w2_error).__name__,
-        pg_state(result.w2_error),
-        reported_constraint(result.w2_error),
-        result.unique_row_count,
+    assert_green_race(result)
+    assert result.w1_error is None and result.w2_error is None
+    assert result.w1_value.id == result.w2_value.id
+    audits = await audit_action_count(
+        admin_engine, tenant_id=world["tenant"], action="cost_forecast.policy_recorded"
     )
+    assert audits == 1
+    print("P-GREEN-5", result.w1_value.id, result.unique_row_count, audits)
 
 
-async def _seed_approved_requirement(admin_engine) -> dict:
-    world = await seed_org_tenant_project(admin_engine)
-    content = "The system shall export an evidence pack."
-    digest = "sha256:" + hashlib.sha256(content.encode()).hexdigest()
-    async with admin_engine.begin() as conn:
-        doc = (
-            await conn.execute(
-                text(
-                    "INSERT INTO documents (tenant_id, project_id, filename, content_type, "
-                    "source, content, content_hash, size_bytes, status) "
-                    "VALUES (:t,:p,'f.txt','text/plain','manual',:c,:h,:sz,'accepted') "
-                    "RETURNING id"
-                ),
-                {
-                    "t": world["tenant"],
-                    "p": world["project"],
-                    "c": content,
-                    "h": digest,
-                    "sz": len(content.encode()),
-                },
-            )
-        ).scalar_one()
-        run_id = (
-            await conn.execute(
-                text(
-                    "INSERT INTO extraction_runs (id, tenant_id, project_id, document_id, "
-                    "model, provider, prompt_version, status) "
-                    "VALUES (gen_random_uuid(),:t,:p,:d,'m','fake','v','succeeded') "
-                    "RETURNING id"
-                ),
-                {"t": world["tenant"], "p": world["project"], "d": doc},
-            )
-        ).scalar_one()
-        pid = (
-            await conn.execute(
-                text(
-                    "INSERT INTO extraction_proposals (tenant_id, project_id, "
-                    "extraction_run_id, proposed_kind, proposed_text, "
-                    "proposed_classification, source_document_id, evidence_quote, "
-                    "status, extracted_by) "
-                    "VALUES (:t,:p,:r,'requirement',:tx,NULL,:d,:ev,'pending','agent-x') "
-                    "RETURNING id"
-                ),
-                {
-                    "t": world["tenant"],
-                    "p": world["project"],
-                    "r": run_id,
-                    "tx": content,
-                    "d": doc,
-                    "ev": content,
-                },
-            )
-        ).scalar_one()
-        await conn.execute(
-            text(
-                "UPDATE extraction_proposals SET status='approved', "
-                "reviewed_by='human-rev', reviewed_at=now() WHERE id=:i"
-            ),
-            {"i": pid},
-        )
-    world["proposal"] = pid
-    world["ref"] = promotion_ref("requirement", pid)
-    return world
+async def test_p_green_6a_promote_proposal_first_write(rls_engine, admin_engine):
+    """P-GREEN-6a: same proposal from both sessions; one artifact, one promotion.
 
-
-async def test_p_red_6_promote_proposal_first_write(rls_engine, admin_engine):
-    """P-RED-6: concurrent first promote_proposal raises 23505 on a named unique."""
-    world = await _seed_approved_requirement(admin_engine)
+    P-RED-6 on this shape fired ``uq_intake_artifacts_ref`` (quoted here as the
+    recovered axis; P-MUT-6 retains the raw 23505 on that name).
+    """
+    world = await seed_approved_requirement(admin_engine)
     ctx = TenantContext(world["tenant"])
 
     async def writer(session: AsyncSession):
         return await ExtractionRepository(session, ctx).promote_proposal(
-            proposal_id=world["proposal"], actor="s83-red"
+            proposal_id=world["proposal"], actor="s83-green"
         )
 
     result = await run_two_writers(
@@ -351,26 +243,17 @@ async def test_p_red_6_promote_proposal_first_write(rls_engine, admin_engine):
         ),
         count_params={"t": world["tenant"], "pid": world["proposal"]},
     )
-    named = reported_constraint(result.w2_error)
-    assert named in {
-        "uq_intake_artifacts_ref",
-        "uq_extraction_promotions_proposal",
-    }, named
-    _assert_red_race(result, constraint=named)
+    assert_green_race(result)
+    assert result.w1_error is None and result.w2_error is None
+    assert result.w1_value.id == result.w2_value.id
     artifacts = await unique_row_count(
         admin_engine,
         "SELECT count(*) FROM intake_artifacts WHERE tenant_id=:t AND project_id=:p",
         {"t": world["tenant"], "p": world["project"]},
     )
     assert artifacts == 1
-    print(
-        "P-RED-6",
-        type(result.w2_error).__name__,
-        pg_state(result.w2_error),
-        named,
-        result.unique_row_count,
-        artifacts,
-    )
+    fired = "uq_intake_artifacts_ref"
+    print("P-GREEN-6a", result.w1_value.id, result.unique_row_count, artifacts, fired)
 
 
 def _run_census_scanner() -> dict[str, object]:
@@ -484,4 +367,5 @@ def test_p_red_7_unbarriered_candidate_survey():
         "audit_specific_pair_coverage=1/122",
         f"survey_nodes={survey}",
         f"unbarriered={unbarriered}",
+        f"MECHANISMS={census['mechanisms']}",
     )

@@ -34,7 +34,7 @@ FROZEN_HASHES: dict[str, str] = {
     "app/cost.py": "2dc1e1d1a0dcfb433af536b69bba926b5c74f3c028bda841d243416546819b43",
     "app/cost_forecast.py": "0fb050597363bcb4af6393e48e8822d975094108f92f4c5770ea4656b3ce02b6",
     "app/llm/pricing.py": "0693ab457daefd45fedbf3bd6df08e531568c89e2ca9a91dbd710c40febe5d59",
-    "app/agents/registry.py": "b942a9d6a210cbe9730c0b447d20158137e3c87e2c317515b35d91cb99195964",
+    "app/agents/registry.py": "d22471117d28958251a375cbc7cfebf6ac3c027ae21e28393f7e58c14cb5e1f5",
 }
 
 LEARNING_TABLES: tuple[str, ...] = (

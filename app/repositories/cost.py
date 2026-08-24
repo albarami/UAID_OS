@@ -199,16 +199,32 @@ class BudgetRepository(TenantScopedRepository):
         existing = await self.get(project_id)
         old_total = existing.max_total_cost_usd if existing else None
         old_daily = existing.max_daily_cost_usd if existing else None
-        if existing is not None:
-            existing.max_total_cost_usd = total
-            existing.max_daily_cost_usd = daily
-            budget = existing
-        else:
-            budget = Budget(
-                project_id=project_id, max_total_cost_usd=total, max_daily_cost_usd=daily
+        stmt = (
+            pg_insert(Budget)
+            .values(
+                tenant_id=self.context.tenant_id,
+                project_id=project_id,
+                max_total_cost_usd=total,
+                max_daily_cost_usd=daily,
             )
-            await self.add(budget)  # stamps tenant_id
-        await self.session.flush()
+            .on_conflict_do_update(
+                constraint="uq_budgets_tenant_id_project_id",
+                set_={
+                    "max_total_cost_usd": total,
+                    "max_daily_cost_usd": daily,
+                    "updated_at": func.now(),
+                },
+            )
+            .returning(Budget.id)
+        )
+        budget_id = (await self.session.execute(stmt)).scalar_one()
+        budget = (
+            await self.session.execute(
+                select(Budget)
+                .where(Budget.id == budget_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
         await audit_record(
             self.session,
             action="budget.set",
