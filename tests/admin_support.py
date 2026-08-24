@@ -7,12 +7,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
 from app.admin.policy_admin import PolicyChangeResult, apply_policy_change
 from app.admin.rbac import OPERATOR_PROVENANCE
 from app.identity import AuthenticatedActor
 from app.tenancy import TenantContext
+
+ExecuteConn = AsyncSession | AsyncConnection
 
 
 class SeedPreconditionError(RuntimeError):
@@ -38,14 +40,14 @@ WHERE NOT EXISTS (
 """
 
 
-async def _set_guc(session: AsyncSession, tenant_id: uuid.UUID) -> None:
+async def _set_guc(session: ExecuteConn, tenant_id: uuid.UUID) -> None:
     await session.execute(
         text("SELECT set_config('app.current_tenant', :t, true)"),
         {"t": str(tenant_id)},
     )
 
 
-async def _insert_grant(session: AsyncSession, tenant_id: uuid.UUID, principal: str) -> None:
+async def _insert_grant(session: ExecuteConn, tenant_id: uuid.UUID, principal: str) -> None:
     await session.execute(
         text(_GRANT_SQL),
         {"t": tenant_id, "p": principal, "prov": OPERATOR_PROVENANCE},
@@ -159,9 +161,7 @@ async def insert_action(
     """Insert one ``admin_actions`` row."""
     from app.admin.rbac import RULESET_VERSION
 
-    required = required or (
-        "tenant_admin" if kind == "set_autonomy_policy" else "tenant_operator"
-    )
+    required = required or ("tenant_admin" if kind == "set_autonomy_policy" else "tenant_operator")
 
     async def _run() -> uuid.UUID:
         return (
@@ -271,14 +271,12 @@ def pg_constraint(exc: Exception) -> str | None:
     return None
 
 
-async def seed_admin_world(session: AsyncSession) -> dict[str, uuid.UUID]:
+async def seed_admin_world(session: AsyncSession) -> dict[str, Any]:
     """Create one org, two tenants, and one project each. Admin session."""
     sfx = uuid.uuid4().hex[:8]
     org = (
         await session.execute(
-            text(
-                "INSERT INTO organizations (name, slug) VALUES ('AdmOrg', :s) RETURNING id"
-            ),
+            text("INSERT INTO organizations (name, slug) VALUES ('AdmOrg', :s) RETURNING id"),
             {"s": f"adm-org-{sfx}"},
         )
     ).scalar_one()
@@ -302,19 +300,13 @@ async def seed_admin_world(session: AsyncSession) -> dict[str, uuid.UUID]:
     ).scalar_one()
     p1 = (
         await session.execute(
-            text(
-                "INSERT INTO projects (tenant_id, name, slug) "
-                "VALUES (:t, 'P1', :s) RETURNING id"
-            ),
+            text("INSERT INTO projects (tenant_id, name, slug) VALUES (:t, 'P1', :s) RETURNING id"),
             {"t": t1, "s": f"adm-p1-{sfx}"},
         )
     ).scalar_one()
     p2 = (
         await session.execute(
-            text(
-                "INSERT INTO projects (tenant_id, name, slug) "
-                "VALUES (:t, 'P2', :s) RETURNING id"
-            ),
+            text("INSERT INTO projects (tenant_id, name, slug) VALUES (:t, 'P2', :s) RETURNING id"),
             {"t": t2, "s": f"adm-p2-{sfx}"},
         )
     ).scalar_one()
@@ -346,9 +338,7 @@ async def function_body(session: AsyncSession, name: str) -> str:
     ).scalar_one()
 
 
-async def set_trigger(
-    session: AsyncSession, table: str, trigger: str, *, enabled: bool
-) -> None:
+async def set_trigger(session: AsyncSession, table: str, trigger: str, *, enabled: bool) -> None:
     """Enable or disable one named trigger."""
     verb = "ENABLE" if enabled else "DISABLE"
     await session.execute(text(f"ALTER TABLE public.{table} {verb} TRIGGER {trigger}"))
@@ -378,9 +368,6 @@ async def call_writer(
 ) -> Any:
     """Call the gated writer on the current connection."""
     return await session.execute(
-        text(
-            "SELECT * FROM public.admin_write_autonomy_policy("
-            ":a, :p, :l, CAST(:o AS jsonb))"
-        ),
+        text("SELECT * FROM public.admin_write_autonomy_policy(:a, :p, :l, CAST(:o AS jsonb))"),
         {"a": action_id, "p": project_id, "l": level, "o": overrides},
     )

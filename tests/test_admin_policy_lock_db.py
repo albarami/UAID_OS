@@ -22,7 +22,7 @@ from tests.admin_lock_support import (
     seed_committed_project,
     tighten_relax_case as _tighten_relax_case,
 )
-from tests.admin_support import call_writer, seed_admin_world, set_trigger
+from tests.admin_support import call_writer, pg_state, seed_admin_world, set_trigger
 
 
 @pytest.mark.db
@@ -42,9 +42,12 @@ async def test_p_writer_requires_allowed_action_reachable(db_session):
     await db_session.execute(text(writer_create_sql(omit_allowed=True)))
 
     async def _harm() -> None:
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
         level = (
             await db_session.execute(
                 text("SELECT autonomy_level FROM autonomy_policies WHERE project_id=:p"),
@@ -62,9 +65,12 @@ async def test_p_writer_requires_allowed_action_reachable(db_session):
     await _harm_in_savepoint(db_session, _harm)
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="admin_action_not_allowed"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=5, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=5, overrides="{}"
+            ),
+        )
 
 
 @pytest.mark.db
@@ -82,15 +88,21 @@ async def test_p_writer_requires_allowed_action_own_reason(db_session):
     )
     await set_trigger(db_session, "admin_policy_changes", GUARD, enabled=False)
     with pytest.raises(DBAPIError, match="admin_action_not_allowed") as ei:
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
-    assert ei.value.orig.sqlstate == "P0001"
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
+    assert pg_state(ei.value) == "P0001"
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="admin_action_not_allowed"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
 
 
 @pytest.mark.db
@@ -100,7 +112,9 @@ async def test_p_writer_requires_policy_kind_reachable(db_session):
     await _guc(db_session, w["t1"])
     await _grant(db_session, w["t1"])
     await _policy(db_session, w["t1"], w["p1"])
-    await db_session.execute(text("ALTER TABLE admin_actions DROP CONSTRAINT ck_admin_actions_kind_valid"))
+    await db_session.execute(
+        text("ALTER TABLE admin_actions DROP CONSTRAINT ck_admin_actions_kind_valid")
+    )
     await db_session.execute(
         text("ALTER TABLE admin_actions DROP CONSTRAINT ck_admin_actions_required_role_bound")
     )
@@ -111,9 +125,12 @@ async def test_p_writer_requires_policy_kind_reachable(db_session):
     await db_session.execute(text(writer_create_sql(omit_kind=True)))
 
     async def _harm() -> None:
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
         chg = (
             await db_session.execute(
                 text("SELECT count(*) FROM admin_policy_changes WHERE admin_action_id=:a"),
@@ -125,9 +142,12 @@ async def test_p_writer_requires_policy_kind_reachable(db_session):
     await _harm_in_savepoint(db_session, _harm)
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="admin_action_not_policy_kind"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
 
 
 @pytest.mark.db
@@ -137,7 +157,9 @@ async def test_p_writer_requires_policy_kind_own_reason(db_session):
     await _guc(db_session, w["t1"])
     await _grant(db_session, w["t1"])
     await _policy(db_session, w["t1"], w["p1"])
-    await db_session.execute(text("ALTER TABLE admin_actions DROP CONSTRAINT ck_admin_actions_kind_valid"))
+    await db_session.execute(
+        text("ALTER TABLE admin_actions DROP CONSTRAINT ck_admin_actions_kind_valid")
+    )
     await db_session.execute(
         text("ALTER TABLE admin_actions DROP CONSTRAINT ck_admin_actions_required_role_bound")
     )
@@ -146,10 +168,13 @@ async def test_p_writer_requires_policy_kind_own_reason(db_session):
     )
     await set_trigger(db_session, "admin_policy_changes", GUARD, enabled=False)
     with pytest.raises(DBAPIError, match="admin_action_not_policy_kind") as ei:
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
-    assert ei.value.orig.sqlstate == "P0001"
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
+    assert pg_state(ei.value) == "P0001"
     await _restore_writer(db_session)
 
 
@@ -165,9 +190,12 @@ async def test_p_writer_guc_unset_reachable(db_session):
     await db_session.execute(text(writer_create_sql(guc_fallback=True)))
 
     async def _harm() -> None:
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
         chg = (
             await db_session.execute(
                 text("SELECT count(*) FROM admin_policy_changes WHERE admin_action_id=:a"),
@@ -181,9 +209,12 @@ async def test_p_writer_guc_unset_reachable(db_session):
     await _enable_rls(db_session)
     await set_trigger(db_session, "admin_policy_changes", GUARD, enabled=True)
     with pytest.raises(DBAPIError, match="tenant_guc_unset"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
 
 
 @pytest.mark.db
@@ -195,10 +226,13 @@ async def test_p_writer_guc_unset_own_reason(db_session):
     await _disable_rls(db_session)
     await set_trigger(db_session, "admin_policy_changes", GUARD, enabled=False)
     with pytest.raises(DBAPIError, match="tenant_guc_unset") as ei:
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
-    assert ei.value.orig.sqlstate == "P0001"
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
+    assert pg_state(ei.value) == "P0001"
     await _enable_rls(db_session)
     await _restore_writer(db_session)
     force = (
@@ -211,9 +245,12 @@ async def test_p_writer_guc_unset_own_reason(db_session):
     ).scalar_one()
     assert force is True
     with pytest.raises(DBAPIError, match="tenant_guc_unset"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=4, overrides="{}"
+            ),
+        )
 
 
 @pytest.mark.db
@@ -228,13 +265,16 @@ async def test_p_writer_no_existing_policy_reachable(db_session):
     )
 
     async def _harm() -> None:
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=2,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=2,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
         pol = (
             await db_session.execute(
                 text("SELECT count(*) FROM autonomy_policies WHERE project_id=:p"),
@@ -255,13 +295,16 @@ async def test_p_writer_no_existing_policy_reachable(db_session):
     await _harm_in_savepoint(db_session, _harm)
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="no_existing_policy"):
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=2,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=2,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
 
 
 @pytest.mark.db
@@ -273,23 +316,29 @@ async def test_p_writer_no_existing_policy_own_reason(db_session):
     await set_trigger(db_session, "admin_policy_changes", GUARD, enabled=False)
     await db_session.execute(text(writer_create_sql(omit_tighten_level=True)))
     with pytest.raises(DBAPIError, match="no_existing_policy") as ei:
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=2,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
-    assert ei.value.orig.sqlstate == "P0001"
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=2,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
+    assert pg_state(ei.value) == "P0001"
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="no_existing_policy"):
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=2,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=2,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
 
 
 @pytest.mark.db
@@ -303,13 +352,16 @@ async def test_p_tighten_changes_level_reachable(db_session):
     await db_session.execute(text(writer_create_sql(omit_tighten_level=True)))
 
     async def _harm() -> None:
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=3,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=3,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
         row = (
             await db_session.execute(
                 text(
@@ -325,13 +377,16 @@ async def test_p_tighten_changes_level_reachable(db_session):
     await _harm_in_savepoint(db_session, _harm)
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="tighten_may_not_change_level"):
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=3,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=3,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
     stored = (
         await db_session.execute(
             text("SELECT autonomy_level FROM autonomy_policies WHERE project_id=:p"),
@@ -350,14 +405,17 @@ async def test_p_tighten_changes_level_own_reason(db_session):
     action = await _action(db_session, w["t1"], w["p1"], kind="tighten_autonomy_overrides")
     await set_trigger(db_session, "admin_policy_changes", GUARD, enabled=False)
     with pytest.raises(DBAPIError, match="tighten_may_not_change_level") as ei:
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=3,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
-    assert ei.value.orig.sqlstate == "P0001"
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=3,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
+    assert pg_state(ei.value) == "P0001"
     stored = (
         await db_session.execute(
             text("SELECT autonomy_level FROM autonomy_policies WHERE project_id=:p"),
@@ -367,13 +425,16 @@ async def test_p_tighten_changes_level_own_reason(db_session):
     assert stored == 2
     await _restore_writer(db_session)
     with pytest.raises(DBAPIError, match="tighten_may_not_change_level"):
-        await _as_app(db_session, lambda: call_writer(
+        await _as_app(
             db_session,
-            action_id=action,
-            project_id=w["p1"],
-            level=3,
-            overrides='{"run_tests":{"allow":false}}',
-        ))
+            lambda: call_writer(
+                db_session,
+                action_id=action,
+                project_id=w["p1"],
+                level=3,
+                overrides='{"run_tests":{"allow":false}}',
+            ),
+        )
 
 
 @pytest.mark.db
@@ -383,13 +444,19 @@ async def test_p_writer_spends_action_atomically(db_session):
     await _grant(db_session, w["t1"])
     await _policy(db_session, w["t1"], w["p1"], level=1, overrides="{}")
     action = await _action(db_session, w["t1"], w["p1"])
-    await _as_app(db_session, lambda: call_writer(
-        db_session, action_id=action, project_id=w["p1"], level=2, overrides="{}"
-    ))
+    await _as_app(
+        db_session,
+        lambda: call_writer(
+            db_session, action_id=action, project_id=w["p1"], level=2, overrides="{}"
+        ),
+    )
     with pytest.raises(DBAPIError, match="admin_action_already_spent"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=3, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=3, overrides="{}"
+            ),
+        )
     level = (
         await db_session.execute(
             text("SELECT autonomy_level FROM autonomy_policies WHERE project_id=:p"),
@@ -411,9 +478,12 @@ async def test_p_writer_spends_action_atomically(db_session):
                 "DROP CONSTRAINT uq_admin_policy_changes_action"
             )
         )
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=3, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=3, overrides="{}"
+            ),
+        )
         chg2 = (
             await db_session.execute(
                 text("SELECT count(*) FROM admin_policy_changes WHERE admin_action_id=:a"),
@@ -425,16 +495,17 @@ async def test_p_writer_spends_action_atomically(db_session):
     await _harm_in_savepoint(db_session, _replay)
     present = (
         await db_session.execute(
-            text(
-                "SELECT 1 FROM pg_constraint WHERE conname = 'uq_admin_policy_changes_action'"
-            )
+            text("SELECT 1 FROM pg_constraint WHERE conname = 'uq_admin_policy_changes_action'")
         )
     ).scalar_one()
     assert present == 1
     with pytest.raises(DBAPIError, match="admin_action_already_spent"):
-        await _as_app(db_session, lambda: call_writer(
-            db_session, action_id=action, project_id=w["p1"], level=3, overrides="{}"
-        ))
+        await _as_app(
+            db_session,
+            lambda: call_writer(
+                db_session, action_id=action, project_id=w["p1"], level=3, overrides="{}"
+            ),
+        )
 
 
 @pytest.mark.db

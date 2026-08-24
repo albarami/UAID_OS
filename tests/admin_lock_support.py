@@ -13,6 +13,7 @@ from tests.admin_support import (
     as_uaid_app,
     call_writer,
     function_body,
+    pg_state,
     seed_admin_world,
     set_trigger,
     trigger_state,
@@ -219,7 +220,7 @@ async def assert_priv_cycle(rls_engine, admin_engine, *, tenant, stmt, params, p
             nested = await conn.begin_nested()
             with pytest.raises(DBAPIError) as ei:
                 await conn.execute(stmt, params)
-            assert ei.value.orig.sqlstate == "42501"
+            assert pg_state(ei.value) == "42501"
             assert "autonomy_policies" in str(ei.value).lower()
             await nested.rollback()
     async with admin_engine.begin() as c:
@@ -244,7 +245,7 @@ async def assert_priv_cycle(rls_engine, admin_engine, *, tenant, stmt, params, p
             nested = await conn.begin_nested()
             with pytest.raises(DBAPIError) as ei:
                 await conn.execute(stmt, params)
-            assert ei.value.orig.sqlstate == "42501"
+            assert pg_state(ei.value) == "42501"
             await nested.rollback()
 
 

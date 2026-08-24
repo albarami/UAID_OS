@@ -30,14 +30,14 @@ _RESOLVER = "public.resolve_tenant_api_key(text)"
 
 
 async def _event(
-    session,
-    tenant_id,
-    org_id,
+    session: AsyncSession,
+    tenant_id: object,
+    org_id: object,
     *,
-    kind="role_granted",
-    principal="alice",
-    role="tenant_admin",
-    grant_id=None,
+    kind: str = "role_granted",
+    principal: str | None = "alice",
+    role: str | None = "tenant_admin",
+    grant_id: object = None,
 ):
     await in_savepoint(
         session,
@@ -92,18 +92,14 @@ async def test_p_event_role_mismatch(db_session):
     await set_guc(db_session, w["t1"])
     gid = await insert_grant(db_session, w["t1"], "alice", "tenant_admin")
     with pytest.raises(DBAPIError) as ei:
-        await _event(
-            db_session, w["t1"], w["org"], role="tenant_viewer", grant_id=gid
-        )
+        await _event(db_session, w["t1"], w["org"], role="tenant_viewer", grant_id=gid)
     assert pg_constraint(ei.value) == "fk_tae_grant_identity"
     await db_session.execute(
         text("ALTER TABLE public.tenant_admin_events DROP CONSTRAINT fk_tae_grant_identity")
     )
     await prove_commits(
         db_session,
-        lambda: _event(
-            db_session, w["t1"], w["org"], role="tenant_viewer", grant_id=gid
-        ),
+        lambda: _event(db_session, w["t1"], w["org"], role="tenant_viewer", grant_id=gid),
     )
 
 
@@ -129,22 +125,42 @@ async def test_p_event_lies(db_session):
     await set_guc(db_session, w["t1"])
     with pytest.raises(DBAPIError, match="event_tenant_status_mismatch"):
         await _event(
-            db_session, w["t1"], w["org"], kind="tenant_suspended",
-            principal=None, role=None, grant_id=None,
+            db_session,
+            w["t1"],
+            w["org"],
+            kind="tenant_suspended",
+            principal=None,
+            role=None,
+            grant_id=None,
         )
     with pytest.raises(DBAPIError, match="event_organization_status_mismatch"):
         await _event(
-            db_session, w["t1"], w["org"], kind="organization_suspended",
-            principal=None, role=None, grant_id=None,
+            db_session,
+            w["t1"],
+            w["org"],
+            kind="organization_suspended",
+            principal=None,
+            role=None,
+            grant_id=None,
         )
     await set_trigger(db_session, "tenant_admin_events", _GUARD, enabled=False)
     await _event(
-        db_session, w["t1"], w["org"], kind="tenant_suspended",
-        principal=None, role=None, grant_id=None,
+        db_session,
+        w["t1"],
+        w["org"],
+        kind="tenant_suspended",
+        principal=None,
+        role=None,
+        grant_id=None,
     )
     await _event(
-        db_session, w["t1"], w["org"], kind="organization_suspended",
-        principal=None, role=None, grant_id=None,
+        db_session,
+        w["t1"],
+        w["org"],
+        kind="organization_suspended",
+        principal=None,
+        role=None,
+        grant_id=None,
     )
     await set_trigger(db_session, "tenant_admin_events", _GUARD, enabled=True)
     assert await trigger_state(db_session, _GUARD) == "O"
@@ -247,9 +263,7 @@ async def test_p_suspend_tenant_blocks(admin_engine):
     status, _, _ = await _http(raw, w_project)
     assert status == 200
     async with admin_engine.begin() as c:
-        await c.execute(
-            text("UPDATE tenants SET status='suspended' WHERE id=:t"), {"t": w_tenant}
-        )
+        await c.execute(text("UPDATE tenants SET status='suspended' WHERE id=:t"), {"t": w_tenant})
     async with admin_engine.connect() as c:
         assert await _resolve(c, raw) is None
     status, body, _ = await _http(raw, w_project)
@@ -302,9 +316,7 @@ async def test_p_suspend_org_blocks(admin_engine):
         )
         await s.commit()
     async with admin_engine.begin() as c:
-        await c.execute(
-            text("UPDATE organizations SET status='suspended' WHERE id=:o"), {"o": org}
-        )
+        await c.execute(text("UPDATE organizations SET status='suspended' WHERE id=:o"), {"o": org})
     async with admin_engine.connect() as c:
         assert await _resolve(c, raw) is None
     assert (await _http(raw, project))[0] == 401
