@@ -546,47 +546,9 @@ async def test_guard_rejects_accept_without_record(ri_ctx, rls_engine):
 
 @pytest.mark.db
 async def test_guard_rejects_accept_with_invalid_records(ri_ctx, rls_engine):
-    # The DB guard itself (not just the repo) enforces the usable-record predicate.
-    from app.repositories.risk_acceptance import RiskAcceptanceRepository
-    from app.tenancy import TenantContext, tenant_scope
+    from tests.test_slice84_acceptance_guards import run_issues_invalid_record_accepts
 
-    t1, p1, p1b = ri_ctx["t1"], ri_ctx["p1"], ri_ctx["p1b"]
-    ctx = TenantContext(t1)
-
-    async def _issue_and_record(*, rec_project, rec_over):
-        async with tenant_scope(ctx) as session:
-            i = await _repo(session, ctx).create(project_id=p1, payload=_valid(), actor="a")
-            rec = await _make_ra_record(session, ctx, rec_project, i.id, **rec_over)
-            return i.id, rec
-
-    # expired record
-    iid, rec = await _issue_and_record(rec_project=p1, rec_over={"expiry_date": date(2000, 1, 1)})
-    with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), iid=str(iid))
-
-    # non-active (revoked) record
-    async with tenant_scope(ctx) as session:
-        i = await _repo(session, ctx).create(project_id=p1, payload=_valid(), actor="a")
-        rec = await _make_ra_record(session, ctx, p1, i.id)
-        await RiskAcceptanceRepository(session, ctx).revoke(record_id=rec.id, actor="a")
-        iid, rid = i.id, rec.id
-    with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rid), iid=str(iid))
-
-    # blocking_category set on the record (blocks acceptance)
-    iid, rec = await _issue_and_record(rec_project=p1, rec_over={"blocking_category": "advisory"})
-    with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), iid=str(iid))
-
-    # same-tenant wrong project (record under p1b, issue under p1)
-    with pytest.raises(Exception):
-        await _issue_and_record(rec_project=p1b, rec_over={})
-
-    # issue_id != issue.id
-    with pytest.raises(Exception):
-        await _issue_and_record(
-            rec_project=p1, rec_over={"issue_id": str(uuid.uuid4())}
-        )
+    await run_issues_invalid_record_accepts(ri_ctx, rls_engine)
 
 
 @pytest.mark.db

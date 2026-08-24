@@ -447,42 +447,9 @@ async def test_budget_upsert_audits_old_and_new_caps(cost_ctx, admin_engine):
 
 @pytest.mark.db
 async def test_cost_events_immutable(cost_ctx, rls_engine, admin_engine):
-    t1, p1 = cost_ctx["t1"], cost_ctx["p1"]
-    ctx = TenantContext(t1)
-    async with tenant_scope(ctx) as session:
-        e = await CostEventRepository(session, ctx).record(
-            project_id=p1, component="ci_cd", amount_usd="1", actor="a"
-        )
-        eid = e.id
-    # raw uaid_app UPDATE/DELETE rejected — blocked by the grant (no UPDATE/DELETE
-    # privilege) or the trigger; either way the runtime cannot mutate the ledger.
-    for stmt in (
-        "UPDATE cost_events SET amount_usd=999 WHERE id=:i",
-        "DELETE FROM cost_events WHERE id=:i",
-    ):
-        with pytest.raises(Exception) as ei:
-            async with rls_engine.connect() as conn:
-                async with conn.begin():
-                    await conn.execute(
-                        text("SELECT set_config('app.current_tenant', :t, true)"), {"t": str(t1)}
-                    )
-                    await conn.execute(text(stmt), {"i": str(eid)})
-        msg = str(ei.value).lower()
-        assert "permission denied" in msg or "immutable" in msg
-    # admin connection: UPDATE/DELETE/TRUNCATE all rejected by trigger
-    for stmt in (
-        "UPDATE cost_events SET amount_usd=999 WHERE id=:i",
-        "DELETE FROM cost_events WHERE id=:i",
-        "TRUNCATE cost_events",
-    ):
-        with pytest.raises(Exception) as ei:
-            async with admin_engine.begin() as c:
-                await c.execute(text(stmt), {"i": str(eid)} if ":i" in stmt else {})
-        message = str(ei.value).lower()
-        # Slice 51's additive exact-event composite FK can reject TRUNCATE before
-        # PostgreSQL reaches the existing immutability trigger. Both are DB-level
-        # refusals; UPDATE/DELETE continue to exercise the original trigger.
-        assert "immutable" in message or "cannot truncate" in message
+    from tests.slice84_support import assert_cost_events_immutable
+
+    await assert_cost_events_immutable(cost_ctx, rls_engine, admin_engine)
 
 
 @pytest.mark.db

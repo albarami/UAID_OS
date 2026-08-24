@@ -331,14 +331,9 @@ async def test_accept_noncritical_with_valid_record(rf_ctx):
 
 @pytest.mark.db
 async def test_reject_critical_accept(rf_ctx):
-    from app.tenancy import TenantContext, tenant_scope
+    from tests.test_slice84_acceptance_guards import run_reject_critical_accept
 
-    t1, p1 = rf_ctx["t1"], rf_ctx["p1"]
-    ctx = TenantContext(t1)
-    async with tenant_scope(ctx) as session:
-        f = await _trusted_security_finding(session, ctx, p1, severity="critical")
-        with pytest.raises(Exception):
-            await _make_ra_record(session, ctx, p1, f.id, severity="high")
+    await run_reject_critical_accept(rf_ctx)
 
 
 @pytest.mark.db
@@ -451,7 +446,7 @@ async def test_guard_rejects_critical_accept_and_terminal_retransition(rf_ctx, r
         await repo.resolve(finding_id=resolved.id, resolution_note="x", resolved_by="d", actor="d")
         crit_id, res_id = crit.id, resolved.id
     # critical → accepted via direct SQL refused
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="release_findings: critical findings cannot be accepted"):
         async with rls_engine.connect() as conn:
             async with conn.begin():
                 await conn.execute(
@@ -462,7 +457,7 @@ async def test_guard_rejects_critical_accept_and_terminal_retransition(rf_ctx, r
                     {"i": str(crit_id)},
                 )
     # terminal (resolved) → accepted via direct SQL refused
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match="release_findings: terminal status resolved cannot transition"):
         async with rls_engine.connect() as conn:
             async with conn.begin():
                 await conn.execute(
@@ -529,48 +524,9 @@ async def test_guard_rejects_updated_at_only_update(rf_ctx, rls_engine):
 
 @pytest.mark.db
 async def test_guard_rejects_accept_with_invalid_records(rf_ctx, rls_engine):
-    # The DB guard itself (not just the repo) enforces the usable-record predicate. Each case below
-    # creates a finding + a defective risk-acceptance record, then attempts a direct-SQL accept.
-    from app.repositories.risk_acceptance import RiskAcceptanceRepository
-    from app.tenancy import TenantContext, tenant_scope
+    from tests.test_slice84_acceptance_guards import run_findings_invalid_record_accepts
 
-    t1, p1, p1b = rf_ctx["t1"], rf_ctx["p1"], rf_ctx["p1b"]
-    ctx = TenantContext(t1)
-
-    async def _finding_and_record(*, rec_project, rec_over):
-        async with tenant_scope(ctx) as session:
-            f = await _trusted_security_finding(session, ctx, p1)
-            rec = await _make_ra_record(session, ctx, rec_project, f.id, **rec_over)
-            return f.id, rec
-
-    # expired record
-    fid, rec = await _finding_and_record(rec_project=p1, rec_over={"expiry_date": date(2000, 1, 1)})
-    with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), fid=str(fid))
-
-    # non-active (revoked) record
-    async with tenant_scope(ctx) as session:
-        f = await _trusted_security_finding(session, ctx, p1)
-        rec = await _make_ra_record(session, ctx, p1, f.id)
-        await RiskAcceptanceRepository(session, ctx).revoke(record_id=rec.id, actor="a")
-        fid, rid = f.id, rec.id
-    with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rid), fid=str(fid))
-
-    # blocking_category set (non-hard-refusal, allowed on the record but blocks acceptance)
-    fid, rec = await _finding_and_record(rec_project=p1, rec_over={"blocking_category": "advisory"})
-    with pytest.raises(Exception):
-        await _direct_sql(rls_engine, t1, _ACCEPT_SQL, rid=str(rec.id), fid=str(fid))
-
-    # same-tenant wrong project (record under p1b, finding under p1)
-    with pytest.raises(Exception):
-        await _finding_and_record(rec_project=p1b, rec_over={})
-
-    # issue_id != finding.id
-    with pytest.raises(Exception):
-        await _finding_and_record(
-            rec_project=p1, rec_over={"issue_id": str(uuid.uuid4())}
-        )
+    await run_findings_invalid_record_accepts(rf_ctx, rls_engine)
 
 
 @pytest.mark.db
