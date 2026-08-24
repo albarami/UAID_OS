@@ -1,7 +1,7 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-24T01:55:00Z",
-  "source": "slice-63-plan-v4-awaiting-review",
+  "timestamp": "2026-08-24T07:00:00Z",
+  "source": "slice-63-closeout",
   "partial": false,
   "phase": "Phase 7",
   "phase_name": "Scale & ecosystem",
@@ -9,23 +9,26 @@
   "plan": ".planning/SLICE-63-PLAN.md",
   "task": "Slice 63",
   "total_tasks": null,
-  "status": "slice_63_plan_v4_awaiting_review",
+  "status": "slice_63_merged_loop_closed",
   "slice_63_plan_review": {
-    "version": "v4",
-    "verdict": "pending",
+    "version": "v4.1",
+    "verdict": "APPROVE",
     "consecutive_plan_rejects": 0,
     "halted": false,
-    "owner_ruling": "2026-08-24: v4 authorized; overlapping-guard probe-pair bar amended; consecutive reject count reset to 0; one REJECT of v4 halts, no v5 without owner",
+    "owner_ruling": "2026-08-24: v4 authorized (overlapping-guard probe-pair bar; consecutive reject count reset to 0). After Sol code REJECT of ddb3869, owner authorized v4.1 OD-11 only. Plan REJECT count stayed 0. No v5.",
     "planner_agent_v4": "c7c6e513-da45-41ba-b767-79f90581e884",
+    "planner_agent_v41": "da1511f1-6991-4ada-aa4d-4c210bfdce74",
     "reviewer_agent_v3": "369abc89-7144-4f42-b810-72f6ec367a64",
     "reviewer_agent_v2": "5aca1998-528c-42d9-97a2-f961e6d0757a",
     "planner_agent": "699e14a3-f8d3-4584-b67e-4a54dd87cf05",
     "history": [
       "v1 REJECT — 6 defects (policy lock bypass, tighten can relax, four CHECKs unprobed, probe/mutation mismatches, role events unbound, decision partition not DB-true)",
       "v2 REJECT — 4 defects (spend not atomic, second connection vs uncommitted fixtures, missing GUC/no-policy/grant-status/org-status probes, TRUNCATE 0A000)",
-      "v3 REJECT — 1 defect: §5.2.a:1169–1177 writer-function mutations remain masked by admin_policy_changes_guard; live PG16 probes commit only when that neighbouring trigger is also disabled. P-writer-no-existing-policy therefore does not close v2 defect 3."
+      "v3 REJECT — 1 defect: §5.2.a writer-function mutations masked by admin_policy_changes_guard. HALT; owner authorized v4.",
+      "v4 APPROVE (Sol 0bfef98d-2dbe-4da3-a734-9cf8c35599c4). Code REJECT of ddb3869 (Sol 380cc908-3745-46fb-b762-504f4e1bd4fd) — OD-11 first-write race.",
+      "v4.1 APPROVE (Sol e8e06b35-10a1-4a67-a853-e111f29ee1d6). Code APPROVE of 44f0448 (Sol 57f5a732-1f16-4b67-8220-fca9ec4cc5d0)."
     ],
-    "halt_rule": "one REJECT of v4 ⇒ halt, no v5 without owner",
+    "halt_rule": "one REJECT of v4 ⇒ halt, no v5 without owner — did not fire on v4.1",
     "owner_action_required": null
   },
   "seats": {
@@ -37,7 +40,7 @@
       "slice_60_authorship": "Authored SLICE-60-PLAN.md v1, v2, v3 and v4 in full. The builder seat was never invoked on the plan, satisfying Salim's 2026-08-23 requirement that v4 be planner work.",
       "slice_61a_authorship": "Authored the superseded v1-v3 and the from-scratch SLICE-61A-PLAN.md v1, v2, and v3 in full. Builder seat never invoked on any plan version. Sol APPROVED v3. Owner accepted the narrowing on 2026-08-23 and directed immediate build.",
       "slice_62_authorship": "Authored SLICE-62-PLAN.md v1-v4 in full. Builder never edited the plan. Sol (4ac9facc-44e1-4172-9cb6-37cef628d36c) APPROVED v4.",
-      "slice_63_authorship": "Authored SLICE-63-PLAN.md v1–v3 (agent 699e14a3-f8d3-4584-b67e-4a54dd87cf05) and v4 (agent c7c6e513-da45-41ba-b767-79f90581e884) in full. Builder never edited the plan. Live Alembic head remains 0061. Owner authorized v4 on 2026-08-24 under the overlapping-guard probe-pair bar."
+      "slice_63_authorship": "Authored SLICE-63-PLAN.md v1–v3 (agent 699e14a3-f8d3-4584-b67e-4a54dd87cf05), v4 (agent c7c6e513-da45-41ba-b767-79f90581e884), and v4.1 (agent da1511f1-6991-4ada-aa4d-4c210bfdce74) in full. Builder never edited the plan. Owner authorized v4 then v4.1 (OD-11 only)."
     },
     "builder": {
       "model": "Cursor Grok 4.6 Extra High",
@@ -68,11 +71,10 @@
     "Slice 60 merged via PR #110 (squash commit 8e001ca) as SIGNED OFFLINE AUDITOR BUNDLE, closing no spec section",
     "Slice 61a merged via PR #111 (squash commit 17e7fc9de7b044cf0ab98b8e27dfd679e1d72674) as EMPTY ECOSYSTEM CATALOG LISTING MECHANISM, closing no spec section; catalog empty; D-8/D-9/D-10 OPEN",
     "Slice 61b merged via PR #113 (squash commit 59af1c709dcb2ac302f255ed2eb2325ea3710c97) as DECLARED CATALOG POPULATION; does not close Slice 61 exit; D-8/D-9/D-10 OPEN",
-    "Slice 62 merged via PR #114 (squash commit 96faa864c19d7cbffb3677600530de5071c12b2c) as TENANT-SAFE AGGREGATES + DECISION-ONLY COST OPTIMIZER; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0061"
+    "Slice 62 merged via PR #114 (squash commit 96faa864c19d7cbffb3677600530de5071c12b2c) as TENANT-SAFE AGGREGATES + DECISION-ONLY COST OPTIMIZER; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0061",
+    "Slice 63 merged via PR #116 (squash commit e6fbddc7bd8f19ce4e721575f77a48318b369ad9) as ENTERPRISE ADMIN with DB-enforced RBAC; v4.1 first-write serialization; does not close Slice 61 exit; D-8/D-9/D-10 OPEN; Alembic head 0062"
   ],
-  "remaining_tasks": [
-    "Slice 63 plan v4 awaiting Sol review. D-8/D-9/D-10 stay OPEN. After merge stop for the Slice 55-63 final report."
-  ],
+  "remaining_tasks": [],
   "blockers": [],
   "human_actions_pending": [],
   "salim_gate": {
@@ -152,12 +154,12 @@
     }
   },
   "validation": {
-    "merged_sha": "96faa864c19d7cbffb3677600530de5071c12b2c",
-    "pr": "#114",
-    "alembic_head": "0061",
-    "make_test": "1270 passed / 1022 deselected",
-    "make_test_db": "1022 passed / 1270 deselected",
-    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32666910414"
+    "merged_sha": "e6fbddc7bd8f19ce4e721575f77a48318b369ad9",
+    "pr": "#116",
+    "alembic_head": "0062",
+    "make_test": "1277 passed / 1085 deselected",
+    "make_test_db": "1085 passed / 1277 deselected",
+    "ci": "https://github.com/albarami/UAID_OS/actions/runs/32698972608"
   },
   "open_questions": [
     "Residual 26.6 actuators remain open: diagnosis, patch artifacts, git branches, GitHub PRs, staging/production deploys, production rollback execution. Not a Salim halt.",
@@ -166,7 +168,7 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "Sol probe-backed review of Slice 63 plan v4 (commit d125669). Consecutive reject count is 0. On APPROVE, build immediately. On REJECT, halt — no v5 without owner.",
+  "next_action": "STOP. Slice 63 merged via PR #116 (e6fbddc). Slice 55–63 loop closed. Final report: .planning/SLICE-55-63-FINAL-REPORT.md. No Slice 64. No new work. Slice 61 exit and D-8/D-9/D-10 stay OPEN (owner=Salim). can_go_live_autonomously remains the literal False.",
   "context_notes": "Owner ruling 2026-08-22: continuous run to Slice 63. Seat ruling 2026-08-23: planner/builder/reviewer split, effective Slice 60, never reseat mid-slice. Slice 60 hit the three-consecutive-plan-REJECT halt; Salim authorized a fourth review round on 2026-08-23 and confirmed v4 had to be planner work, which it was. Halt rules otherwise unchanged for Slices 61-63.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
@@ -327,6 +329,32 @@
         "pr": "#114",
         "sha": "96faa864c19d7cbffb3677600530de5071c12b2c",
         "ci": "https://github.com/albarami/UAID_OS/actions/runs/32666910414"
+      }
+    }
+  },
+  "slice_63_verdicts": {
+    "scope": "Enterprise administration with DB-enforced RBAC over the existing tenant model. Closes no spec section. Does not meet the Slice 61 exit.",
+    "plan": {
+      "verdict": "APPROVE",
+      "version": "v4.1 after v1–v3 REJECT (halt), owner-authorized v4, then owner-authorized OD-11 amendment; plan REJECT count stayed 0 on the v4 line",
+      "agent_v4": "0bfef98d-2dbe-4da3-a734-9cf8c35599c4",
+      "agent_v41": "e8e06b35-10a1-4a67-a853-e111f29ee1d6",
+      "planner_v41": "da1511f1-6991-4ada-aa4d-4c210bfdce74",
+      "authored_by_seat": "planner (all versions; builder never edited the plan)"
+    },
+    "code": {
+      "verdict": "APPROVE after one REJECT (new item after owner-authorized v4.1; consecutive count 0)",
+      "agent_reject": "380cc908-3745-46fb-b762-504f4e1bd4fd",
+      "agent_approve": "57f5a732-1f16-4b67-8220-fca9ec4cc5d0",
+      "head_approved": "44f0448",
+      "reject_defects": [
+        "OD-11 load-then-upsert: two concurrent first writers both recorded previous_autonomy_level=NULL; FOR UPDATE on an absent row locks nothing"
+      ],
+      "verbatim": "VERDICT: APPROVE\n\n- PostgreSQL 16.14, READ COMMITTED: absent-row FOR UPDATE returned 0 rows in 1.218 ms; conflict INSERT waited on an ungranted transactionid lock.\n- Fixed race: ledgers [(NULL,3),(3,2)], one policy row, stored level 2, W2 blocked at the write.\n- Exact v4 mutation reproduced [(NULL,3),(NULL,2)]; production body restored and reran green.\n- Tighten-without-row: P0001, zero policy and ledger rows.\n- Existing-row path blocked at initial lock; ledger (2,4), stored level 4.\n- uaid_app: SELECT=true, INSERT=false, UPDATE=false.\n- Alembic head 0062; no migration/API/go-live changes.\n- Focused race tests: 3 passed. Full suites: 1277/1277 non-DB and 1085/1085 DB passed. Requested pyright scope: 0 errors. Ruff: passed.\n- Throwaway database dropped.",
+      "merged": {
+        "pr": "#116",
+        "sha": "e6fbddc7bd8f19ce4e721575f77a48318b369ad9",
+        "ci": "https://github.com/albarami/UAID_OS/actions/runs/32698972608"
       }
     }
   }

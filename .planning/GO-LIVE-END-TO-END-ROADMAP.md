@@ -2,9 +2,9 @@
 
 **Document type:** Authoritative planning roadmap (single source of truth for "what comes next" — from the current baseline to a *functional, evidence-backed, operating* go-live system, not merely an A5-gate skeleton).
 **Author persona:** Senior delivery-platform / release-governance architect.
-**Created:** 2026-06-17. **Revision:** Rev 24 (Slice 62 MERGED via PR #114 squash `96faa86`; Alembic head `0061`; Slice 61 exit still OPEN; D-8/D-9/D-10 still OPEN with owner=Salim; go-live unaffected). Rev 23 recorded the bounded Slice 62 delivery on the feature branch. Rev 22 recorded Slice 61b population. Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
+**Created:** 2026-06-17. **Revision:** Rev 25 (Slice 63 MERGED via PR #116 squash `e6fbddc`; Alembic head `0062`; Slice 55–63 loop closed; Slice 61 exit still OPEN; D-8/D-9/D-10 still OPEN with owner=Salim; go-live unaffected). Rev 24 recorded Slice 62. Rev 23 recorded the bounded Slice 62 delivery on the feature branch. Rev 22 recorded Slice 61b population. Rev 21 recorded the 61a/61b split. Rev 20 remains the post–Slice-60 reconciliation.
 **Baseline state:** Post–Slice 58 (`main` at `787ddd6`; Slice 58 merged via PR #106 at `787ddd6`; Alembic head `0057_self_healing`; A5 evaluator `ruleset_version = "slice54.v1"`; readiness `ruleset_version = "slice20.v1"`; `can_go_live_autonomously` literal `False`).
-**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 59 merged as a stabilization-window *assessment* that does **not** close spec §25.4 or §26.6, with Slice 60 as next. Residual self-healing actuators and the stabilization exit stay open. Detailed baseline analyses in §§2–3 are retained as a historical post–Slice-25 snapshot. This document does **not** authorize go-live.
+**Status of this document:** SEQUENCING RECORD — §6 reflects Slice 63 MERGED and the Slice 55–63 loop closed. Residual Slice 61 exit, D-8/D-9/D-10, §25.4, and §26.6 actuators stay open. This document does **not** authorize go-live. **No Slice 64.**
 
 > **Sourcing discipline (Sanad / No-Free-Facts).** Every factual claim cites its origin: the standalone spec
 > (`docs/UAID_OS_Standalone_System_Spec_and_Intake_Standard_v1_2.md`, cited as "spec §N" / line ranges), an
@@ -668,7 +668,7 @@ Two tracks. **Track A** is the A5-gate / go-live critical path (Slices 26→63).
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-24): Slice 63 enterprise administration is implemented on `feat/slice-63-enterprise-admin` (Alembic head `0062`).** Tenant isolation is intact: `uaid_app` cannot INSERT/UPDATE `autonomy_policies` except through the SECURITY DEFINER writer. This is **not** go-live authority. `can_go_live_autonomously` is still the literal `False`. The Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`. After Slice 63 merges: stop and write the Slice 55–63 final report; do not start new work. Do not add a Slice 64.
+> **Current state (2026-08-24): Slice 63 MERGED via PR #116 (squash `e6fbddc`; Alembic head `0062`). The Slice 55–63 loop is closed.** Tenant isolation is intact: `uaid_app` cannot INSERT/UPDATE `autonomy_policies` except through the SECURITY DEFINER writer. This is **not** go-live authority. `can_go_live_autonomously` is still the literal `False`. The Slice 61 exit stays **OPEN**. D-8 / D-9 / D-10 stay OPEN (owner = Salim). A5 remains `slice54.v1`, readiness `slice20.v1`. **STOP. No Slice 64. No new work.** The Slice 55–63 final report is `.planning/SLICE-55-63-FINAL-REPORT.md`.
 
 ---
 
