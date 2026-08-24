@@ -9,6 +9,7 @@ bounds B6), the repos, and the bit-stable no-A5/readiness guard. Deterministic โ
 """
 
 import uuid
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -97,8 +98,8 @@ def test_work_unit_ref_regex():
 # --- Docker-free: ยง8.3 transparent score -----------------------------------------
 
 
-def _inputs(**over):
-    base = dict(
+def _inputs(**over: Any) -> MatchInputs:
+    return MatchInputs(
         capability_match=1.0,
         domain_fit=1.0,
         tool_access_fit=1.0,
@@ -108,9 +109,8 @@ def _inputs(**over):
         risk_penalty=0.0,
         high_risk=False,
         eval_source="absent_until_slice40",
+        **over,
     )
-    base.update(over)
-    return MatchInputs(**base)
 
 
 def test_compute_capability_match():
@@ -507,7 +507,8 @@ async def test_squad_latest_and_history(sk_ctx):
         repo = SquadRepository(session, ctx)
         await repo.build_and_record(project_id=sk_ctx["p1"], work_units=wus, built_by="a")
         second = await repo.build_and_record(project_id=sk_ctx["p1"], work_units=wus, built_by="a")
-        assert (await repo.latest(sk_ctx["p1"])).id == second.id
+        got = await repo.latest(sk_ctx["p1"])
+        assert got is not None and got.id == second.id
         assert len(await repo.history(sk_ctx["p1"])) >= 2
 
 

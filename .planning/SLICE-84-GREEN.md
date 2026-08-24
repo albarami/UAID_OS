@@ -110,3 +110,21 @@ Trigger restored `tgenabled='O'`.
 ```
 27 passed in 3.94s
 ```
+
+## Pyright (eight §1 files)
+
+Sol code REJECT #1 required the eight §1 files to report 0 errors (plan §5).
+Pre-existing errors in `tests/test_skills.py` (`_inputs` / `latest()`) and
+`tests/test_risk_acceptance.py` (`ra_ctx` dict inferred `dict[str, str]`) were
+typed without suppressions and without a positive OD-1 delta.
+
+```
+uv run pyright tests/slice84_support.py tests/test_slice84_load_bearing.py \
+  tests/test_slice84_acceptance_guards.py tests/test_cost.py tests/test_skills.py \
+  tests/test_release_findings.py tests/test_release_issues.py tests/test_risk_acceptance.py
+0 errors, 0 warnings, 0 informations
+```
+
+`git diff --numstat d0f38fd` on the five pre-existing files remains non-positive:
+`test_cost.py` 3/36, `test_release_findings.py` 6/50, `test_release_issues.py` 2/40,
+`test_risk_acceptance.py` 4/21, `test_skills.py` 12/33.

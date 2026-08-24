@@ -8,6 +8,7 @@ events, record immutability guard, audit safe-metadata).
 
 import uuid
 from datetime import date
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -143,7 +144,7 @@ async def ra_ctx(admin_engine):
             c, "INSERT INTO organizations (name, slug) VALUES ('RaOrg',:s) RETURNING id",
             s=f"ra-org-{sfx}",
         )
-        out = {"sfx": sfx}
+        out: dict[str, Any] = {"sfx": sfx}
         for label in ("t1", "t2"):
             out[label] = await _scalar(
                 c, "INSERT INTO tenants (organization_id, name, slug) VALUES (:o,:n,:s) RETURNING id",
