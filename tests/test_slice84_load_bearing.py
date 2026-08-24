@@ -19,8 +19,10 @@ from tests.slice84_support import (
     disabled_trigger,
     err_text,
     expect_db_error,
+    expect_exact_primary,
     mint_global_skill_rows,
     perm_msg,
+    pg_primary_message,
     ra_insert_params,
     raw_risk_acceptance_insert_sql,
     runtime_sql,
@@ -101,11 +103,11 @@ async def test_p_mut_1_disabling_named_trigger_unmasks_neighbour(admin_engine):
 
 @pytest.mark.db
 async def test_p_green_2a_cascade_is_table_specific(admin_engine):
-    """TRUNCATE {table} CASCADE raises that table's append-only message."""
+    """TRUNCATE {table} CASCADE raises that table's append-only primary message."""
     for table in GLOBAL_TABLES:
         with pytest.raises(Exception) as ei:
             await _admin_truncate(admin_engine, f"TRUNCATE {table} CASCADE")
-        expect_db_error(ei.value, append_only_msg(table), "P0001")
+        expect_exact_primary(ei.value, append_only_msg(table), "P0001")
 
 
 @pytest.mark.db
@@ -117,7 +119,7 @@ async def test_p_green_2b_plain_truncate_fk_vs_leaf_trigger(admin_engine):
         expect_db_error(ei.value, CANNOT_TRUNCATE_FK, "0A000", absent=("append-only",))
     with pytest.raises(Exception) as ei:
         await _admin_truncate(admin_engine, "TRUNCATE agent_provided_skills")
-    expect_db_error(ei.value, append_only_msg("agent_provided_skills"), "P0001")
+    expect_exact_primary(ei.value, append_only_msg("agent_provided_skills"), "P0001")
 
 
 @pytest.mark.db
@@ -238,23 +240,28 @@ async def test_p_green_2f_admin_masking_controls(s84_ctx, admin_engine):
 
 @pytest.mark.db
 async def test_p_mut_2_disabling_named_truncate_unmasks_message(admin_engine):
-    """Disable {table}_no_truncate; CASCADE must not name that table's append-only text."""
+    """Disable {table}_no_truncate; P-GREEN-2a exact-primary equality must fail."""
     for table in GLOBAL_TABLES:
         trigger = f"{table}_no_truncate"
+        expected = append_only_msg(table)
         async with disabled_trigger(admin_engine, table, trigger):
             async with admin_engine.connect() as conn:
                 trans = await conn.begin()
                 try:
                     await conn.execute(text(f"TRUNCATE {table} CASCADE"))
-                    msg = ""
+                    green_would_fail = True
                 except Exception as exc:
-                    msg = err_text(exc)
+                    primary = pg_primary_message(exc)
+                    assert primary != expected, primary
+                    with pytest.raises(AssertionError):
+                        expect_exact_primary(exc, expected, "P0001")
+                    if table == "skills":
+                        assert primary == append_only_msg("agent_provided_skills")
+                    green_would_fail = True
                 finally:
                     await trans.rollback()
         assert await trigger_fire_state(admin_engine, trigger) == "O"
-        # Prefix the table name so "skills is append-only" cannot match
-        # "agent_provided_skills is append-only" as a substring.
-        assert f"RaiseError'>: {table} is append-only" not in msg
+        assert green_would_fail
 
 
 async def run_risk_acceptance_cross_tenant(ra_ctx, rls_engine) -> None:

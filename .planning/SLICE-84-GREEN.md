@@ -31,10 +31,23 @@ tgenabled after restore: O
 
 ## P-GREEN-2a — `TRUNCATE {table} CASCADE`
 
+MESSAGE_PRIMARY exact equality (Sol REJECT #2: `skills is append-only` is a
+substring of `agent_provided_skills is append-only` on the SQLAlchemy wrapper).
+
 ```
 skills                         P0001  skills is append-only / immutable (no UPDATE/DELETE/TRUNCATE)
 agent_skill_capabilities       P0001  agent_skill_capabilities is append-only / immutable (no UPDATE/DELETE/TRUNCATE)
 agent_provided_skills          P0001  agent_provided_skills is append-only / immutable (no UPDATE/DELETE/TRUNCATE)
+```
+
+## P-MUT-2 — `{table}_no_truncate` disabled, same CASCADE
+
+```
+skills                         PRIMARY= agent_provided_skills is append-only / immutable (no UPDATE/DELETE/TRUNCATE)
+                               skills exact-primary assertion raises AssertionError
+agent_skill_capabilities       PRIMARY= agent_provided_skills is append-only / immutable (no UPDATE/DELETE/TRUNCATE)
+agent_provided_skills          CASCADE succeeded (named trigger did not fire)
+tgenabled after restore: O
 ```
 
 ## P-GREEN-2b — plain TRUNCATE neighbour control

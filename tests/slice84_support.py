@@ -58,6 +58,33 @@ def err_text(exc: BaseException) -> str:
     return str(exc)
 
 
+def pg_primary_message(exc: BaseException) -> str:
+    """Return PostgreSQL MESSAGE_PRIMARY, never the SQLAlchemy wrapper.
+
+    asyncpg's adapter stores ``<class 'asyncpg.exceptions.RaiseError'>: <pg
+    message>``. Substring search on the wrapper is unsafe: ``skills is
+    append-only`` is inside ``agent_provided_skills is append-only``.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        args = getattr(current, "args", ())
+        if args:
+            raw = str(args[0]).strip()
+            if raw.startswith("<class '") and ">: " in raw:
+                return raw.split(">: ", 1)[1]
+            if getattr(current, "sqlstate", None) or getattr(current, "pgcode", None):
+                if not raw.startswith("(") and not raw.startswith("<class"):
+                    return raw
+        nxt = getattr(current, "orig", None)
+        if isinstance(nxt, BaseException):
+            current = nxt
+            continue
+        current = current.__cause__ or current.__context__
+    raise AssertionError(f"no postgres primary message in {exc!r}")
+
+
 def sqlstate_of(exc: BaseException) -> str | None:
     """Return SQLSTATE from a SQLAlchemy/asyncpg error chain."""
     if isinstance(exc, Exception):
@@ -78,6 +105,13 @@ def expect_db_error(
     lowered = text_.lower()
     for snippet in absent:
         assert snippet.lower() not in lowered, text_
+
+
+def expect_exact_primary(exc: BaseException, message: str, sqlstate: str) -> None:
+    """Assert MESSAGE_PRIMARY equals ``message`` (not a neighbour substring)."""
+    primary = pg_primary_message(exc)
+    assert primary == message, (primary, message)
+    assert sqlstate_of(exc) == sqlstate, (sqlstate_of(exc), primary)
 
 
 async def trigger_fire_state(engine: AsyncEngine, name: str) -> str:
