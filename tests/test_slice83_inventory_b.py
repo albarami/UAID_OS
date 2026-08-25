@@ -1,4 +1,4 @@
-"""Slice 83 commit-5 inventory mutations (P-MUT-8…10, 14…16)."""
+"""Slice 83 inventory mutations plus commit-6 subtier tests 8–9."""
 
 from __future__ import annotations
 
@@ -17,9 +17,11 @@ from tests.test_slice83_inventory import (
     _od8_maps,
 )
 from tests.writer_inventory import (
+    A1_LEAF_IDS,
     B2_EDGE_EVIDENCE,
     CANDIDATE_ENDPOINTS,
     PENDING_TIER_A_BATCHES,
+    SUBTIER,
     TIER_A_NODES,
     WRITE_LEAVES,
     B2EdgeEvidence,
@@ -206,3 +208,55 @@ def test_p_mut_16_shared_b2_uncited_edge() -> None:
     )
     with pytest.raises(AssertionError, match="register_connector"):
         _assert_b2_edge_evidence((cand_a, cand_b), (leaf, parent), only_a)
+
+
+_PLAN_A1_LEAF_IDS = frozenset(
+    {
+        "audit_logs.uq_audit_logs_seq",
+        "audit_logs.uq_audit_logs_entry_hash",
+        "go_live_decisions.uq_gld_previous",
+        "go_live_decisions.uq_gld_entry_hash",
+        "go_live_decisions.uq_gld_project_root",
+        "go_live_decisions.uq_gld_evaluation",
+        "control_loop_events.uq_cle_run_ordinal",
+        "control_loop_events.uq_cle_previous",
+        "control_loop_events.uq_cle_loop_root",
+        "acceptance_criterion_authorship_records.uq_acar_criterion_sequence",
+        "acceptance_criterion_authorship_records.uq_acar_supersedes_once",
+        "emergency_stop_events.uq_ese_previous",
+        "emergency_stop_events.uq_ese_project_root",
+        "emergency_stop_events.uq_ese_idempotency",
+        "production_preapproval_lifecycle_events.uq_pple_previous",
+        "production_preapproval_lifecycle_events.uq_pple_attestation_event",
+        "production_preapproval_lifecycle_events.uq_pple_idempotency",
+        "budgets.uq_budgets_tenant_id_project_id",
+        "autonomy_policies.uq_autonomy_policies_tenant_id_project_id",
+        "admin_policy_changes.uq_admin_policy_changes_action",
+        "run_checkpoint_writes.uq_run_checkpoint_writes_id",
+    }
+)
+
+
+def test_p_inventory_8_every_tier_a_leaf_has_one_subtier() -> None:
+    """Inventory test 8: every Tier-A leaf has exactly one A1/A2/A3 subtier."""
+    allowed = {"A1", "A2", "A3"}
+    tier_a = {leaf.leaf_id for leaf in WRITE_LEAVES if leaf.tier == "A"}
+    other = {leaf.leaf_id for leaf in WRITE_LEAVES if leaf.tier != "A"}
+    assert set(SUBTIER) == tier_a
+    assert set(SUBTIER.values()) <= allowed
+    for leaf_id, subtier in SUBTIER.items():
+        assert subtier in allowed, leaf_id
+    leaked = other & set(SUBTIER)
+    assert not leaked, sorted(leaked)
+
+
+def test_p_inventory_9_a1_set_matches_plan() -> None:
+    """Inventory test 9: A1 equals plan §0A.3; A2/A3 cardinalities are 38/53."""
+    a1 = {leaf_id for leaf_id, subtier in SUBTIER.items() if subtier == "A1"}
+    a2 = {leaf_id for leaf_id, subtier in SUBTIER.items() if subtier == "A2"}
+    a3 = {leaf_id for leaf_id, subtier in SUBTIER.items() if subtier == "A3"}
+    assert a1 == A1_LEAF_IDS == _PLAN_A1_LEAF_IDS
+    assert "run_checkpoint_writes.uq_run_checkpoint_writes_id" in a1
+    assert len(a2) == 38, len(a2)
+    assert len(a3) == 53, len(a3)
+    assert len(a1) == 21, len(a1)
