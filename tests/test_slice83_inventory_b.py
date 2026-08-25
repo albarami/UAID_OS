@@ -361,7 +361,7 @@ async def test_p_mut_18_serializable_loser_sqlstate(rls_engine, admin_engine) ->
     for _ in range(8):
         result = await _gld_first_race(rls_engine, admin_engine)
         _assert_s55_node(result, _RETRYABLE)
-        if result.w2_error is not None:
+        if isinstance(result.w2_error, Exception):
             observed = pg_state(result.w2_error)
             if observed in _RETRYABLE:
                 break
@@ -386,7 +386,8 @@ async def test_p_mut_18_serializable_loser_sqlstate(rls_engine, admin_engine) ->
         from tests.slice83_support import assert_no_integrity_error
 
         assert_no_integrity_error(mutated)
-        assert pg_state(mutated.w2_error) in _RETRYABLE if mutated.w2_error else True
+        assert isinstance(mutated.w2_error, Exception)
+        assert pg_state(mutated.w2_error) in _RETRYABLE
         with pytest.raises(AssertionError, match="committed"):
             _assert_s55_node(mutated, _RETRYABLE)
     assert _S55_LEAF in TIER_A_NODES

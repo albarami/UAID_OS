@@ -73,7 +73,7 @@ async def test_p_green_1_budget_upsert_first_write(rls_engine, admin_engine):
         result.w1_value.id,
         result.unique_row_count,
         audits,
-        pg_state(result.w2_error),
+        pg_state(result.w2_error) if isinstance(result.w2_error, Exception) else None,
     )
 
 
