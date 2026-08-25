@@ -1031,6 +1031,7 @@ limitations: `f021_test_integrity_only_no_production_guard_added`,
 `ci_pyright_scope_still_s55_63_full_repo_typecheck_is_f017`,
 `f004_approval_events_tool_calls_allowlist_owner_mutation_still_succeeds`.
 **Honesty crux:** Slice 84 changed tests only. It added no migration, no guard, no grant, and no production code: Alembic head stays `0062`. What is now true is that five previously masked assertions execute the operation that reaches the named guard and pin that guard's exact message and SQLSTATE — the `cost_events` immutability trigger via `TRUNCATE ... CASCADE`, the three global skill append-only triggers via controlled `TRUNCATE ... CASCADE`, the `uaid_app` SELECT-only grant on all three global tables via structurally valid INSERTs, the `critical findings cannot be accepted` repository branch via a direct `accept()` call, the finding and issue acceptance guards via direct SQL over separately valid wrong-project and wrong-subject records, and the risk-acceptance tenant boundary via a structurally valid cross-tenant SQL INSERT. Each is paired with a mutation probe that disables only that guard and shows the test fail. This does not make any of those guards stronger, does not close F-002, F-003, F-004, F-005, F-017, or F-020, and does not prove the rest of the suite is load-bearing — it repairs the five regressions the audit named and nothing else. A usable risk-acceptance record for a critical finding is structurally impossible (`app/repositories/risk_acceptance.py:120-123`), so the critical-accept test supplies a separately valid non-critical record purely to reach the refusal. On the risk-acceptance table the tenant-scoped Slice-47 binding guard refuses a cross-tenant INSERT before PostgreSQL evaluates the row-level security policy; RLS attribution is therefore proven on a second probe that disables only that guard. `can_go_live_autonomously` remains the literal `False`, A5 remains `slice54.v1`, and readiness remains `slice20.v1`.**
+**Slice 83 / F-020 writer concurrency MERGED via PR #122 (squash `16626c5`).** A1 = **21** (≤40 trip-wire; not a halt). 168 leaves: A1 21 / A2 38 / A3 53 / B1 54 / B2 2. Production change is A1 `lock_project_row` on the four §0A.5 modules plus existing atomic conflict handling; A2/A3 tests only. Alembic head stays `0062`. Named A1 ledger: 18/18 passed (`tests/test_slice83_a1_ledger.py` + `tests/test_slice83_a1_ledger_b.py`, `--override-ini addopts= -v`). Suites: `make test` 1277/1316; `make test-db` 1316/1277. Code REVIEWER GPT-5.6 Sol (`c19a342a-2d80-48dd-85ba-6cd9042e9533`) APPROVE. A5 `slice54.v1`; readiness `slice20.v1`; `can_go_live_autonomously` remains the literal `False`. Next: Slice 71 / F-008.**
 Beyond the original scaffold: the persistence spine (async
 SQLAlchemy + Alembic, four tenant-scoped tables, app-layer scoping, honest
 liveness/readiness), DB-level tenant isolation via Postgres RLS (Slice 1b), a
@@ -1808,7 +1809,7 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
   (DB-backed `db` + Docker-free units) and `conftest.py`
   (admin fixtures build/seed `app_test`; `rls_engine` as `uaid_app`; per-test transaction rollback;
   auto-dispose of the `app.db` engine).
-  **`make test` → 1277 passing (Docker-free); `make test-db` → 1104 passing (DB-backed: tenancy,
+  **`make test` → 1277 passing (Docker-free); `make test-db` → 1316 passing (DB-backed: tenancy,
   readiness, RLS, audit, policy, approval, tool-broker, agent-registry, cost-ledger, runtime,
   document-intake, the read API [real-HTTP auth deny-by-default, cross-tenant denial via
   dependency→tenant_scope/RLS, read-only, catalog, + D4 SECURITY-DEFINER resolver: EXECUTE-only,
@@ -1916,7 +1917,7 @@ readiness stays `slice20.v1`, and `can_go_live_autonomously` remains the literal
 ## How to run
 ```
 make test                                  # Docker-free tests (no services) — 1277 passing
-RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1104 passing
+RLS_DB_PASSWORD=... make test-db           # DB-backed tests (needs `make up`) — 1316 passing
 make fmt                                   # ruff format + lint
 make up                                    # start Postgres/Redis/Chroma (needs Docker)
 make dev                                   # run API at http://localhost:8000
