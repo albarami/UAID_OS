@@ -41,6 +41,7 @@ class TwoWriterResult:
     pending_before_commit: bool
     unique_row_count: int
     wait: dict[str, Any]
+    w2_settled: str
 
 
 async def bind_tenant(session: AsyncSession, tenant_id: uuid.UUID) -> None:
@@ -166,6 +167,22 @@ async def _session_on(engine: AsyncEngine, isolation_level: str) -> tuple[Any, A
     return conn, trans, session
 
 
+async def settle_w2_transaction(
+    trans: Any,
+    session: AsyncSession,
+    w2_error: BaseException | None,
+    retryable_loser_sqlstates: tuple[str, ...],
+) -> str:
+    """Roll back an aborted or retryable W2; commit only a still-open successful W2."""
+    state = pg_state(w2_error) if isinstance(w2_error, Exception) else None
+    if w2_error is not None or state in retryable_loser_sqlstates:
+        await session.rollback()
+        await trans.rollback()
+        return "rolled_back"
+    await trans.commit()
+    return "committed"
+
+
 async def run_two_writers(
     *,
     engine: AsyncEngine,
@@ -194,6 +211,7 @@ async def run_two_writers(
     w2_error: BaseException | None = None
     wait: dict[str, Any] = {"blocked_at_write": False}
     pending_before_commit = False
+    w2_settled = "rolled_back"
     try:
         if tenant_id is not None:
             await bind_tenant(s1, tenant_id)
@@ -223,16 +241,16 @@ async def run_two_writers(
             w2_error = exc
             if not w2_task.done():
                 w2_task.cancel()
+        try:
+            w2_settled = await settle_w2_transaction(
+                trans2, s2, w2_error, retryable_loser_sqlstates
+            )
+        except BaseException:
             try:
                 await trans2.rollback()
             except BaseException:
                 pass
-        else:
-            state = pg_state(w2_error) if w2_error else None
-            if state in retryable_loser_sqlstates:
-                await trans2.rollback()
-            else:
-                await trans2.commit()
+            raise
     finally:
         await s1.close()
         await s2.close()
@@ -249,6 +267,7 @@ async def run_two_writers(
         pending_before_commit=pending_before_commit,
         unique_row_count=count,
         wait=wait,
+        w2_settled=w2_settled,
     )
 
 

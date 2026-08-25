@@ -312,6 +312,11 @@ def _assert_tier_a_registration(leaves, nodes=TIER_A_NODES, pending=PENDING_TIER
         assert leaf_id not in nodes, leaf_id
 
 
+def _assert_pending_empty(pending: frozenset[str] = PENDING_TIER_A_BATCHES) -> None:
+    """Commit-14 close-out: no Tier-A leaf may remain pending."""
+    assert pending == frozenset(), sorted(pending)
+
+
 def _assert_index_coverage(candidates, leaves, collidable: dict[str, set[str]]) -> None:
     leaves_by = {leaf.leaf_id: leaf for leaf in leaves}
     for candidate in candidates:
@@ -386,8 +391,9 @@ async def test_p_inventory_3_tier_derivation(admin_engine) -> None:
 
 
 def test_p_inventory_4_tier_a_pending_union() -> None:
-    """Inventory test 4: Tier A == registered ⊎ pending (commit-5 shape)."""
+    """Inventory test 4: Tier A == registered ⊎ pending; pending is empty at commit 14."""
     _assert_tier_a_registration(WRITE_LEAVES, TIER_A_NODES, PENDING_TIER_A_BATCHES)
+    _assert_pending_empty(PENDING_TIER_A_BATCHES)
 
 
 @pytest.mark.asyncio

@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.test_slice83_inventory import (
     B2_SQL,
     _assert_b2_catalog,
     _assert_b2_edge_evidence,
     _assert_index_coverage,
+    _assert_pending_empty,
     _assert_tier_a_registration,
     _assert_tier_derivation,
+    _node_exists,
     _od8_maps,
 )
 from tests.writer_inventory import (
@@ -238,7 +243,7 @@ _PLAN_A1_LEAF_IDS = frozenset(
 
 
 def test_p_inventory_8_every_tier_a_leaf_has_one_subtier() -> None:
-    """Inventory test 8: every Tier-A leaf has exactly one A1/A2/A3 subtier."""
+    """Inventory test 8: every Tier-A leaf has a collectible node and one A1/A2/A3 subtier."""
     allowed = {"A1", "A2", "A3"}
     tier_a = {leaf.leaf_id for leaf in WRITE_LEAVES if leaf.tier == "A"}
     other = {leaf.leaf_id for leaf in WRITE_LEAVES if leaf.tier != "A"}
@@ -248,6 +253,12 @@ def test_p_inventory_8_every_tier_a_leaf_has_one_subtier() -> None:
         assert subtier in allowed, leaf_id
     leaked = other & set(SUBTIER)
     assert not leaked, sorted(leaked)
+    _assert_pending_empty()
+    for leaf_id in tier_a:
+        nodes = TIER_A_NODES[leaf_id]
+        assert nodes, leaf_id
+        for node in nodes:
+            assert _node_exists(node), node
 
 
 def test_p_inventory_9_a1_set_matches_plan() -> None:
@@ -260,3 +271,122 @@ def test_p_inventory_9_a1_set_matches_plan() -> None:
     assert len(a2) == 38, len(a2)
     assert len(a3) == 53, len(a3)
     assert len(a1) == 21, len(a1)
+
+
+_EVIDENCE = Path(".planning/SLICE-83-LEAF-EVIDENCE.md")
+_RETRYABLE = ("40001", "40P01")
+_S55_LEAF = "go_live_decisions.uq_gld_project_root"
+
+
+def test_p_inventory_a1_evidence_citations() -> None:
+    """Commit 14: every A1 evidence row cites the read and the derived write."""
+    body = _EVIDENCE.read_text()
+    section = body.split("## 1. Tier A1", 1)[1].split("## 2. Tier A2", 1)[0]
+    found = list(re.finditer(r"^### `([^`]+)`", section, flags=re.M))
+    ids = [match.group(1) for match in found]
+    assert set(ids) == A1_LEAF_IDS == _PLAN_A1_LEAF_IDS
+    for index, match in enumerate(found):
+        end = found[index + 1].start() if index + 1 < len(found) else len(section)
+        block = section[match.end() : end]
+        assert "**Read of committed state**" in block, match.group(1)
+        assert "**Derived value written**" in block, match.group(1)
+
+
+def test_p_mut_17_pending_cannot_hide() -> None:
+    """P-MUT-17: a pending real leaf fails final-empty; registered/B1 pending fail union."""
+    target = "budgets.uq_budgets_tenant_id_project_id"
+    reduced = {key: value for key, value in TIER_A_NODES.items() if key != target}
+    hidden = frozenset({target})
+    _assert_tier_a_registration(WRITE_LEAVES, reduced, hidden)
+    with pytest.raises(AssertionError, match=re.escape(target)):
+        _assert_pending_empty(hidden)
+    with pytest.raises(AssertionError, match=re.escape(target)):
+        _assert_tier_a_registration(WRITE_LEAVES, TIER_A_NODES, frozenset({target}))
+    b1 = next(leaf for leaf in WRITE_LEAVES if leaf.tier == "B1")
+    with pytest.raises(AssertionError, match=re.escape(b1.leaf_id)):
+        _assert_tier_a_registration(WRITE_LEAVES, TIER_A_NODES, frozenset({b1.leaf_id}))
+
+
+def _assert_s55_node(result: object, retryable: tuple[str, ...]) -> None:
+    from tests.slice83_support import TwoWriterResult, assert_no_integrity_error
+    from tests.admin_support import pg_state
+
+    assert isinstance(result, TwoWriterResult)
+    assert_no_integrity_error(result)
+    assert result.unique_row_count == 1
+    assert result.w1_error is None
+    if result.w2_error is not None:
+        state = pg_state(result.w2_error) if isinstance(result.w2_error, Exception) else None
+        assert result.w2_settled == "rolled_back", result.w2_settled
+        assert state in retryable, state
+
+
+async def _gld_first_race(rls_engine, admin_engine, retryable: tuple[str, ...] = _RETRYABLE):
+    from app.repositories.go_live_decisions import GoLiveDecisionRepository
+    from tests.slice83_a1_ledger_support import seed_gld_evaluations
+    from tests.slice83_support import SERIALIZABLE, run_two_writers
+
+    world = await seed_gld_evaluations(admin_engine, count=2)
+    eval_a, eval_b = world["evaluations"]
+
+    async def writer_a(session: AsyncSession):
+        return await GoLiveDecisionRepository(session, world["ctx"]).finalize_decision(eval_a)
+
+    async def writer_b(session: AsyncSession):
+        return await GoLiveDecisionRepository(session, world["ctx"]).finalize_decision(eval_b)
+
+    return await run_two_writers(
+        engine=rls_engine,
+        admin_engine=admin_engine,
+        isolation_level=SERIALIZABLE,
+        tenant_id=world["tenant"],
+        writer=writer_a,
+        writer_w2=writer_b,
+        retryable_loser_sqlstates=retryable,
+        count_sql=(
+            "SELECT count(*) FROM go_live_decisions "
+            "WHERE tenant_id=:t AND project_id=:p AND previous_decision_id IS NULL"
+        ),
+        count_params={"t": world["tenant"], "p": world["project"]},
+    )
+
+
+@pytest.mark.asyncio
+async def test_p_mut_18_serializable_loser_sqlstate(rls_engine, admin_engine) -> None:
+    """P-MUT-18: slice55 loser SQLSTATE is exact; aborted W2 is rolled back, never committed."""
+    from tests.admin_support import pg_state
+
+    observed = None
+    result = None
+    for _ in range(8):
+        result = await _gld_first_race(rls_engine, admin_engine)
+        _assert_s55_node(result, _RETRYABLE)
+        if result.w2_error is not None:
+            observed = pg_state(result.w2_error)
+            if observed in _RETRYABLE:
+                break
+    assert result is not None
+    assert observed in _RETRYABLE, observed
+    assert observed != "23505"
+    reduced = tuple(state for state in _RETRYABLE if state != observed)
+    with pytest.raises(AssertionError, match=re.escape(str(observed))):
+        _assert_s55_node(result, reduced)
+
+    async def commit_aborted(trans, session, w2_error, retryable_loser_sqlstates):
+        await trans.commit()
+        return "committed"
+
+    with patch("tests.slice83_support.settle_w2_transaction", commit_aborted):
+        mutated = None
+        for _ in range(8):
+            mutated = await _gld_first_race(rls_engine, admin_engine)
+            if mutated.w2_error is not None:
+                break
+        assert mutated is not None
+        from tests.slice83_support import assert_no_integrity_error
+
+        assert_no_integrity_error(mutated)
+        assert pg_state(mutated.w2_error) in _RETRYABLE if mutated.w2_error else True
+        with pytest.raises(AssertionError, match="committed"):
+            _assert_s55_node(mutated, _RETRYABLE)
+    assert _S55_LEAF in TIER_A_NODES
