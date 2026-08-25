@@ -32,10 +32,10 @@ app/repositories/catalog_adoptions.py|33|adopt|pg_insert|tenant_catalog_adoption
 app/repositories/ci_evidence.py|35|record_branch_protection|orm_add|branch_protection_snapshots
 app/repositories/ci_evidence.py|60|record_connector_verified_branch_protection|orm_add|branch_protection_snapshots
 app/repositories/classification.py|289|_record|orm_add|document_classifications
-app/repositories/cost.py|47|record|orm_add+pg_insert|cost_events
-app/repositories/cost.py|184|upsert|pg_insert|budgets
-app/repositories/cost_forecast_persistence.py|45|_record_refusal|orm_add|cost_forecast_runs
-app/repositories/cost_forecast_persistence.py|117|_persist_success|orm_add|cost_forecast_dimension_results,cost_forecast_input_lines,cost_forecast_ledger_event_refs,cost_forecast_runs
+app/repositories/cost.py|48|record|orm_add+pg_insert|cost_events
+app/repositories/cost.py|187|upsert|pg_insert|budgets
+app/repositories/cost_forecast_persistence.py|50|_record_refusal|orm_add|cost_forecast_runs
+app/repositories/cost_forecast_persistence.py|122|_persist_success|orm_add|cost_forecast_dimension_results,cost_forecast_input_lines,cost_forecast_ledger_event_refs,cost_forecast_runs
 app/repositories/cost_forecasts.py|74|record_policy_version|pg_insert|cost_forecast_policy_versions
 app/repositories/cost_optimizer.py|32|recommend|orm_add|cost_optimizer_citations,cost_optimizer_runs
 app/repositories/deployments.py|48|_record|orm_add|deployment_target_snapshots
