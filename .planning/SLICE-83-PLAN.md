@@ -1,22 +1,117 @@
 # Slice 83 — F-020 writer concurrency: six first-write signatures + the 122-candidate barrier suite
 
-**Seats.** **Seat swap is active.** PLANNER for v5 = **GPT-5.6 Sol** (`85ddfaa0`), implementing the
-plan after rejecting the Opus-authored v1, v2, and v3 line three consecutive times. REVIEWER for v5 =
-**Claude Opus** (`c6b5cbc0-d59e-4938-8cd7-0a289274749e`), the sole approval authority for this plan;
-Sol does **not** review his own output.
-BUILDER after plan APPROVE = **Cursor Grok 4.6 Extra High**, which implements exactly the approved
-plan and never edits it.
+**Seats (v9, current).** PLANNER = **GPT-5.6 Sol**. REVIEWER = **Claude Opus**, the available
+substitute for the owner-named **Claude Fable 5**; that substitution is recorded here and is not
+silent. The planner revises this file only. `.planning/SLICE-83-LEAF-EVIDENCE.md` remains planner-owned
+and unchanged because its live A1 contracts already lock `projects` via `lock_project_row`; the
+builder edits neither planner-owned file.
 
-**Version.** **v5 — seat-swap implementation, post-swap REJECT #1.** Claude Opus rejected Sol's v4
-with `PLAN REJECT — Slice 83 v4`. Two more consecutive Opus REJECTs of the Sol-authored line trigger
-the owner's **escalation-failure halt**. The planning/review seats do not change in v5.
+**Seat-swap status (owner ruling, 2026-08-25).** The prior Opus-authored amendment line has **three**
+REJECTs: v6, v7, and v8. The owner ruling of 2026-08-25 is still **not** a reject. The swapped-pair
+reject counter resets to **0** for this Sol-authored line; **three consecutive Opus REJECTs halt the
+run**. After PLAN APPROVE, the implementation seats revert: BUILDER = **Cursor Grok 4.6 Extra High**,
+resuming from **commit 6**, and REVIEWER = **GPT-5.6 Sol** for code.
+
+**Version.** **v9 — both v8 blockers accepted in full (2026-08-25).**
+
+> ### **PLAN REJECT — Slice 83 v8**
+>
+> Reviewer **GPT-5.6 Sol**, agent `c7a97392-0a24-41a4-8d60-d8374f2b5e57`. This is the **third
+> REJECT of the prior Opus-authored amendment line** and fires the owner-ruled seat swap. Both blockers
+> are accepted in full below; neither is argued down.
+>
+> 1. BLOCKER — stale live counts remain. `.planning/SLICE-83-PLAN.md:169-170,1690-1692,1760-1762`
+> still state 20/39 and the 11/9 split. Replace with 21/38 and commit 7 = 9, commit 8 = 12.
+>
+> 2. BLOCKER — OD-9 still carries the obsolete schedule.
+> `.planning/SLICE-83-PLAN.md:1498,1741-1743,1796-1802,2035-2040,2244-2245` still say nine commits,
+> removals through commit 9, and final-empty at commit 9. Replace with fourteen commits, removals in
+> commits 7–13, and final-empty at commit 14.
+
+> ### **PLAN REJECT — Slice 83 v7**
+>
+> Reviewer **GPT-5.6 Sol**, agent `64f1e982-6d60-4f1a-af81-79eba8c67d64`. This is **consecutive REJECT
+> #2 of the amendment line**. It is **not yet a seat swap**: the planner seat stays Claude Opus
+> (substituting for Claude Fable 5) and the reviewer seat stays Sol; a **third** consecutive REJECT
+> swaps them. All four defects are **probe-backed** and are **accepted in full below — none is argued
+> down**.
+
+> ### **PLAN REJECT — Slice 83 v6**
+>
+> Reviewer **GPT-5.6 Sol**, agent `27f3f958-ac5a-493f-ae91-ca04c6bdcf6e`. This is the **first
+> consecutive REJECT of the v6 amendment line**, and it is **not a seat swap**: the planner seat stays
+> Claude Opus (substituting for Claude Fable 5) and the reviewer seat stays Sol. All three defects are
+> **probe-backed** and are **accepted in full below — none is argued down**.
+
+The **OD-9 halt after commit 5 was CORRECT** and remains discharged by the owner's ruling of
+2026-08-25, not by a reject. Commits **1–5 are landed and are not re-planned**; v9 governs commit
+**6** onward. Reject tally on the prior Opus-authored amendment line: **3** (v6, v7, v8). The new
+swapped-pair reject counter is **0**. The v5 approval of everything the v6/v7/v8/v9 amendments do not
+touch still stands.
+
+**v9 authority.** Where v9 conflicts with v8, **v9 governs** and the v8 statement is superseded in
+place. Where v8 conflicts with v7, **v8 governs**. Where v7 conflicts with v6 §0A, **v7 governs**.
+Where v6 §0A conflicts with any v1–v5 statement, **§0A governs**. Every v1–v5 lock that §0A and the
+v7/v8/v9 blocks do not touch remains binding.
+
+**The live contract's counts, stated once and authoritatively (v9).** **A1 = 21, A2 = 38, A3 = 53**
+(112 Tier-A), **B1 = 54, B2 = 2** (168 total). Of the 21 A1 leaves, **9 are module-owned** (the four
+§0A.5 modules, commit 7) and **12 are barrier-alone** (commit 8, including
+`run_checkpoint_writes.uq_run_checkpoint_writes_id`). The branch has **fourteen commits total**:
+commits **1–5** are landed, commit **6** publishes subtiers without shrinking pending, commits
+**7–13** land nodes and remove their pending IDs, and commit **14** asserts final-empty. Every
+execution-facing sentence — OD-7/8/9, §0A.1, the inventory tests, P-MUT-17, the GitHub commit count,
+and §3.3–3.6 — matches those counts and that schedule. Any superseded count or schedule remaining in
+this file appears only inside explicitly struck text, a historical quotation, or a defect-table
+"from" column and is not the contract.
+
+**v9 corrections — both of Sol's v8 defects accepted in full, none argued down.**
+
+| # | Sol's v8 defect | Correction in v9 |
+|---|---|---|
+| 1 | **Stale live counts remained.** §0A.1 and OD-8 still carried the pre-v7 A1/A2 totals, while OD-9 still carried the transposed A1 batch split. | **Accepted.** Every live contract now states **A1 = 21 / A2 = 38 / A3 = 53**, commit 7 = **9 module-owned** leaves, and commit 8 = **12 barrier-alone** leaves including `run_checkpoint_writes`. Coverage remains **112** Tier-A leaves. |
+| 2 | **OD-9 still carried the obsolete schedule.** The frozen pending comment, Option A lock, sequencing rules, inventory test 4, P-MUT-17, and reviewer confirmations still ended the work too early. | **Accepted.** The live contract now has **fourteen commits**; commit 6 publishes subtiers without shrinking pending; only commits **7–13** remove a pending ID as its node lands; commit **14** asserts final-empty. No 83a/83b split is introduced. |
+
+**v8 corrections — all four of Sol's v7 defects accepted in full, none argued down.** All four were
+**mechanical-completeness** defects: v7 corrected the authoritative sections but did not propagate the
+corrections to every dependent sentence. v8 fixes the propagation and adds the standing count
+statement above so a future amendment has one place to change.
+
+| # | Sol's v7 defect (probe-backed) | Correction in v8 |
+|---|---|---|
+| 1 | **Counts not propagated.** The v7 honesty crux (`:962-966`), the allowed-claims list (`:1046-1047`), and three test-file table rows (`:1263`, `:1265`, `:1266`) still described the contract as **20** A1 / **39** A2, with commit 7 covering `11` leaves and commit 8 covering `9`. | **Accepted.** Every live-contract occurrence is now **A1 = 21, A2 = 38**; `A1_LEAF_IDS` holds **21** ids; commit 7 covers the **9** module-owned leaves; commit 8 covers the **12** barrier-alone leaves and names `run_checkpoint_writes` explicitly. The standing count statement above is added so the contract has a single authoritative home. The only surviving `20`/`39`/`11`/`9`-split strings are inside `~~struck~~` or explicitly historical quotations, verified by grep after the edit. |
+| 2 | **Evidence still mandated forbidden locks.** `.planning/SLICE-83-LEAF-EVIDENCE.md:85,112,157` still instructed the builder to lock `control_loop_runs` / `intake_artifacts` / `production_preapproval_attestations` — the exact three targets v7 struck as `42501`. The plan's crux (`:975-977`) and allowed-claims (`:1053-1056`) also still claimed "an existing parent or project row" and "**no import** is added", although v7 added three imports. | **Accepted, and widened beyond the three lines cited.** All **nine** `Production change — REQUIRED` rows in the evidence file were rewritten — not only the three Sol found — each now carrying the exact `lock_project_row(...)` insertion point from plan §0A.5 rows 1–4, with the struck v6 target retained inline as `~~…~~` so the history is visible and unusable. The plan's two claim sites now state the truth: the lock target is **`projects`** via the existing helper, and **three of the four modules newly import `lock_project_row`** (`emergency_controls.py` already owns it). **No GRANT, no migration** — head stays `0062`. |
+| 3 | **Pyright coverage incomplete.** `:2141-2147` omitted the four A1 production modules and `tests/writer_inventory_c.py` — the files this slice actually changes. | **Accepted.** All five paths are added to the mandatory local `pyright` invocation (and to the `wc -l` cap report), with existing owned paths kept. An honest scope note is added: the run is **local and mandatory at 0 errors on owned paths**, while **CI's `pyright` scope remains the Slice 55–63 paths** — widening it is **F-017**, which Slice 83 does not close. |
+| 4 | **OD-9 commit count.** `:2292` said "**Nine** atomic conventional commits" while the list beneath it enumerates fourteen. | **Accepted.** Corrected to **Fourteen**, with the arithmetic stated: commits **1–5 landed** + commits **6–14 remaining** = **14** total on the branch. OD-9's table remains the single authority. |
+
+**v7 corrections — all three of Sol's v6 defects accepted in full, none argued down.** Each was
+re-verified by the planner against live source and the live database before acceptance; the
+verification transcripts are recorded as grounding facts §0.1.29–§0.1.32.
+
+| # | Sol's v6 defect (probe-backed) | Correction in v7 |
+|---|---|---|
+| 1 | `run_checkpoint_writes.uq_run_checkpoint_writes_id` was wrongly **A2**. The v6 evidence citation stopped at `checkpointer.py:136-150`, **before** the true upsert. | **Accepted.** Live source `app/runtime/checkpointer.py:152-167` is `on_conflict_do_update(set_={channel, type, blob, task_path})` (§0.1.29) — an **upsert path**, which the owner's ruling lists as **A1**, and A2 requires create-once. The leaf moves to **A1** and takes a full A1 two-session node. Totals become **A1 = 21, A2 = 38**, A3 = 53; 21+38+53 = 112, unchanged. **21 ≤ 40, so still not a halt.** Per Sol's own note, `aput` at `:109` is `on_conflict_do_nothing`, so `run_checkpoints.uq_run_checkpoints_id` **stays A2** and is not moved. **Production change: NONE, decided honestly** — the existing `DO UPDATE` is one atomic statement with **no pre-read at all**, so no derived value can go stale and no `23505` reaches the caller; it already meets A1 GREEN. **No fifth §1a module is added**, and `app/runtime/checkpointer.py` stays out of §1a-v7. The last-writer-wins semantics of that `set_` clause are recorded as a named limitation (§0A.7) rather than claimed as proof of correctness. |
+| 2 | Three planned A1 locks **cannot execute** as `uaid_app`: v6 `:246,248-249` locked `intake_artifacts`, `control_loop_runs`, and `production_preapproval_attestations`, all SELECT/INSERT-only. Live `SELECT … FOR UPDATE` returned SQLSTATE **`42501`** on all three. | **Accepted.** Reproduced live as `uaid_app` on `app_test`: all three return `42501 permission denied`, while `projects FOR UPDATE` and `run_checkpoint_writes FOR UPDATE` succeed (§0.1.30, §0.1.31). **§0A.5 is re-locked to `projects FOR UPDATE` for all four modules**, via the existing in-repo helper `lock_project_row` (`app/repositories/emergency_controls.py:79`), following the precedent Sol cited (`slice55_finalize_decision`, migration `0054_control_loop_decisions.py:650`) and the two existing importers (`ops_stabilization.py:62`, `emergency_control_service.py:16`). **No GRANT, no migration, no new privilege** — Alembic head stays `0062`. The v6 claim "no new import" is corrected in place: three modules add exactly one import of an existing helper; no import cycle exists (§0.1.32). |
+| 3 | Four A1 writer citations were **stale**: evidence `:44,53,62,71` cited `go_live_decisions.py:443`, which is a **blank line**. `finalize_decision` begins at `:444`; the SQL call is at `:452`. | **Accepted.** Verified: `:443` is blank, `async def finalize_decision` is `:444`, the function spans `:444-473`, and `text("SELECT public.slice55_finalize_decision(:evaluation)")` is `:452` (§0.1.32). All four evidence rows now cite **`:444` (function, span `:444-473`) and `:452` (SQL call)**. The **inventory's** census wrapper span `app/repositories/go_live_decisions.py:443-472` is a **different coordinate system** — a hand-authored constant inside the landed Appendix-B `CENSUS_SCANNER` (commit 5) — and is **not** a claim about where the function starts. v7 keeps that landed constant byte-identical, states the discrepancy explicitly, forbids quoting the two interchangeably, and records it as the named limitation `census_wrapper_span_443_472_is_an_audit_constant_not_a_writer_citation` (§0A.7). |
+
+**v6 corrections — the owner's ruling, recorded in full.**
+
+| # | What the ruling changed | Correction in v6 |
+|---|---|---|
+| 1 | An earlier idea of shrinking Tier A **by redefinition** was WRONG. The owner verified against the migrations that ~76 unique constraints across ~66 tables are genuine caller-collidable create-once keys. | Tier A does **not** shrink. It stays **112 leaves**. It is **subdivided by CONSEQUENCE** into A1 / A2 / A3 (§0A.1). Coverage is not reduced: every one of the 112 keeps a retained two-session node. |
+| 2 | v5 treated all 112 Tier-A leaves as one class and would have added conflict handling wherever a `23505` could escape. | **GREEN is redefined per subtier** (§0A.4). For **A2** an escaped `23505` is the **CORRECT observed behaviour**, not a failure. **Adding conflict handling to an A2 or A3 leaf is now forbidden** — that is the Slice 61a mistake. |
+| 3 | v5's §1a production manifest was fixed at the ten files of commits 1–4. | §1a **expands to exactly the A1 writer modules that must change** — **four** modules (§0A.5) — **plus** the ten already landed. No extras. A2 and A3 are **tests only**. |
+| 4 | v5 had no rule preventing a builder from asserting a tier by judgement. | **Classification is evidence, not judgement** (§0A.2). Per leaf the plan records (a) the unique constraint name over caller-supplied columns, or its proven absence from the catalog, and (b) whether the writer reads-then-derives, with the **exact `file:line` of the read and of the derived value**. **A1 requires both cited.** A leaf placed in A2 or A3 without the catalog query and the read-then-derive check is a **defect**. All 168 leaves are evidenced in `.planning/SLICE-83-LEAF-EVIDENCE.md`. |
+| 5 | The A1 count had to be reported prominently and is a halt above 40. | **A1 = 21** (§0A.3) — ~~20~~, **superseded by v7 defect 1**. **21 ≤ 40, so this is not a halt** and the builder proceeds from commit 6 after Sol's APPROVE. A2 = 38 (~~39~~), A3 = 53, B1 = 54, B2 = 2; 21+38+53 = 112 and 112+54+2 = 168, both machine-checked. |
+| 6 | v5's OD-9 order stopped at commit 9. | OD-9 is **re-locked from commit 6** (§0A.6): A1 production+tests, then A2 tests, then A3 tests, `PENDING_TIER_A_BATCHES` shrinking monotonically, and a final commit asserting **no pending** and complete A1/A2/A3 registration. |
+| 7 | The owner expected the eight already-registered leaves to be "**likely** A1 (already fixed)". | Reported, not absorbed: on the evidence only **`budgets`** and **`autonomy_policies`** are A1. The other six — `agent_blueprints`, both `agent_versions` axes, `tenant_catalog_adoptions`, `cost_forecast_policy_versions`, `intake_artifacts` — are **A2** whose key columns are provably independent of any read. **All eight keep their registered nodes** (OD-9 compliance: coverage is not reduced). The consequence is stated plainly in §0A.8: measured against the amended standard, commit 4 hardened six writers of which only one was A1 — landed, not reverted, and the amended "no production change for A2" rule applies **prospectively from commit 6**. |
 
 **v5 corrections — all four of Opus's v4 defects accepted in full, none argued down.** The four v3
 defects remain closed; every unchallenged v1–v4 lock remains binding.
 
 | # | Opus's v4 defect | Correction in v5 |
 |---|---|---|
-| 1 | Commit 5 could not be green because inventory test 4 required nodes that do not land until commits 6–9. | OD-9 locks option **(b)**: code-owned `PENDING_TIER_A_BATCHES: frozenset[str]`. At commit 5 every Tier-A leaf is either registered or pending, never neither/both; all 122 candidates and all leaves are already inventoried. Commits 6–9 add nodes and remove the same leaf IDs atomically. Commit 9 adds the final-empty assertion. P-MUT-17 proves a leaf cannot remain hidden pending. |
+| 1 | Commit 5 could not be green because inventory test 4 required nodes that do not land until commits 6–9. | **Historical v5 lock — superseded by v6 §0A.6.** OD-9 locked option **(b)**: code-owned `PENDING_TIER_A_BATCHES: frozenset[str]`. At commit 5 every Tier-A leaf was either registered or pending, never neither/both; all 122 candidates and all leaves were already inventoried. v5 assigned atomic removals and node landings to commits 6–9 and final-empty to commit 9. **Current schedule: pending removals in commits 7–13; final-empty at commit 14.** P-MUT-17 proves a leaf cannot remain hidden pending. |
 | 2 | `ConcurrentWriteUnresolved` had a module but no locked base class, contradicting §0.1.12. | Exactly `class ConcurrentWriteUnresolved(Exception)` lives in `app/concurrency.py`. It is one shared caller-visible exception, not a subclass of any writer's domain root. Existing domain-error catchers do not catch it unless updated to catch it explicitly; this is intentional. |
 | 3 | The Tier-A harness had no SERIALIZABLE loser branch and tried to commit an already-aborted W2. | Isolation and retryable loser SQLSTATEs are explicit per leaf. Existing SERIALIZABLE writers run both connections at SERIALIZABLE and may return `40001`/`40P01` (or the owned wrapper's post-retry result). An aborted W2 is rolled back, never committed. SQLSTATE `23505` remains forbidden. P-MUT-18 makes both branches load-bearing. |
 | 4 | Three source citations drifted from `72ee544`. | Re-measured from source: budget pre-read `app/repositories/cost.py:199`; `promote_proposal` `app/repositories/extraction.py:296-401`; `record_policy_version` `app/repositories/cost_forecasts.py:153-228`. All active occurrences are corrected; wrong locked facts still trigger stop-and-report. |
@@ -29,7 +124,7 @@ constraints.
 |---|---|---|
 | 1 | P-GREEN-1b used three runtime-role transactions but did not re-bind transaction-local `app.current_tenant` after either commit. | New grounding fact §0.1.21 records the live `<unset>` result after `COMMIT`. The `two_committed_transactions(...)` helper, §3.1, P-GREEN-1b, §8.3b, and P-MUT-1c now require `SELECT set_config('app.current_tenant', :t, true)` **inside each of the three transactions**: txn 1, txn 2, and the independent confirming read. Omitting txn 2's bind must yield SQLSTATE `42501` from the `budgets` RLS policy. Session-level `set_config(..., false)` is forbidden. |
 | 2 | B2-5 was writer-specific but stored only on a deduplicated leaf, so one candidate's true citation could mask another candidate sharing the leaf. | OD-7 adds `B2_EDGE_EVIDENCE`, keyed by the exact candidate→leaf edge and carrying that candidate's citation plus exact parent leaf. Inventory test 7 enumerates every B2 edge. If any candidate sharing a leaf lacks valid B2-5 evidence, the **whole shared leaf** must be Tier A. P-MUT-16 proves one cited edge cannot mask one uncited edge. |
-| 3 | §3.1 still said “Commit per writer,” and OD-9 commit 5 said six §3.2 tests although §3.2 defines seven. | OD-9 remains the single authority: commits 1–2 splits, 3 RED, **4 one fix commit for all six writers**, 5 inventory with **seven** tests, 6–9 barrier batches. §3.1 now forbids six per-writer fix commits. |
+| 3 | §3.1 still said “Commit per writer,” and OD-9 commit 5 said six §3.2 tests although §3.2 defines seven. | **Historical v4 lock — superseded by v6 §0A.6 (commits 6–14 by subtier).** OD-9 remained the single authority: commits 1–2 splits, 3 RED, **4 one fix commit for all six writers**, 5 inventory with **seven** tests, then v4's 6–9 barrier batches. §3.1 now forbids six per-writer fix commits. |
 | 4 | `PromotionRefConflict` still had an unlocked “builder picks one home” choice, and §1a-split called the five modified production files six. | `PromotionRefConflict` is locked in `app/repositories/extraction_promotion.py`; `app/repositories/extraction.py` re-exports it. The manifest language now says **five modified, five created** throughout. |
 
 **v3 corrections — all four of Sol's v2 defects accepted in full, none argued down.** Each was
@@ -76,6 +171,382 @@ column, constraint, trigger, grant, or index is added, altered, or dropped.
 **Never** weaken, skip, `xfail`, or delete a test. **Never** re-grant a privilege to make a probe
 pass. **No** `pytest.raises(Exception)` without `match=`. **No** alternation across two different
 refusal classes in any assertion this slice writes.
+
+---
+
+## 0A. The owner-ruled tier amendment (v6, authoritative)
+
+This section governs the whole plan. It replaces v5's single Tier-A class with three consequence
+subtiers, redefines GREEN per subtier, derives the §1a production manifest, and re-locks the commit
+order from **6**. Nothing here reduces coverage, drops a tier, or splits Slice 83.
+
+### 0A.1 Tier definitions (amended)
+
+| Tier | Definition | Consequence of losing the race | Production change |
+|---|---|---|---|
+| **A1 — derived-write** | The writer **reads** committed state and writes a value **derived from that read** into the contended key: a hash-chain value, a `previous_*` pointer, a sequence/ordinal derived from a **count or head read**, a true upsert branch, a `supersedes_*` link, or any ledger predecessor. | The loser persists a **WRONG row, silently**. This is the **OD-11 class**. | **AUTHORIZED.** §1a expands to exactly this set. |
+| **A2 — independent-insert** | Create-once on a unique key over **caller-supplied or caller-derived** columns, and **no** inserted value depends on a prior read of that key. | The loser raises **`23505` to the caller and persists nothing wrong**. | **NONE.** Tests only. |
+| **A3 — append-only** | **No** collidable key over caller-supplied columns: the unique key contains an identifier minted **inside the same call**, so concurrent calls legitimately produce **distinct rows**. | Both callers succeed; no collision is reachable. | **NONE.** Tests only. |
+| **B1** | Unchanged from v5: the table is absent from the OD-8 collidable query. | — | None. |
+| **B2** | Unchanged from v5: child writers covered by their parent's node under B2-1…B2-5. | — | None. |
+
+**Forbidden.** Do **not** add conflict handling to an A2 or A3 leaf. An escaped `23505` on an A2 leaf
+is the **correct observed behaviour**; defending against a race that corrupts nothing is the Slice 61a
+mistake and is a review rejection.
+
+**Tier A did not shrink.** 112 leaves in v5, 112 leaves in v6. A is **subdivided**, not redefined:
+21 + 38 + 53 = 112, machine-checked against `WRITE_LEAVES`.
+
+### 0A.2 The evidence rule — classification is evidence, not judgement
+
+For **every** leaf the plan records both of:
+
+- **(a)** the **unique constraint name** over caller-supplied columns together with its **key columns
+  and partial predicate**, quoted from the live catalog by the OD-8 query — or its **proven absence**
+  from that query (B1);
+- **(b)** whether the writer **reads-then-derives**, citing the **exact `file:line` of the read** and
+  the **exact `file:line` of the derived value**. If no such read exists, the **write site** is cited
+  and the row states **"no prior-state derivation"**.
+
+**A1 requires both citations present.** A leaf placed in **A2 or A3 without** the catalog query result
+and the read-then-derive check is a **defect**, not a shortcut. **Builder judgement alone never
+suffices**, and this rule must not become a route to a smaller A1.
+
+**The discriminator, stated once so no row can be argued.** A read that produces a value whose
+correctness depends on being the **latest committed state** — `ORDER BY … DESC LIMIT 1`, `max()`,
+`count()`, `nextval` plus a predecessor hash, a head read that chooses insert-vs-skip on the contended
+key, or an `ON CONFLICT DO UPDATE` whose `set_` values came from a pre-read — is a **derivation** (A1).
+A plain existence or validation read of a row whose identity the **caller supplied**, and an **in-call
+positional counter** over children of a parent minted in the same call, are **not** derivations. That
+second clause is the single biggest lever on the A1 count and is therefore stated explicitly and cited
+per leaf: an `ordinal`/`seq` that counts committed rows is A1; an `ordinal`/`seq` that enumerates a
+list the same call is about to write under a freshly minted parent is A3.
+
+**Two fail-closed steps, in this order.**
+
+1. If a `previous_*` / `seq` / `ordinal` / chain-`hash` / upsert / `supersedes` path exists on the
+   contended key and **independence of every key column from any read cannot be proven**, the leaf is
+   **A1**.
+2. If A3's premise — that concurrent callers cannot collide — **cannot be proven**, the leaf is
+   **A2**, never A3. (A2 and A3 are both tests-only, so this step cannot hide an A1.)
+
+**Sibling-axis rule.** If **any** collidable axis written by one `INSERT` statement is A1, **every**
+collidable axis written by that same statement is A1. PostgreSQL reports whichever unique index it
+reaches first (§0.1.3), so the loser's observed axis is **nondeterministic**; classifying siblings
+differently would let a derived-write race be observed on an A2-labelled axis under an A2-strength
+barrier. This is why `emergency_stop_events.uq_ese_idempotency` and the two non-`previous`
+`production_preapproval_lifecycle_events` axes are A1.
+
+**Where the per-leaf evidence lives.** `.planning/SLICE-83-LEAF-EVIDENCE.md` — **planner-owned and part
+of this plan contract**. It carries all **168** leaves: **21** A1 rows with both citations, **38** A2 rows
+with an independence citation, 53 A3 rows with a minted-parent citation, and the unchanged 54 B1 / 2 B2
+rows. The builder **mirrors** its subtier column into `tests/writer_inventory_c.py` and must
+**stop and report** any disagreement rather than editing either side.
+
+**One A1 row has an empty "read of committed state" field, and that is not a defect.**
+`run_checkpoint_writes.uq_run_checkpoint_writes_id` (v7 defect 1) is A1 because its writer holds an
+`ON CONFLICT DO UPDATE`, which the owner's ruling lists as an A1 path **irrespective of whether a read
+precedes it** — the writer *resolves* the contended key instead of letting a create-once failure reach the
+caller. For that one row §0A.2's "both citations" requirement is met by **(a)** the unique index over
+caller-supplied columns and **(b)** the **upsert citation** `app/runtime/checkpointer.py:152-167` in place
+of a read citation, with the absence of any pre-read stated explicitly rather than left blank. No other A1
+row may use this form; every other A1 row cites a real read and a real derived value.
+
+### 0A.3 A1 COUNT — reported prominently
+
+> ## **A1 = 21 leaves. 21 ≤ 40, so this is NOT a halt.**
+>
+> A2 = **38** · A3 = **53** · B1 = **54** · B2 = **2** · total **168**.
+> (v7: ~~A1 = 20 / A2 = 39~~ — `run_checkpoint_writes.uq_run_checkpoint_writes_id` moved A2 → A1 on
+> Sol's defect 1. Tier A is still **112**; coverage is unchanged.)
+
+The exact A1 leaf-id list, in the evidence file's order. **Column 3 is the *fix* column, not the
+*coverage* column** — "none" means no production change, never no node: **all 21 keep a retained A1
+two-session node with an absent-read barrier, a mutation control, and the only-wrong-axis assertion.**
+
+| # | A1 leaf id | production change |
+|---|---|---|
+| 1 | `audit_logs.uq_audit_logs_seq` | none (advisory lock `421`) |
+| 2 | `audit_logs.uq_audit_logs_entry_hash` | none (advisory lock `421`) |
+| 3 | `go_live_decisions.uq_gld_previous` | none (`projects` row `FOR UPDATE` inside the SECURITY DEFINER function) |
+| 4 | `go_live_decisions.uq_gld_entry_hash` | none (same) |
+| 5 | `go_live_decisions.uq_gld_project_root` | none (same) |
+| 6 | `go_live_decisions.uq_gld_evaluation` | none (already a named domain error) |
+| 7 | `control_loop_events.uq_cle_run_ordinal` | **REQUIRED** — `app/repositories/go_live_decisions.py` |
+| 8 | `control_loop_events.uq_cle_previous` | **REQUIRED** — same module |
+| 9 | `control_loop_events.uq_cle_loop_root` | **REQUIRED** — same module |
+| 10 | `acceptance_criterion_authorship_records.uq_acar_criterion_sequence` | **REQUIRED** — `app/repositories/acceptance_verification.py` |
+| 11 | `acceptance_criterion_authorship_records.uq_acar_supersedes_once` | **REQUIRED** — same module |
+| 12 | `emergency_stop_events.uq_ese_previous` | none (`lock_project_row` on `activate`/`clear`) |
+| 13 | `emergency_stop_events.uq_ese_project_root` | **REQUIRED** — `app/repositories/emergency_controls.py` (`append_binding`) |
+| 14 | `emergency_stop_events.uq_ese_idempotency` | none (sibling-axis rule; `lock_project_row`) |
+| 15 | `production_preapproval_lifecycle_events.uq_pple_previous` | **REQUIRED** — `app/release/production_approval_service.py` |
+| 16 | `production_preapproval_lifecycle_events.uq_pple_attestation_event` | **REQUIRED** — same module |
+| 17 | `production_preapproval_lifecycle_events.uq_pple_idempotency` | **REQUIRED** — same module |
+| 18 | `budgets.uq_budgets_tenant_id_project_id` | none — landed in commit 4; node registered |
+| 19 | `autonomy_policies.uq_autonomy_policies_tenant_id_project_id` | none — landed in Slice 63; node registered |
+| 20 | `admin_policy_changes.uq_admin_policy_changes_action` | **none possible** — migration-frozen (§0A.7) |
+| **21** | **`run_checkpoint_writes.uq_run_checkpoint_writes_id`** *(v7, Sol defect 1)* | **none** — the existing atomic `ON CONFLICT DO UPDATE` at `app/runtime/checkpointer.py:152-167` already meets A1 GREEN; **no pre-read exists**, so no derived value can go stale. `app/runtime/checkpointer.py` is therefore **NOT** added to §1a-v7. |
+
+**Rows 3–5 lock `projects FOR UPDATE` legally, and that does not contradict v7 defect 2.** That lock
+lives at `migrations/versions/0054_control_loop_decisions.py:650` inside `slice55_finalize_decision`,
+which is `prosecdef = true` (**SECURITY DEFINER**, §0.1.31) — it runs as the function owner, not as
+`uaid_app`, so its `FOR UPDATE` privileges are the owner's. Defect 2 applies only to the **new** locks
+this slice adds from **Python as `uaid_app`**, which is why §0A.5 targets `projects` and nothing else.
+
+**The split of the 21, corrected in v7.** v6 stated these two numbers the wrong way round; the
+correction is arithmetic and is not one of Sol's three defects, but it is recorded rather than absorbed:
+
+| | v6 said | v7 (verified against the table above) |
+|---|---|---|
+| A1 leaves owned by the four §1a-v7 modules | ~~11~~ | **9** — rows 7, 8, 9, 10, 11, 13, 15, 16, 17 |
+| A1 leaves proven **by barrier alone** (no production change) | ~~9~~ | **12** — rows 1, 2, 3, 4, 5, 6, 12, 14, 18, 19, 20, **21** |
+
+9 + 12 = **21** ✓. The barrier-alone count rose by exactly one — the new row 21 — because
+`run_checkpoint_writes` needs a node but no fix. OD-9 §0A.6 commits 7 and 8 are re-locked to these
+corrected counts.
+
+**No A1 leaf was hidden in A2 or A3.** The scan is mechanical and reproducible: every catalog index
+whose key columns contain `previous_*`, `supersedes_*`, a chain `entry_hash`, or a `seq`/`ordinal`, and
+every writer holding an `ON CONFLICT DO UPDATE` or a head-read-then-insert branch, appears above or is
+excluded in the evidence file with the in-call-counter citation that excludes it. **v7 additionally
+re-audited every upsert path in the repository** — the audit that Sol's defect 1 proved v6 had cut short
+— and the result is grounding fact §0.1.29: **exactly two** `on_conflict_do_update` call sites exist in
+`app/` (`cost.py:210` → `budgets`, A1 row 18; `checkpointer.py:152` → `run_checkpoint_writes`, A1 row
+21), **exactly one** raw `ON CONFLICT … DO UPDATE` exists in `app/` (`admin/policy_sql.py:91`, which is
+inside `_RACY_UPSERT_AND_SPEND` and is emitted **only** when `racy_first_write=True` at `:179` — the
+deliberately racy **mutation-probe** variant, not the installed path), and **zero** exist in
+`migrations/`. **Every upsert path therefore maps to an A1 leaf and none is left in A2 or A3.** Row 19
+(`autonomy_policies`) is A1 by **read-then-derive**, not by upsert: its installed path is
+`_SERIALIZE_AND_SPEND` — `DO NOTHING` (`:107`), a locked `FOR UPDATE` re-read (`:110-114`), then
+`UPDATE … RETURNING` (`:122-127`) — which is exactly what its evidence row cites.
+
+### 0A.4 GREEN contracts per subtier
+
+Every subtier keeps a **retained two-session node with an absent-read barrier and a mutation probe**.
+What the node asserts differs.
+
+**A1 GREEN.** Atomic conflict handling. The caller receives **the winner or a named domain result**,
+and **the loser never persists a derived value read before the winner committed**. Concretely: exactly
+one row on the contended key or two rows whose derived chain is **correct and consistent**; no raw
+`IntegrityError` and no `23505` reaches the caller; where the writer already runs at SERIALIZABLE the
+loser may instead surface `40001`/`40P01` or the owned wrapper's post-retry result; an aborted loser is
+rolled back, never committed. For chain leaves the node additionally asserts chain validity under
+contention (`audit_verify()` for `audit_logs`; a single unbroken `previous_*` chain elsewhere).
+
+**A1 GREEN for an already-atomic upsert leaf (v7, Sol defect 1 — the `run_checkpoint_writes` case).**
+Where the writer's conflict handling *is* the statement (`ON CONFLICT DO UPDATE`) and **no read precedes
+it**, the A1 contract is met by the existing code and the node asserts the observable consequence rather
+than a new mechanism. For `run_checkpoint_writes.uq_run_checkpoint_writes_id`
+(`app/runtime/checkpointer.py:152-167`) the node asserts, under two concurrent `aput_writes` calls on the
+same `(thread_id, checkpoint_ns, checkpoint_id, task_id, idx)`:
+
+1. **both** transactions commit — neither caller sees `23505`, `IntegrityError`, or any raised exception;
+2. **exactly one** row exists on the contended key;
+3. the surviving row's `(channel, type, blob, task_path)` equals **one caller's tuple in full** — it is
+   **never a mix** of the two callers' values, which is what makes the atomicity observed rather than
+   assumed;
+4. tenant attribution is correct and no deadlock occurs;
+5. the observed constraint name equals the leaf's `unique_index` (only-wrong-axis control).
+
+Its **mutation control** is the A1 form, not the A2 form: replace `on_conflict_do_update` with a plain
+`pg_insert(...)` (no conflict clause) and the test must fail with a raw `23505` reaching the caller. That
+mutation is what proves the existing `DO UPDATE` is load-bearing, and it is the reason this leaf is A1
+with **zero** production change rather than A2. What the node does **not** claim is that last-writer-wins
+is the *correct* merge semantics — see the §0A.7 limitation.
+
+**A2 GREEN (redefined — this is the amendment).** **Exactly one row** exists on the contended key after
+the barrier; the loser **fails cleanly with no partial state** — either raising `23505` /
+`IntegrityError`, **which is the correct observed behaviour and is asserted as such**, or, where the
+writer *already* reconciles, returning the winner; **correct tenant attribution**; **no deadlock**.
+The node **must not** be "fixed" into an A1 contract, and no conflict handling may be added.
+
+**A3 GREEN.** **Both** transactions commit, **both rows exist and are distinct**, and attribution is
+correct. The node also asserts that the two rows' minted parent identifiers differ — that is what makes
+non-collidability observed rather than assumed.
+
+**Mutation controls, still required for every leaf.**
+
+- **A1** — a mutation that removes **only** the new serialization/conflict handling and shows the racy
+  outcome return (a raw `23505`, or a wrong derived value).
+- **A2** — a mutation that proves the **assertion is load-bearing**: with the barrier's absent-read
+  removed (so the row is pre-seeded and the writer takes its idempotent path) the test must **fail**,
+  because a single-session pre-seeded probe never reaches the contended insert (§0.1.7).
+- **A3** — a mutation that collapses the two calls onto **one** minted parent identifier and shows the
+  distinctness assertion fail.
+
+**Only-wrong-axis control (mandatory, all subtiers).** Each barrier must contend **its own** declared
+unique index. The node asserts the observed constraint name **equals** the leaf's `unique_index`. If the
+only reachable contention path collides first on a **different** index — including a different axis of
+the same table — that is a **stop-and-report**, not a pass, and never a silent downgrade of the leaf.
+
+### 0A.5 Derived §1a production file list — A1 only, no extras
+
+**Exactly four `app/` modules change from commit 6 onward** — unchanged in count by v7. **No fifth module
+is added:** `app/runtime/checkpointer.py` carries A1 leaf 21 but needs **no** production change (§0A.3
+row 21, §0A.4), so it stays out of this manifest.
+
+**v7 re-locks the mechanism column (Sol defect 2).** v6 planned `FOR UPDATE` on `intake_artifacts`,
+`control_loop_runs`, and `production_preapproval_attestations`. All three are **SELECT/INSERT-only** for
+`uaid_app`, so `SELECT … FOR UPDATE` fails with SQLSTATE **`42501`** — reproduced live on all three
+(§0.1.30). Those three targets are **struck**. Every lock now targets **`projects`**, the one table in
+these writers' reach that `uaid_app` holds `UPDATE` on (§0.1.30, §0.1.31), through the **existing**
+helper `lock_project_row` (`app/repositories/emergency_controls.py:79`). **No GRANT and no migration** —
+Alembic head stays `0062`.
+
+| # | module | A1 leaves it must fix | locked mechanism (v7) | ~~v6 mechanism (struck: `42501`)~~ |
+|---|---|---|---|---|
+| 1 | `app/repositories/acceptance_verification.py` | `uq_acar_criterion_sequence`, `uq_acar_supersedes_once` | `lock_project_row(self.session, self.context, project_id)` immediately before each `_current_record` call — `:84`, `:128`, `:167`. `project_id` is already a **parameter** of all three `record_*` methods (`:69` and peers) and of `_current_record` (`:43`). | ~~lock the criterion's `intake_artifacts` row `FOR UPDATE`~~ |
+| 2 | `app/repositories/emergency_controls.py` | `uq_ese_project_root` | this module's own `lock_project_row` (`:79`) in `append_binding` before the `:437` head read | *(unchanged — already `projects`)* |
+| 3 | `app/repositories/go_live_decisions.py` | `uq_cle_run_ordinal`, `uq_cle_previous`, `uq_cle_loop_root` | `lock_project_row(..., cycle.project_id)` inserted **between `:298` and `:299`** — `cycle = await self._require_cycle(...)` already resolves at `:298`, before the head read, and `cycle.project_id` is already used at `:325`, so no new read is introduced | ~~lock the parent `control_loop_runs` row `FOR UPDATE`~~ |
+| 4 | `app/release/production_approval_service.py` | `uq_pple_previous`, `uq_pple_attestation_event`, `uq_pple_idempotency` | `lock_project_row(..., project_id)` before the **first** read of each derive chain: before `:231` (the `prior` attestation select, which precedes the `:248` head read) and before `:326` in `revoke`. `project_id` is a **parameter** at both sites (used at `:236`; `revoke` signature `:324`). | ~~lock the `production_preapproval_attestations` row `FOR UPDATE`~~ |
+
+Plus the **ten already-landed** §1a files of commits 1–4, which remain in the manifest unchanged (five
+modified, five created). **No other `app/` file may change.** These four modules own **9** A1 leaves
+(rows 7–11, 13, 15–17); the remaining **12** A1 leaves are proven by barrier alone — the corrected split
+in §0A.3, replacing v6's transposed 11/9.
+
+**Builder verification gate for the mechanism (mandatory, v7).** Before writing any lock, the builder
+runs, as the runtime role, `SELECT … FROM public.projects WHERE id=:p AND tenant_id=:t FOR UPDATE` and
+quotes the success; and confirms from `information_schema.role_table_grants` that the target of **every**
+lock this slice adds has `UPDATE` granted to `uaid_app`. **A `42501` from any newly added lock is a
+stop-and-report**, never a workaround, a GRANT, or a migration.
+
+**One mechanism, four modules: serialize on the project row before deriving.** This follows the in-repo
+precedent verbatim (`emergency_controls.activate` `:500`, `emergency_controls.clear` `:570`,
+`ops_stabilization.attempt_closure` `:162`, and the `projects … FOR UPDATE` that
+`slice55_finalize_decision` itself takes at `0054_control_loop_decisions.py:650`). Consequences, all
+binding:
+
+- **No new module and no new exception class.** `ConcurrentWriteUnresolved` (`app/concurrency.py`)
+  already exists and is **not** extended.
+- **Corrected in v7: three modules add exactly one import each.** v6 said "no new import"; that is
+  **superseded**. `acceptance_verification.py`, `go_live_decisions.py`, and
+  `production_approval_service.py` each add `from app.repositories.emergency_controls import
+  lock_project_row`; `emergency_controls.py` already owns it. This is an existing helper reused, not a
+  new file — the precedent is `ops_stabilization.py:62` and `emergency_control_service.py:16`, which
+  import it the same way. **No import cycle exists**: all four modules import cleanly alongside
+  `emergency_controls` (§0.1.32). If any import raises, that is a **stop-and-report**, not a new shared
+  module.
+- **Coarser granularity than v6 planned, and stated as such.** A project-row lock serializes *all* A1
+  writers of that project, not only the contended criterion / cycle / attestation. It is correct and
+  fail-closed, it is what the runtime role is actually permitted to do, and it is **not** claimed to be
+  minimum-granularity — see the §0A.7 limitation.
+- **The loser blocks, then re-derives from committed state.** It does not collide, so no new
+  conflict-handling branch and no new error path is introduced. Where the writer runs at SERIALIZABLE
+  (`append_event`, via the control loop's owned wrapper at `go_live_decisions.py:157`) the loser may
+  surface `40001`, which the **existing** owned retry already handles — that is an A1-GREEN outcome and
+  no retry loop is added.
+- **A legitimate post-lock refusal is A1 GREEN.** After re-reading the committed head, a transition
+  validator or lifecycle check may refuse with an existing named domain error (for example
+  `control_loop_event_transition_invalid`, or `revoke`'s idempotent-replay return at
+  `production_approval_service.py:337-338`). That is "the winner or a named domain result" and is
+  asserted as such.
+
+Rejected: adding a `savepoint` + `23505` handler per writer (four bespoke handlers where one lock
+suffices, and it would introduce new caller-visible error paths this slice was not asked to add);
+rejected: raising the isolation level of any writer that does not already own one (v5 §0 forbids it);
+rejected: a new shared locking helper module (an extra file, which the ruling's "no extras" clause
+forbids).
+
+**The 500-line cap and the two already-oversized modules.** `emergency_controls.py` is **790** lines and
+`go_live_decisions.py` is **627** on `1aa7225`; both already exceed the house cap **before** this slice
+touches them. `acceptance_verification.py` (**456**) and `production_approval_service.py` (**383**) stay
+under it after the change. **Locked decision: the two oversized modules are NOT split.** The ruling
+states §1a expands to **exactly** the A1 writer modules with **no extras**, and a split creates extra
+modules; splitting the Slice-54/55 control-plane repositories would also enlarge the diff far beyond a
+few lines of locking. This is recorded as the named limitation
+`emergency_controls_and_go_live_decisions_remain_over_the_500_line_cap`, and it **supersedes** the v5
+rule at §OD-9 ("every file this slice modifies is ≤ 500 lines after the modification") **for these two
+files only**. Every file this slice **creates** stays ≤ 500 lines, with overflow into `_b.py` then
+`_c.py`, exactly as v5 locked.
+
+### 0A.6 OD-9 re-locked from commit 6
+
+Commits **1–5** are landed at `ff87704`, `b8a5321`, `7a0347f`, `9d0e543`, `43d5ceb` and are **not
+rewritten**. The remaining order:
+
+| # | Commit | Contents | Gate to pass before moving on |
+|---|---|---|---|
+| **6** | `test(slice-83): publish the A1/A2/A3 consequence subtiers` | `tests/writer_inventory_c.py` carrying `SUBTIER` for all 112 Tier-A leaves, mirrored from the evidence file; two new inventory tests — **8**: every Tier-A leaf has exactly one subtier in `{A1,A2,A3}` and no B leaf has one; **9**: the A1 set equals the plan's §0A.3 list verbatim, i.e. **21** ids including `run_checkpoint_writes.uq_run_checkpoint_writes_id`, and the A2/A3 sets have **38**/**53** members. | Inventory tests 1–9 green. `git diff --stat -- app/` **empty** for this commit. |
+| **7** | `fix(concurrency): serialize the derived reads behind the A1 write leaves` | The **four** §0A.5 modules, each locking **`projects`** via `lock_project_row` (v7 defect 2); A1 GREEN + mutation + only-wrong-axis nodes for the **9** leaves those modules own (§0A.3 rows 7–11, 13, 15–17); those **9** leaf ids move from `PENDING_TIER_A_BATCHES` into `TIER_A_NODE_MAP` in the same commit. | The `projects FOR UPDATE` privilege probe quoted **before** the first lock is written (§0A.5 gate); every A1 GREEN and mutation transcript quoted; `wc -l` quoted for all four; the two oversized modules' line counts quoted as the named limitation. **No `42501` from any added lock.** |
+| **8** | `test(slice-83): A1 barriers for the barrier-alone leaves` | A1 nodes for the remaining **12** A1 leaves — `audit_logs` ×2 (rows 1–2), `go_live_decisions` ×4 (rows 3–6), `emergency_stop_events` ×2 (rows 12, 14), `admin_policy_changes` ×1 (row 20), **`run_checkpoint_writes` ×1 (row 21, v7)** — plus registration for the already-nodded `budgets` / `autonomy_policies` (rows 18–19). Tests only. | Chain-validity assertions quoted (`audit_verify()`); row 21's node asserts the five §0A.4 upsert clauses and its mutation removes `on_conflict_do_update` and shows a raw `23505`; `admin_policy_changes`'s migration-frozen limitation recorded, **not** fixed. `git diff --stat -- app/` **empty**. |
+| **9–10** | `test(slice-83): A2 barriers for {tenant,platform} leaves` | A2 nodes for the **32** unregistered A2 leaves (~16 per commit) — **v7: 32, not 33**, because `run_checkpoint_writes` left A2 for A1; the 6 already-registered A2 leaves keep their nodes and are re-asserted against the A2 contract. **No production file may change in either commit.** | `git diff --stat -- app/` empty for both; pending shrinks monotonically. |
+| **11–13** | `test(slice-83): A3 barriers for {evidence,ops,release} leaves` | A3 nodes for the **53** A3 leaves, ~18 per commit. **No production file may change.** | `git diff --stat -- app/` empty; pending shrinks monotonically. |
+| **14** | `test(slice-83): close the inventory` | `assert PENDING_TIER_A_BATCHES == frozenset()`; inventory test 8 strengthened so **every** Tier-A leaf has a registered, collectible node **and** a subtier; the evidence file's A1 rows asserted to carry both citations. | Both suites green; P-MUT-17 and P-MUT-18 pass; no Tier-A leaf pending, unclassified, or unnodded. |
+
+Every commit leaves `make test` and `make test-db` green on its own. `PENDING_TIER_A_BATCHES` still may
+never gain a leaf after commit 5, and a leaf leaves it only in the same commit that adds its node
+(v5 OD-9 commit-5 sequencing lock, unchanged). **No leaf is parked and no leaf moves to a later
+slice.** The v5 stop-and-report trigger stands with one amendment: the "projected Tier-A count exceeds
+60 leaves" clause is **discharged** — the count is measured at 112 and subdivided, and subdivision is
+the owner's ruling, not a coverage reduction. The wall-time trigger (**+240 s** over the `72ee544`
+baseline) stands.
+
+### 0A.7 Named limitations added by v6
+
+- `admin_policy_changes_double_spend_raises_raw_sqlstate` — the derived write behind
+  `admin_policy_changes.uq_admin_policy_changes_action` lives inside a SECURITY DEFINER function
+  installed by migration `0062` (body at `app/admin/policy_sql.py:58-77`). OD-1 forbids a migration, so
+  a double-spend of one `admin_action_id` still surfaces a raw SQLSTATE. Its A1 GREEN is met only in the
+  weaker recorded form: **exactly one ledger row exists and the policy is not changed twice**.
+- `emergency_controls_and_go_live_decisions_remain_over_the_500_line_cap` — 790 and 627 lines, already
+  over before this slice; not split (§0A.5).
+- `a1_a2_a3_subtier_is_a_consequence_classification_not_a_proof_of_absence_of_other_anomalies` — the
+  subtiers classify only the **unique-violation** conflict class. Lost update, write skew, phantoms, and
+  logical latest-wins anomalies remain out of scope, exactly as v5 §0.5 states.
+- `four_a1_fixes_serialize_a_read_they_do_not_prove_the_lock_is_the_narrowest_possible` — each fix takes
+  an existing parent or project row lock, following the in-repo precedent. It is correct and
+  fail-closed, not proven minimal-granularity.
+- `a2_no_production_change_rule_applies_from_commit_6_not_retroactively` — see §0A.8.
+- **`run_checkpoint_write_upsert_is_last_writer_wins_not_a_proven_merge`** *(v7, Sol defect 1)* — A1 leaf
+  21's `ON CONFLICT DO UPDATE` (`app/runtime/checkpointer.py:161-166`) overwrites
+  `channel`/`type`/`blob`/`task_path` with whichever caller commits last. Its node proves the write is
+  **atomic** and that the surviving row is **one caller's tuple in full, never a mix**. It does **not**
+  prove that last-writer-wins is the semantically correct resolution for two genuinely different writes
+  on the same `(task_id, idx)`; under LangGraph's contract that key identifies one task's one write, so
+  a re-put is expected to be idempotent, but this slice **observes** the atomicity rather than proving
+  the framework contract. No production change is made, so no behaviour changes either way.
+- **`a1_locks_serialize_the_project_row_not_the_contended_child`** *(v7, Sol defect 2)* — because
+  `uaid_app` has no `UPDATE` on `intake_artifacts`, `control_loop_runs`, or
+  `production_preapproval_attestations` (live `42501`, §0.1.30), all four A1 fixes lock **`projects`**.
+  That is coarser than the child-row lock v6 planned: it serializes every A1 writer of the project, not
+  only the contended criterion / cycle / attestation. It is correct, fail-closed, privilege-compatible,
+  and precedent-following (`0054_control_loop_decisions.py:650`), and it is **not** minimum-granularity.
+  Narrowing it would need a GRANT or a migration, both forbidden by OD-1 this slice.
+- **`census_wrapper_span_443_472_is_an_audit_constant_not_a_writer_citation`** *(v7, Sol defect 3)* — the
+  landed `CENSUS_SCANNER` wrapper tuple in `tests/writer_inventory_b.py` reads
+  `app/repositories/go_live_decisions.py:443-472`. Line `:443` is **blank**; `finalize_decision` actually
+  spans `:444-473` with its SQL call at `:452` (§0.1.32). That tuple is a hand-authored constant of the
+  Appendix-B reproduction landed at commit 5 and is kept **byte-identical** — v7 does not rewrite a
+  landed commit to change an audit constant. The **evidence file's writer citations are corrected** to
+  `:444`/`:452`, and the two coordinate systems must **never** be quoted interchangeably: an inventory
+  wrapper span is a census coordinate, a writer citation is a source coordinate. Any future statement
+  that `finalize_decision` "begins at 443" is a defect.
+- `subtier_assignment_is_planner_authored_and_review_verified` — the citations are machine-quoted from
+  the live catalog and from source, but the A1/A2/A3 assignment itself is planner-authored and
+  Sol-reviewed, not machine-derived. This is the same honesty tier as v5's hand-authored
+  candidate→leaf mapping (§0.1.9).
+
+### 0A.8 The commit-4 consequence, stated plainly rather than absorbed
+
+Measured against the amended standard, commit 4 (`9d0e543`) hardened six writers of which **only
+`budgets` is A1**; `agent_blueprints`, both `agent_versions` axes, `tenant_catalog_adoptions`,
+`cost_forecast_policy_versions`, and `intake_artifacts` are **A2** — their pre-fix losers raised `23505`
+and persisted nothing wrong. Under §0A.1 those five would today be **tests only**.
+
+Three things follow, and none of them is a silent edit:
+
+1. **Commits 1–5 are landed and are not reverted.** The owner locked them ("do not re-plan"). The added
+   conflict handling is correct, tested, and harmless; it is simply broader than the amended rule would
+   now authorize.
+2. **All eight registered nodes are retained.** Dropping any would reduce coverage and breach the
+   OD-9 compliance conditions the reviewer checks.
+3. **The rule binds prospectively.** From commit 6 onward, adding conflict handling to an A2 or A3 leaf
+   is a **review rejection**. Commits 9–13 must show `git diff --stat -- app/` **empty**.
+
+This is reported because the owner's ruling said the eight were "**likely** A1", and a planner that
+silently agreed would be asserting a fact it had not checked.
 
 ---
 
@@ -344,7 +815,131 @@ No new table, column, migration, trigger, grant, CHECK, HTTP route, LLM call, or
     `set_config(..., false)` is rejected because it changes the test to session-level state and stops
     exercising the runtime transaction invariant.
 
+**Grounding facts added while writing v6 (measured on `1aa7225`, head `0062`, database `app_test`).**
+
+22. **The OD-8 query still returns 120 rows over 88 tables, and the column list was extracted.** The
+    locked `indnkeyatts`-bounded query was re-run with an added
+    `string_agg(a.attname, ',' ORDER BY x.ord)` projection and `pg_get_expr(indpred, indrelid)`; it
+    returned **120** rows, and all 120 `(table, index, key columns, partial predicate)` tuples are
+    quoted per leaf in `.planning/SLICE-83-LEAF-EVIDENCE.md`. Eleven of the 120 are partial:
+    `agent_instances.uq_agent_instances_live_key`, `catalog_listings.uq_cl_live_asset`,
+    `control_loop_events.uq_cle_loop_root`, `cost_events.uq_cost_events_idempotency`,
+    `emergency_stop_events.uq_ese_project_root`, `go_live_decisions.uq_gld_project_root`, both
+    `release_findings` fingerprints, `release_issues.uq_release_issues_source_finding`, and both
+    `test_results` axes. The predicates matter: `uq_cle_loop_root`, `uq_ese_project_root`, and
+    `uq_gld_project_root` are all `WHERE previous_* IS NULL`, which is what makes them **first-write
+    root** keys of a derived chain rather than ordinary create-once keys.
+23. **`audit_append` already serializes its own predecessor read.**
+    `migrations/versions/0003_audit_log.py:140` is `PERFORM pg_advisory_xact_lock(421)`, placed
+    **before** `nextval` at `:141` and the `SELECT a.entry_hash INTO v_prev` at `:142-143`. So both
+    `audit_logs` leaves are A1 by derivation and already meet the A1 GREEN contract by construction;
+    their barrier proves the loser blocks and `audit_verify()` still passes.
+24. **`slice55_finalize_decision` already serializes on the project row.**
+    `migrations/versions/0054_control_loop_decisions.py:650` is
+    `PERFORM 1 FROM public.projects WHERE id=e.project_id AND tenant_id=e.tenant_id FOR UPDATE`,
+    **before** the predecessor read at `:706-708` and the derived `new_seq` / `new_hash` at `:709-713`.
+    A duplicate finalization of the same evaluation is already translated at
+    `app/repositories/go_live_decisions.py:456-465` into
+    `GoLiveDecisionRepositoryError("decision_finalization_refused")`. All four `go_live_decisions`
+    leaves therefore need **no** production change.
+25. **Four derived reads are genuinely unserialized, and that is the whole A1 production surface.**
+    `app/repositories/go_live_decisions.py:299-310` carries `.with_for_update()` on the **head event**,
+    which locks nothing when no prior event exists, so the first-write race is open;
+    `app/repositories/acceptance_verification.py:42-59` has **no** `FOR UPDATE` and no project lock;
+    `app/repositories/emergency_controls.py:437` reads the stop-event head inside `append_binding`,
+    which — unlike `activate` (`:500`) and `clear` (`:570`) — does **not** call `lock_project_row`; and
+    `app/release/production_approval_service.py:248` / `:336` read the lifecycle head with no lock of
+    any kind (`rg -n "lock_project_row" app/release/production_approval_service.py` returns nothing).
+26. **`lock_project_row` already exists in-repo and is the established idiom.**
+    `app/repositories/emergency_controls.py:79`, used at `:118`, `:500`, `:570` and from
+    `app/repositories/ops_stabilization.py:162`. The A1 fixes reuse this pattern rather than inventing a
+    mechanism. ~~Three of the four take a **local** `FOR UPDATE` re-select of a parent row the writer
+    already resolves, so no cross-module import is created.~~ **Superseded by v7 (Sol defect 2):** the
+    three child-row targets are not `FOR UPDATE`-able by `uaid_app` (§0.1.30), so **all four** call the
+    shared `lock_project_row`, and three of them **do** add one import of it — the same import
+    `ops_stabilization.py:62` and `emergency_control_service.py:16` already make (§0.1.32).
+27. **An `ordinal`/`seq` is only a derivation when it counts committed rows.** Verified by inspection
+    across all 17 `ordinal`/`seq` axes in the catalog: `control_loop_events.uq_cle_run_ordinal` derives
+    from the head read at `app/repositories/go_live_decisions.py:299-310` (A1), while the other 16 —
+    for example `app/repositories/cost_forecast_persistence.py:137`/`:165` (`ordinal = 1`, `ordinal +=
+    1`) and `app/repositories/production_preapprovals.py:275` (`enumerate(...)`) — are **in-call
+    positional counters** scoped to a parent minted in the same call. This single distinction is the
+    largest lever on the A1 count, so it is stated in §0A.2 and cited on every affected row of the
+    evidence file rather than asserted.
+28. **Production-file sizes on `1aa7225`, measured.** `wc -l`:
+    `app/repositories/acceptance_verification.py` **456**, `app/repositories/emergency_controls.py`
+    **790**, `app/repositories/go_live_decisions.py` **627**,
+    `app/release/production_approval_service.py` **383**,
+    `app/repositories/production_preapprovals.py` **704**, `app/audit.py` **58**,
+    `app/repositories/admin.py` **121**, `app/repositories/cost.py` **266**, `app/concurrency.py`
+    **64**, `app/admin/policy_sql.py` **226**. Two of the four A1 targets are already over the house
+    cap **before** this slice touches them; see §0A.5 for the locked decision and its named limitation.
+
+**v7 grounding facts — measured while accepting Sol's three v6 defects (2026-08-25).**
+
+29. **Every upsert path in the repository, enumerated — the audit v6 cut short (Sol defect 1).**
+    `rg -n "on_conflict_do_update" app/` returns **exactly two** sites:
+    `app/repositories/cost.py:210` (→ `budgets`, A1 row 18) and
+    **`app/runtime/checkpointer.py:152`** (→ `run_checkpoint_writes`, A1 row **21**). The live body at
+    `app/runtime/checkpointer.py:152-167` is
+    `.on_conflict_do_update(index_elements=["tenant_id","thread_id","checkpoint_ns","checkpoint_id","task_id","idx"], set_={"channel": channel, "type": type_, "blob": blob, "task_path": task_path})`,
+    and all four `set_` values are the loop's own arguments (`:133-135`, `:127`) — **no `SELECT` precedes
+    the write**. `rg -in "ON CONFLICT.*DO UPDATE" app/` returns **exactly one** raw-SQL site,
+    `app/admin/policy_sql.py:91`, which lives in `_RACY_UPSERT_AND_SPEND` (`:84-98`) and is emitted
+    **only** when `racy_first_write=True` (`:179`) — the deliberately racy **mutation-probe** variant.
+    The installed `autonomy_policies` path is `_SERIALIZE_AND_SPEND` (`:129`): `DO NOTHING` (`:107`),
+    locked `FOR UPDATE` re-read (`:110-114`), `UPDATE … RETURNING` (`:122-127`). The same query over
+    `migrations/` returns **zero**. **Consequence: every upsert path maps to an A1 leaf; none remains in
+    A2 or A3.** By Sol's own note, `aput` at `app/runtime/checkpointer.py:109` is
+    `on_conflict_do_nothing`, so `run_checkpoints.uq_run_checkpoints_id` correctly **stays A2**.
+30. **`uaid_app` cannot `FOR UPDATE` the three lock targets v6 planned; it can `FOR UPDATE` `projects`
+    (Sol defect 2).** Run live as `uaid_app` on `app_test` in one `DO` block with per-statement
+    `EXCEPTION WHEN insufficient_privilege`:
+    `intake_artifacts: 42501 permission denied for table intake_artifacts`;
+    `control_loop_runs: 42501 permission denied for table control_loop_runs`;
+    `production_preapproval_attestations: 42501 permission denied for table production_preapproval_attestations`;
+    `projects: OK (no 42501)`; `run_checkpoint_writes: OK (no 42501)`. Confirmed against
+    `information_schema.role_table_grants` for `grantee='uaid_app'`: `projects` →
+    `DELETE,INSERT,SELECT,UPDATE`; `run_checkpoint_writes` → `DELETE,INSERT,SELECT,UPDATE`
+    (`migrations/versions/0009_workflow_runtime.py:214`); `intake_artifacts`, `control_loop_runs`,
+    `production_preapproval_attestations`, `acceptance_criterion_authorship_records`,
+    `control_loop_events`, `production_preapproval_lifecycle_events`,
+    `emergency_rollback_authorizations` → **`INSERT,SELECT`** only; `run_checkpoints` →
+    `DELETE,INSERT,SELECT`; `go_live_decisions` → `SELECT` only. **Every lock this slice adds therefore
+    targets `projects`, a table with `UPDATE` granted to `uaid_app`.**
+31. **The existing `projects FOR UPDATE` precedents, and why the SECURITY DEFINER one is not a
+    counter-example.** `migrations/versions/0054_control_loop_decisions.py:650` is
+    `PERFORM 1 FROM public.projects WHERE id=e.project_id AND tenant_id=e.tenant_id FOR UPDATE;`, and
+    `:651-653` additionally locks `autonomy_policies` — a table `uaid_app` may not even `UPDATE` after
+    Slice 63. That is legal because `pg_proc.prosecdef` is **`t`** for `slice55_finalize_decision`,
+    `audit_append`, and `admin_write_autonomy_policy` (queried live): they run as the function owner, not
+    as `uaid_app`. The Python-side precedents that *do* run as `uaid_app` are
+    `app/repositories/emergency_controls.py:79` `lock_project_row` (`select(Project) …
+    .with_for_update()`), called at `:500`, `:570` and from `app/release/emergency_control_service.py:77`
+    and `app/repositories/ops_stabilization.py:162`. **v7's four A1 locks join the second group.**
+32. **`go_live_decisions.finalize_decision` coordinates, and the import-cycle check (Sol defects 2 and
+    3).** From source: `:443` is a **blank line**; `:444` is
+    `async def finalize_decision(self, evaluation_id: uuid.UUID) -> GoLiveDecision:`; `:445` is
+    `await self.require_serializable()`; `:452` is
+    `text("SELECT public.slice55_finalize_decision(:evaluation)")`; `:456-465` is the `DBAPIError`
+    translation into `GoLiveDecisionRepositoryError`; the function ends at `:473`. The landed
+    `CENSUS_SCANNER` wrapper constant says `app/repositories/go_live_decisions.py:443-472` and is kept
+    byte-identical (§0A.7). Separately, importing
+    `app.repositories.acceptance_verification`, `app.repositories.go_live_decisions`,
+    `app.release.production_approval_service`, and `app.runtime.checkpointer` each alongside
+    `app.repositories.emergency_controls` all succeed, and
+    `from app.repositories.emergency_controls import lock_project_row` resolves with
+    `__module__ == 'app.repositories.emergency_controls'` — **no import cycle blocks the v7 mechanism.**
+
 ### 0.2 Load-bearing claim (one sentence)
+
+**v6 amendment to §0.2–§0.5.** The three paragraphs and two claim lists below were written for v5's
+single Tier-A class. They remain accurate for **A1** leaves. For **A2** the phrase "no `IntegrityError`
+and no SQLSTATE `23505` reaches the caller" is **replaced** by "the loser fails cleanly with no partial
+state — an escaped `23505` is the correct observed behaviour"; for **A3** "exactly one row exists on the
+contended unique key" is **replaced** by "both rows exist and are distinct". §0A.4 governs. Three claims
+are added to §0.4 and four to §0.5 at the end of each list.
+
 
 After this slice, each of the six named writers is proven by a retained two-session test — with an
 absent-read barrier, a blocked-at-write observation, and a mutation probe that removes only the new
@@ -422,6 +1017,40 @@ never committed, and no Tier-A leaf may leak `23505`.
 `can_go_live_autonomously` remains the literal `False`, A5 remains `slice54.v1`, readiness remains
 `slice20.v1`, and F-002, F-003, F-004, F-005, F-008, F-017, F-019, and F-022 are untouched.*
 
+**§0.3 addendum — the honesty crux (verbatim, for `CLAUDE.md`; counts corrected in v7, propagated in v8).**
+
+*Slice 83's 112 Tier-A write leaves are subdivided by consequence, not reduced: 21 are **derived-write**
+(A1) — the writer reads committed state and writes a hash-chain value, a `previous_*` pointer, a
+head-derived ordinal, an upsert branch, or a supersedes link, so a lost race would persist a wrong row
+silently; 38 are **independent-insert** (A2) — a create-once key over caller-supplied columns, where a
+lost race raises `23505` and persists nothing wrong; 53 are **append-only** (A3) — the unique key
+contains an identifier minted inside the same call, so concurrent callers legitimately produce distinct
+rows. Every one of the 112 keeps a retained two-session node with an absent-read barrier and a mutation
+probe; what each node asserts differs by subtier, and an escaped `23505` on an A2 leaf is asserted as
+the **correct** observed behaviour rather than defended against. Each classification is bound to
+evidence — the unique index's key columns and partial predicate quoted from the live `pg_index` catalog,
+plus either the exact `file:line` of the read and of the derived value (A1) or the exact write site with
+no prior-state derivation (A2 / A3) — published in `.planning/SLICE-83-LEAF-EVIDENCE.md` and mirrored
+into a code-owned `SUBTIER` map an inventory test checks against the plan. Only **four** production
+modules change, and each changes the same way: it serializes that project's existing **`projects`** row
+`FOR UPDATE` — through the existing helper `lock_project_row`
+(`app/repositories/emergency_controls.py:79`) — before the derived read, so the loser blocks and
+re-derives from committed state rather than colliding. `projects` is the target because the three
+originally-planned child tables are SELECT/INSERT-only for `uaid_app` and raise SQLSTATE `42501`
+(§0.1.30). **Three of the four modules newly import `lock_project_row`**
+(`acceptance_verification.py`, `go_live_decisions.py`, `production_approval_service.py`);
+`emergency_controls.py` already owns it. No migration, module, exception class, GRANT, or isolation
+level is added; the Alembic head stays `0062`. What is **not** proven: that UAID is race-free; that any subtier covers a conflict
+class other than unique violation — lost update, write skew, phantoms, and logical latest-wins anomalies
+remain out of scope; that the four locks are the narrowest possible granularity; that the subtier
+assignment itself is machine-derived, since only its citations are; that
+`admin_policy_changes.uq_admin_policy_changes_action` returns a named domain error on a double-spend, as
+its derived write sits inside a migration-frozen SECURITY DEFINER function and still surfaces a raw
+SQLSTATE; or that `app/repositories/emergency_controls.py` and `app/repositories/go_live_decisions.py`
+were brought under the house 500-line cap, as both were already over it and are not split.
+`can_go_live_autonomously` remains the literal `False`, A5 remains `slice54.v1`, and readiness remains
+`slice20.v1`.*
+
 ### 0.4 Allowed claims, verbatim
 
 - "Under two concurrent sessions that both read the key as absent, each of the six named writers
@@ -477,6 +1106,27 @@ never committed, and no Tier-A leaf may leak `23505`.
   retryable `40001`/`40P01` or the owned wrapper's post-retry result; an aborted loser is rolled back,
   and `23505` remains forbidden."
 
+**Added in v6:**
+
+- "Every one of the 112 Tier-A write leaves is classified into exactly one consequence subtier — **21**
+  A1, **38** A2, **53** A3 — and every classification is bound to evidence: the unique index's key
+  columns and partial predicate quoted from the live `pg_index` catalog, plus either the exact
+  `file:line` of the read and of the derived value (A1) or the exact write site with no prior-state
+  derivation (A2 / A3). The classification and its evidence are published in
+  `.planning/SLICE-83-LEAF-EVIDENCE.md` and mirrored into a code-owned `SUBTIER` map that an inventory
+  test asserts against the plan's A1 list."
+- "Exactly four `app/` modules change for A1 — `acceptance_verification.py`, `emergency_controls.py`,
+  `go_live_decisions.py`, `production_approval_service.py` — each by serializing that project's existing
+  **`projects`** row `FOR UPDATE` through the existing helper `lock_project_row`
+  (`app/repositories/emergency_controls.py:79`) **before** the derived read, so the loser blocks and
+  re-derives from committed state. **Three of the four newly import `lock_project_row`**
+  (`acceptance_verification.py`, `go_live_decisions.py`, `production_approval_service.py`);
+  `emergency_controls.py` already owns it. No new module, exception class, GRANT, migration, or isolation
+  level is added, and `git diff --stat -- app/` is empty for every A2 and A3 barrier commit."
+- "For an A2 leaf the loser's `23505` is asserted as the **correct** observed outcome; for an A3 leaf
+  both transactions commit and the two rows' minted parent identifiers are asserted to differ. Each
+  barrier also asserts that the constraint it observed **is** the leaf's own declared unique index."
+
 ### 0.5 Refused claims, verbatim
 
 - That UAID is free of races, or that a product-wide concurrency PASS is established. **Forbidden
@@ -523,11 +1173,30 @@ never committed, and no Tier-A leaf may leak `23505`.
 - That the pre-existing >500-line test files were brought under the house cap. They were not; this
   slice does not touch them.
 
+**Added in v6:**
+
+- That Tier A was reduced, redefined, or narrowed. It was **subdivided by consequence** on the owner's
+  ruling and still holds **112** leaves, every one of which keeps a retained two-session node.
+- That an A2 or A3 leaf received conflict handling, or that one needs it. Adding it is **forbidden** from
+  commit 6 (§0A.1); a `23505` that corrupts nothing is not a defect.
+- That the A1/A2/A3 assignment is machine-derived. The **citations** are machine-quoted from the live
+  catalog and from source; the assignment is planner-authored and reviewer-verified (§0A.7).
+- That commit 4's six fixes were all A1 work. On the amended standard only `budgets` was A1; the other
+  five were A2 and are landed, not reverted, with the rule binding prospectively (§0A.8).
+- That `admin_policy_changes`'s double-spend now returns a named domain error. It still surfaces a raw
+  SQLSTATE; the derived write is inside a migration-frozen SECURITY DEFINER function (§0A.7).
+- That `app/repositories/emergency_controls.py` or `app/repositories/go_live_decisions.py` was brought
+  under the house 500-line cap. Neither was; both were already over it and are not split (§0A.5).
+- That any of this makes UAID race-free. It does not, and the forbidden wording in §6 still applies.
+
 ---
 
 ## 1. Exact files to create / modify
 
-### 1a. Production files — exactly ten: five modified, five created
+### 1a. Production files — the ten landed at commits 1–4 (five modified, five created)
+
+**Expanded by §1a-v7 below to fourteen**, adding exactly the four A1 writer modules that must change
+(§0A.5). The ten rows in this subsection are **landed** and are not re-planned.
 
 **Manifest corrected (Sol v2 defect 4).** v2's heading said "exactly six" and its closing line said
 "no other `app/` file is touched", yet §1a-split creates four more modules. The complete, exhaustive
@@ -558,9 +1227,41 @@ their own except #10. Nothing outside this list may be touched.
 | `app/repositories/extraction.py` | **Split first (§1a-split);** `promote_proposal` moves to the new promotion module and is changed there (OD-2 row 6, OD-4). | ≤ 340 |
 | `app/concurrency.py` | **Create.** One shared module, ≤ 120 lines: exactly `class ConcurrentWriteUnresolved(Exception)` (OD-5), `unique_violation_constraint(exc) -> str \| None`, and `is_unique_violation(exc) -> bool` reading `sqlstate`/`pgcode` the way `app/repositories/go_live_decisions.py:55-77` already does. The class is not a domain-root subclass and has no per-writer subclasses. Google-style docstrings. No other module gains a private copy of this logic. | ≤ 120 |
 
-**No `app/` file outside the ten-row manifest above is touched.** No `migrations/`, no `scripts/`, no
-`.github/`, no `Makefile`. `git diff --name-only` restricted to `app/` must list at most those ten
-paths and nothing else (§5).
+### 1a-v7. The manifest expanded to exactly the A1 writer modules (owner ruling, §0A.5)
+
+*(This section was `§1a-v6`; **v7 supersedes it in place** on Sol defect 2. Cross-references to
+"§1a-v6" elsewhere in this plan mean this section.)*
+
+The ten rows above are **landed** at commits 1–4 and stay in the manifest. This adds **exactly four**
+more, derived from the A1 classification and nothing else. **Fourteen production paths total; no
+fifteenth.** v7 changed the *mechanism* of rows 11, 13 and 14 — not the count.
+
+| # | Path | Disposition (v7) | A1 leaves | Lines before → after |
+|---|---|---|---|---|
+| 11 | `app/repositories/acceptance_verification.py` | modified — `lock_project_row(self.session, self.context, project_id)` immediately before each `_current_record` call (`:84`, `:128`, `:167`); `project_id` is already a parameter of all three `record_*` methods. ~~lock the criterion's `intake_artifacts` row `FOR UPDATE`~~ (v6, **struck: `42501`**) | `uq_acar_criterion_sequence`, `uq_acar_supersedes_once` | 456 → ≤ 472 |
+| 12 | `app/repositories/emergency_controls.py` | modified — call this module's own `lock_project_row` (`:79`) at the top of `append_binding` (`:337`), before the `:437` stop-event head read *(unchanged by v7 — already `projects`)* | `uq_ese_project_root` | 790 → ≤ 795 (**already over cap, not split — §0A.5**) |
+| 13 | `app/repositories/go_live_decisions.py` | modified — `lock_project_row(..., cycle.project_id)` in `append_event` inserted **between `:298` and `:299`**, reusing the `cycle` that `_require_cycle` already resolved at `:298`; no `_lock_cycle` helper and no second read. ~~lock the parent `control_loop_runs` row `FOR UPDATE`~~ (v6, **struck: `42501`**) | `uq_cle_run_ordinal`, `uq_cle_previous`, `uq_cle_loop_root` | 627 → ≤ 640 (**already over cap, not split — §0A.5**) |
+| 14 | `app/release/production_approval_service.py` | modified — `lock_project_row(..., project_id)` before the **first** read of each derive chain: before `:231` (`_supersede_prior`'s `prior` select, which precedes the `:248` head read) and before `:326` in `revoke`. ~~lock the `production_preapproval_attestations` row `FOR UPDATE`~~ (v6, **struck: `42501`**) | `uq_pple_previous`, `uq_pple_attestation_event`, `uq_pple_idempotency` | 383 → ≤ 400 |
+
+**Not in the manifest, and why.** `app/audit.py`, `app/repositories/admin.py`, `app/repositories/cost.py`
+(beyond commit 4), `app/repositories/production_preapprovals.py`, `app/admin/policy_sql.py`, **and — v7 —
+`app/runtime/checkpointer.py`** each own or front an A1 leaf but require **no change**: three are already
+serialized (advisory lock `421`, the SECURITY DEFINER `projects FOR UPDATE`, the Slice-63 v4.1 first-write
+path), one is already fixed, one is migration-frozen (§0A.7), and **`checkpointer.py`'s
+`ON CONFLICT DO UPDATE` (`:152-167`) is already atomic with no pre-read to go stale (§0A.3 row 21,
+§0A.4)**. `app/repositories/production_preapprovals.py` holds the lifecycle **write** but the derived
+**read** is in the service, so the lock belongs in row 14 — putting it in the repository would lock after
+the read and prove nothing. **There is no fifteenth path and no fifth new module.**
+
+**No new file.** No new module, no new exception class, no migration, no grant, no trigger, no
+isolation-level change. `app/concurrency.py` is **not** extended. ~~No new import.~~ **v7:** rows 11, 13
+and 14 each add exactly one import — `from app.repositories.emergency_controls import lock_project_row` —
+of an existing helper already imported the same way by `ops_stabilization.py:62` and
+`emergency_control_service.py:16`; no import cycle exists (§0.1.32).
+
+**No `app/` file outside the fourteen-row manifest is touched.** No `migrations/`, no `scripts/`, no
+`.github/`, no `Makefile`. `git diff --name-only` restricted to `app/` must list at most those fourteen
+paths and nothing else (§5), and for commits **9–13** (the A2 and A3 barriers) it must list **nothing**.
 
 ### 1a-split. Mandatory pure-move splits (Sol v1 defect 6, locked)
 
@@ -618,10 +1319,26 @@ paths do not collide, and the builder must import the model with its existing pa
 | **Create** `tests/writer_inventory.py` | The code-owned artifact (OD-7): `CENSUS_SCANNER` (the Appendix-B program verbatim), `CANDIDATE_ENDPOINTS` (122 entries), `WRITE_LEAVES`, `B2_EDGE_EVIDENCE`, `TIER_A_NODES`, `PENDING_TIER_A_BATCHES`. | ≤ 500 |
 | **Create** `tests/test_slice83_inventory.py` | Batch 2 (OD-9 commit 5) — the **seven** inventory tests (§3.2), including test 5 **per-candidate** index-coverage completeness, test 6 the retained `INCLUDE`-column classification mutation, and test 7 the Tier-B2 `pg_constraint` mapping verification. | ≤ 500 |
 | **Create** `tests/test_slice83_races_core.py` | Batch 1 — the six signatures: RED-retained GREEN + mutation pairs. | ≤ 500 |
-| **Create** `tests/test_slice83_races_intake.py` | Batch 3 — intake / documents / extraction / categories / classification / generator / contradictions / findings / readiness leaves. | ≤ 500 |
-| **Create** `tests/test_slice83_races_release.py` | Batch 4 — release candidates / findings / issues / verdicts / evidence packs / export bundles / preapprovals / rollback / emergency / cost-forecast leaves. | ≤ 500 |
-| **Create** `tests/test_slice83_races_agents.py` | Batch 5 — agents / skills / qualification / realizations / failures / task contracts / review reports / reviewer QA / tools / approvals leaves. | ≤ 500 |
-| **Create** `tests/test_slice83_races_platform.py` | Batch 6 — tenancy / projects / runs / checkpointer / audit wrapper / cost ledger / ops / catalog / learning / admin leaves, including `audit_append` and `slice55_finalize_decision`. | ≤ 500 |
+| ~~`tests/test_slice83_races_intake.py`~~ | ~~Batch 3 — intake / documents / extraction / … leaves.~~ **SUPERSEDED by the v6 subtier modules below — not created.** | — |
+| ~~`tests/test_slice83_races_release.py`~~ | ~~Batch 4 — release / evidence / preapproval / emergency / cost-forecast leaves.~~ **SUPERSEDED — not created.** | — |
+| ~~`tests/test_slice83_races_agents.py`~~ | ~~Batch 5 — agents / skills / task contracts / reviewer QA / tools leaves.~~ **SUPERSEDED — not created.** | — |
+| ~~`tests/test_slice83_races_platform.py`~~ | ~~Batch 6 — tenancy / runs / checkpointer / audit / ops / catalog / admin leaves.~~ **SUPERSEDED — not created**; `audit_append` and `slice55_finalize_decision` move to `tests/test_slice83_a1_ledger.py`. | — |
+
+**v6 addition — the subtier files.** Commits 6–14 add these and nothing else under `tests/`:
+
+| Path | Contents | Cap |
+|---|---|---|
+| **Create** `tests/writer_inventory_c.py` | `SUBTIER: Mapping[str, str]` — one of `"A1"`/`"A2"`/`"A3"` for each of the 112 Tier-A leaves, mirrored **verbatim** from `.planning/SLICE-83-LEAF-EVIDENCE.md`, plus `A1_LEAF_IDS: frozenset[str]` holding the **21** ids of plan §0A.3. `tests/writer_inventory.py` re-exports both. Commit 6. | ≤ 500 |
+| **Extend** `tests/test_slice83_inventory.py` | Inventory tests **8** and **9** (§0A.6 commit 6), and test 8's strengthening at commit 14. If it would breach the cap, overflow into `tests/test_slice83_inventory_b.py`. | ≤ 500 |
+| **Create** `tests/test_slice83_a1_races.py` (+ `_b.py` as needed) | The A1 GREEN + mutation + only-wrong-axis nodes for the **9** module-owned leaves — the four §0A.5 modules' A1 leaves (commit 7). | ≤ 500 each |
+| **Create** `tests/test_slice83_a1_ledger.py` | The A1 nodes for the **12** barrier-alone A1 leaves — already-serialized, migration-frozen, or atomic-upsert — (commit 8), **including `run_checkpoint_writes.uq_run_checkpoint_writes_id`** (v7: reclassified A2→A1, atomic `ON CONFLICT DO UPDATE`, no production change) and the `audit_verify()` chain assertion. | ≤ 500 |
+| **Create** `tests/test_slice83_a2_races.py`, `…_a2_races_b.py` | A2 nodes for the **32** unregistered A2 leaves (commits 9–10) — v7: 32, not ~~33~~, since `run_checkpoint_writes` moved to A1. | ≤ 500 each |
+| **Create** `tests/test_slice83_a3_races.py`, `…_b.py`, `…_c.py` | A3 nodes for the 53 A3 leaves (commits 11–13). | ≤ 500 each |
+
+The v5 domain-batch modules (`…_races_intake.py`, `…_races_release.py`, `…_races_agents.py`,
+`…_races_platform.py`) are **superseded by the subtier modules above** and are not created; §0A.6
+organises the barrier work by consequence, not by domain, and creating both sets would duplicate nodes.
+`tests/slice83_support.py` and `tests/test_slice83_races_core.py` are landed and unchanged.
 
 **Overflow rule (locked):** if a batch module would exceed 500 lines, split it into
 `<name>_b.py` (then `_c.py`) and register the new module in `tests/writer_inventory.py`. Never exceed
@@ -806,7 +1523,7 @@ CANDIDATE_ENDPOINTS: tuple[Candidate, ...]   # exactly 122
 WRITE_LEAVES: tuple[WriteLeaf, ...]          # deduplicated, one per (table, unique_index)
 B2_EDGE_EVIDENCE: tuple[B2EdgeEvidence, ...] # exactly one row per candidate→B2-leaf edge
 TIER_A_NODES: Mapping[str, tuple[str, ...]]  # leaf_id -> pytest node ids
-PENDING_TIER_A_BATCHES: frozenset[str]       # Tier-A leaf ids awaiting commits 6–9 only
+PENDING_TIER_A_BATCHES: frozenset[str]       # awaiting commits 7–13 only; empty at commit 14
 ```
 
 **The candidate→leaf mapping is one-to-many (Sol v1 defect 2).** v1 gave `Candidate` a single `leaf_id`,
@@ -998,6 +1715,15 @@ matching the declared `(child_table, idxname, parent_table, parent_fk_column)`. 
   collidable index is **not** parent-scoped. Barrier: a retained two-session test with an absent-read
   barrier, a blocked-at-write observation, an assertion that no `IntegrityError` escaped and exactly
   one row exists on the contended key, **and** a mutation probe.
+  **Amended by v6 §0A and corrected by v7/v9.** Tier A is now **subdivided by consequence** into
+  **A1** (derived-write, **21** leaves, production change authorized), **A2** (independent-insert,
+  **38** leaves, tests only, an escaped
+  `23505` is the correct observed behaviour) and **A3** (append-only, 53 leaves, tests only, both rows
+  commit and are distinct). The sentence above states the **A1** barrier; §0A.4 states the A2 and A3
+  barriers, which are what those leaves must assert instead. Where this bullet and §0A.4 differ, **§0A.4
+  governs**; in particular "exactly one row exists on the contended key" does **not** apply to A3, and
+  "no `IntegrityError` escaped" does **not** apply to A2. The classification of every leaf into a
+  subtier is evidence-bound per §0A.2 and recorded in `.planning/SLICE-83-LEAF-EVIDENCE.md`.
 - **Tier B1 — catalog non-collidability.** The leaf's table does **not** appear in that result.
   Barrier: assert from the same query that the table is absent, therefore two concurrent inserts
   cannot raise a unique violation. Load-bearing: a migration that later adds a collidable unique key
@@ -1042,7 +1768,7 @@ clause exists, not that the caller handles the `None`. Rejected: a single-sessio
 §0.1.7 shows it never enters the conflict handler.
 
 **OD-9 — batching, the 500-line cap, and whether 122 barriers fit one PR.**
-**Option A (locked): one slice number 83, one branch, one PR, nine sequential commits in ONE
+**Option A (locked): one slice number 83, one branch, one PR, fourteen sequential commits in ONE
 executable order.** The 122 candidates are **not** parked and are **not** deferred to a later slice.
 
 **THE ORDER (Sol v2 defect 4 — this table is the single authority; §7 and §4.1 mirror it and must not
@@ -1057,13 +1783,23 @@ and §3.2 told the builder to update the inventory "in the same commit as each s
 | **3** | `test(slice-83): retain the six first-write RED signatures` | `tests/slice83_support.py` + the seven RED drivers; **report only, no conflict-handling line**. | All seven RED transcripts quoted, nine constraint determinations (P-RED-3 and P-RED-6 each name two). |
 | **4** | `fix(concurrency): …` | **One fix commit** containing `app/concurrency.py`, all six OD-2 mechanisms, and all GREEN/mutation tests for those mechanisms. Six per-writer fix commits are forbidden. | Every GREEN and P-MUT-1…6, 1b, 1c, 12 quoted. |
 | **5** | `test(slice-83): publish and assert the … inventory` | `tests/writer_inventory.py` + the **seven** §3.2 tests. All 122 candidates and all leaves land now. `PENDING_TIER_A_BATCHES` is initialized to exactly the Tier-A leaves lacking a collectible pre-existing node. | Tests 1–3 and 5–7 pass over the complete inventory. Test 4 proves `TierA == registered ⊎ pending`; no leaf is absent or in both. P-MUT-7…11, 14, 15, 16 pass. |
-| **6–8** | `test(slice-83): tiered barriers for {intake,release,agent} leaves` | For each batch, add collectible nodes and `TIER_A_NODES` entries, and remove those exact leaf IDs from `PENDING_TIER_A_BATCHES` in the same commit. | Both suites and all seven inventory tests stay green; pending shrinks monotonically. |
-| **9** | `test(slice-83): tiered barriers for platform leaves` | Add the final nodes/registrations, remove their exact pending leaf IDs, and add the final assertion `PENDING_TIER_A_BATCHES == frozenset()`. | Both suites and all seven inventory tests green; P-MUT-17 and P-MUT-18 pass; no Tier-A leaf remains pending. |
+| ~~**6–8**~~ | ~~`test(slice-83): tiered barriers for {intake,release,agent} leaves`~~ | **SUPERSEDED by v6 §0A.6.** | — |
+| ~~**9**~~ | ~~`test(slice-83): tiered barriers for platform leaves`~~ | **SUPERSEDED by v6 §0A.6.** | — |
+
+**Commits 6 onward are re-locked in v6 §0A.6** — commit 6 publishes the subtiers, 7 lands the four A1
+production fixes with their **9 module-owned barriers**, 8 the remaining **12 A1 barriers** (including
+`run_checkpoint_writes`), 9–10 the A2 barriers, 11–13 the A3 barriers, and 14 closes the inventory.
+The v5 rows above are struck through, not deleted, so the history stays readable. Everything else in
+OD-9 — the per-commit green rule, the no-partial-inventory rule, the commit-5 sequencing lock, and the
+"no leaf is parked" rule — is unchanged and still binding.
 
 **Batch labels ↔ commit numbers**, so the §3 section names and this table cannot be read apart:
 Batch 1 (§3.1, the six signatures) = commits **3** (its REDs) and **4** (its fixes, GREENs and
-mutations); Batch 2 (§3.2, inventory) = commit **5**; Batches 3, 4, 5, 6 (§3.3–3.6) = commits **6, 7,
-8, 9**. The two §1a-split commits (**1** and **2**) precede every batch and belong to no batch.
+mutations); Batch 2 (§3.2, inventory) = commit **5**. The two §1a-split commits (**1** and **2**)
+precede every batch and belong to no batch. **v6 §0A.6 replaces the v5 batch-3-to-6 mapping**: the
+§3.3–3.6 barrier work is now organised by **subtier**, not by domain — commit 6 (subtier publication),
+7–8 (A1), 9–10 (A2), 11–13 (A3), 14 (close). Where a §3.3–3.6 heading names a domain batch, read it as
+the barrier bar for the leaves in that domain and take the commit assignment from §0A.6.
 
 **Why splits come first, and why that does not weaken RED.** The splits are pure moves that add **no**
 conflict handling, so RED captured *after* them still runs against unfixed writers — the signatures are
@@ -1087,13 +1823,15 @@ fail-closed sequencing set, not a parking lot and not a partial inventory:
    `tier_a_leaf_ids == set(TIER_A_NODES) | set(PENDING_TIER_A_BATCHES)` and
    `set(TIER_A_NODES).isdisjoint(PENDING_TIER_A_BATCHES)`. It still validates every registered node's
    collectibility; it skips that one node-existence assertion only for a pending ID.
-3. No leaf may be added to pending after commit 5. Each batch commit 6–9 may remove a leaf ID only
-   in the same commit that adds its collectible node and `TIER_A_NODES` registration. Thus every
-   intermediate commit remains green as required by OD-9's per-commit green rule (v4 line 1024),
-   while the complete 122-candidate inventory required by OD-9's no-partial-inventory rule (v4 line
-   1049) is never reduced or deferred.
-4. Commit 9 strengthens the same test 4 with `assert PENDING_TIER_A_BATCHES == frozenset()`. Pending
-   is therefore temporary intra-PR sequencing state only; it cannot survive the final tree.
+3. No leaf may be added to pending after commit 5. Commit 6 publishes subtiers and must not shrink
+   pending unless a node lands in that same commit; no node lands in commit 6. Each of commits 7–13
+   may remove a leaf ID only in the same commit that adds its collectible node and `TIER_A_NODES`
+   registration. Thus every intermediate commit remains green as required by OD-9's per-commit green
+   rule (v4 line 1024), while the complete 122-candidate inventory required by OD-9's
+   no-partial-inventory rule (v4 line 1049) is never reduced or deferred.
+4. Commit 14 strengthens the same test 4 with
+   `assert PENDING_TIER_A_BATCHES == frozenset()`. Pending is therefore temporary intra-PR sequencing
+   state only; it cannot survive the final tree.
 
 **The 500-line cap applies to modified production files too, not only created test modules (Sol
 defect 6).** v1 stated the cap for created test modules and left `cost_forecasts.py` at 858 and
@@ -1101,7 +1839,12 @@ defect 6).** v1 stated the cap for created test modules and left `cost_forecasts
 
 - Every file this slice **creates** — production or test — is ≤ 500 lines.
 - Every file this slice **modifies** is ≤ 500 lines **after** the modification. The two that would
-  breach it are split per §1a-split, before their conflict-handling edit.
+  breach it are split per §1a-split, before their conflict-handling edit. **Amended by v6 §0A.5 for
+  exactly two files:** `app/repositories/emergency_controls.py` (790) and
+  `app/repositories/go_live_decisions.py` (627) already exceed the cap on `1aa7225`, receive only a few
+  lines of locking, and are **not** split — the ruling's "no extras" clause forbids creating split
+  modules. Recorded as the named limitation
+  `emergency_controls_and_go_live_decisions_remain_over_the_500_line_cap`. No other file is exempt.
 - A file this slice does **not** touch is out of scope; the pre-existing >500-line test modules
   (§0.1.15) are not reformatted, and that remains a named limitation, not a claim.
 - The builder quotes `wc -l` for every created and modified file, before and after, in the PR body.
@@ -1113,8 +1856,10 @@ the project standards is per-file and says nothing of the kind); rejected: appen
 `cost_forecasts.py` and deferring its split to a later slice (that ships a knowingly non-conforming
 file and pushes the debt); rejected: splitting by cutting a class in half across two modules.
 **Stop-and-report trigger (not a licence to park):** if after Batch 3 the measured `make test-db`
-wall time exceeds **+240 s** over the `72ee544` baseline, or the projected Tier-A count exceeds
-**60 leaves**, the builder stops and reports the measured numbers and the projection to the owner and
+wall time exceeds **+240 s** over the `72ee544` baseline, ~~or the projected Tier-A count exceeds
+**60 leaves**~~ — **the Tier-A-count clause is discharged by v6 §0A.6: the count is measured at 112 and
+subdivided by consequence on the owner's ruling, which is not a coverage reduction** — the builder stops
+and reports the measured numbers and the projection to the owner and
 awaits a ruling on stacking PRs — it does **not** silently reduce coverage, drop a tier, or move
 candidates to a later slice. Rejected: splitting into Slices 83a/83b (the owner bound the finding to
 one slice number); rejected: shipping a partial inventory.
@@ -1151,16 +1896,32 @@ retained (`:1294`), so each of the eight (`CostEventRepository.record`, `Documen
 `GoLiveDecisionRepository.start_cycle`, the ops incident / signal / hotfix / stabilization inserts,
 `ExportBundleRepository.generate`) becomes a Tier-A leaf with a retained two-session test — reusing
 the three existing nodes in §0.1.10 where they already satisfy the Tier-A bar, and adding what they
-lack. Any of the eight found to *not* return one semantic row without an unhandled `23505` is a
-**new** finding: the builder stops and reports it rather than fixing it under this plan. Rejected:
+lack. ~~Any of the eight found to *not* return one semantic row without an unhandled `23505` is a
+**new** finding: the builder stops and reports it rather than fixing it under this plan.~~ Rejected:
 carrying the audit's unretained records forward as coverage.
+
+**Amended by v6 §0A.** All eight are **A2** or **A3** leaves — `cost_events.uq_cost_events_idempotency`,
+`documents.uq_documents_content`, `control_loop_runs.uq_clr_idempotency`, and the four ops idempotency
+keys are A2; `export_bundles`' file and signature children are A3. So the struck sentence is **inverted**:
+an unhandled `23505` on any of them is now the **correct** observed behaviour under the A2 GREEN
+contract, not a new finding and not something to fix. What *is* still a stop-and-report is a **wrong row**
+— a partial write, a cross-tenant attribution, a deadlock, or a collision reported on an index other than
+the leaf's own declared one. The phrase "the OD-11 class" used in §0A.1 refers to the **derived-write**
+consequence class this decision named, which is A1; it does not mean these eight writers are A1.
 
 **OD-12 — the three SQL-function wrappers.**
 **Option A (locked):** `admin_write_autonomy_policy` registers the existing
 `tests/test_admin_policy_race_db.py::test_p_writer_concurrent_first_write` (plus its mutation node) as
 its Tier-A barrier, unchanged. `audit_append` (`app/audit.py:30-52`) and `slice55_finalize_decision`
-(`app/repositories/go_live_decisions.py:443-472`) each get a **new** Tier-A two-session node in
-`tests/test_slice83_races_platform.py`. The `slice55_finalize_decision` leaf is explicitly
+(reached from `app/repositories/go_live_decisions.py:444` `finalize_decision`, span `:444-473`, SQL call
+`:452` — **v7 defect 3**; the landed census wrapper constant for this writer reads `:443-472`, which is a
+census coordinate and must not be quoted as the writer's location) each get a **new** Tier-A node in
+`tests/test_slice83_a1_ledger.py` (v6 §0A.6 commit 8; v5 said `tests/test_slice83_races_platform.py`,
+which is superseded and not created). All three wrappers are **A1** leaves under §0A.1 — each reads
+committed state and writes a value derived from it — and all three need **no** production change
+(advisory lock `421`, project-row `FOR UPDATE`, and the Slice-63 v4.1 first-write path respectively),
+except that `admin_policy_changes`'s double-spend still surfaces a raw SQLSTATE because the function is
+migration-frozen (§0A.7). The `slice55_finalize_decision` leaf is explicitly
 `SERIALIZABLE` because `finalize_decision` calls `require_serializable()` at `:445`; its raw loser may
 be only `40001`/`40P01`, and an aborted W2 is rolled back. If the node instead drives the existing
 owned retry wrapper, it asserts that wrapper's post-retry row/domain result. In every form, `23505`
@@ -1303,11 +2064,12 @@ defects 2 and 3, and test 7 from his v2 defect 3):
    retryable loser SQLSTATEs; SERIALIZABLE ⇒ exactly `("40001", "40P01")` plus an exact existing
    writer citation proving `require_serializable()` or an owned retry wrapper. Assert the
    `slice55_finalize_decision` leaf is SERIALIZABLE.
-4. **Tier-A node registration with fail-closed pending sequencing (Opus D-1).** At commits 5–8,
+4. **Tier-A node registration with fail-closed pending sequencing (Opus D-1).** At commits 5–13,
    every Tier-A leaf is in exactly one of `TIER_A_NODES` or `PENDING_TIER_A_BATCHES`; every listed
    node id is collectible, and every pending ID resolves to a real Tier-A leaf with no registered
    node. Tests 1–3 and 5–7 still execute over pending leaves; only the collectible-node assertion is
-   skipped for those IDs. Commits 6–9 remove a pending ID only as its node lands. Commit 9 adds
+   skipped for those IDs. Commit 6 publishes subtiers without shrinking pending. Commits 7–13 remove
+   a pending ID only as its node lands. Commit 14 adds
    `assert PENDING_TIER_A_BATCHES == frozenset()`. P-MUT-17 proves final pending cannot hide a leaf.
 5. **Index-coverage completeness, PER CANDIDATE (Sol v1 defect 2, re-scoped by Sol v2 defect 2).** For
    **each candidate**, and for every table appearing among **that candidate's own** leaves, the set of
@@ -1336,17 +2098,27 @@ defects 2 and 3, and test 7 from his v2 defect 3):
    mapping; the test fails naming the candidate, leaf, and condition. This is what makes P-MUT-15 and
    P-MUT-16 bite.
 
-### 3.3–3.6 Batches 3–6 — leaf barriers
+### 3.3–3.6 Leaf barriers — organised by SUBTIER in v6, not by domain
 
-Per batch, in the §1b module order (commits 6–9 of the OD-9 order): add the Tier-A two-session tests
-for that domain's leaves (each with its mutation or only-wrong-axis control), and the Tier-B1/B2 catalog
-assertions for that domain's leaves. Reuse the existing `tests/*_support.py` seeders rather than writing
-new graph builders. Each batch commit must leave both suites green and must keep every §3.2 test
-passing — atomically adding `TIER_A_NODES` registrations and removing those exact IDs from
-`PENDING_TIER_A_BATCHES`, so the inventory and barriers stay consistent at every commit, never one
-without the other. No new pending ID may be added after commit 5. Commit 9 adds the final-empty
-assertion and P-MUT-17. Because the inventory module
-already exists from commit 5, these are edits to it, not creations of it.
+**v6 re-scope.** v5 batched these four sections by domain across commits 6–9. §0A.6 replaces that with a
+**subtier** order across commits 6–14, because the barrier a leaf needs is decided by its consequence
+class and not by which subsystem it lives in. The paragraph below still states the *bar*; the *batching*
+comes from §0A.6 and the module names from the §1b v6 addition.
+
+Per batch: add the two-session tests for that batch's leaves — each asserting the **subtier's** GREEN
+contract from §0A.4, each with its subtier mutation control, and each with the mandatory only-wrong-axis
+assertion — plus the Tier-B1/B2 catalog assertions for any B leaves in scope. Reuse the existing
+`tests/*_support.py` seeders rather than writing new graph builders. Each batch commit must leave both
+suites green and must keep every §3.2 test passing — atomically adding `TIER_A_NODES` registrations and
+removing those exact IDs from `PENDING_TIER_A_BATCHES`, so the inventory and barriers stay consistent at
+every commit, never one without the other. No new pending ID may be added after commit 5. **Commit 14**
+adds the final-empty assertion and P-MUT-17. Because the inventory module already exists from commit 5,
+these are edits to it, not creations of it — with the single exception of `tests/writer_inventory_c.py`,
+which commit 6 creates.
+
+For commits **9–13** there is an additional hard gate: `git diff --stat -- app/` must be **empty**. An A2
+or A3 barrier that required a production change was mis-tiered — **stop and report** (§0A.2 and §8
+constraint 0a), never re-tier the leaf and never add the handler.
 
 ---
 
@@ -1424,7 +2196,7 @@ and do not proceed on the assumption that the audit's record was wrong.
 | **P-MUT-14** | **Per-candidate completeness bites (Sol v2 defect 2).** Construct the state Sol's defect describes: leave `agent_versions.uq_agent_versions_content_hash` in `WRITE_LEAVES` and declared by *some* candidate, but remove it from `register_version`'s **own** `leaf_ids`. Assert (a) inventory test 5's **per-candidate** assertion **fails**, naming `register_version` and that index, and (b) the retained **per-table** union assertion still **passes** — proving the per-table form v2 shipped would have missed exactly this omission. Mirror it for the label axis. |
 | **P-MUT-15** | **Tier-B2 catalog assertions bite (Sol v2 defect 3).** For one real B2 leaf, four separate one-line mutations, each of which must fail inventory test 7 naming the violated condition: (a) redeclare `parent_fk_column` as `tenant_id` ⇒ B2-2 fails — and note it would have **passed** v2's assertion set, since `tenant_id` sits in the collidable index and in a real FK (§0.1.20); (b) redeclare `parent_table` as a table with no FK from the child ⇒ B2-1 fails; (c) point the leaf at a parent whose referenced key is not a server-generated primary key — a migration-seeded parent such as `skills` ⇒ B2-3 fails; (d) point one edge's `parent_leaf_id` at a non-Tier-A or wrong-table leaf ⇒ B2-5 fails. |
 | **P-MUT-16** | **B2-5 is per candidate→leaf edge (Sol v3 defect 2).** Run `_assert_b2_edge_evidence(...)`, the same private pure helper used by inventory test 7, against a minimal fixture containing two candidates mapped to one B2 leaf. Keep valid edge evidence for candidate A and remove only candidate B's edge row/citation. The helper must fail naming candidate B and the shared leaf, and must reject the leaf remaining Tier B2. If the final real inventory naturally contains such a shared B2 leaf, repeat the mutation against that real edge set; the synthetic fixture remains mandatory so the proof does not depend on final tier cardinality. The only valid inventory repair is to restore B's valid edge evidence or reclassify the **whole shared leaf** Tier A for both candidates. |
-| **P-MUT-17** | **Pending Tier-A leaves cannot hide (Opus D-1).** On the commit-9 shape, remove one Tier-A leaf's node/registration and leave that real leaf ID in `PENDING_TIER_A_BATCHES`. Tests 1–3 and 5–7 still pass over the fully inventoried leaf, but test 4's final-empty assertion fails naming it. Separately, putting an already-registered or non-Tier-A leaf into pending fails the disjoint-union/type assertions. |
+| **P-MUT-17** | **Pending Tier-A leaves cannot hide (Opus D-1).** On the commit-14 shape, remove one Tier-A leaf's node/registration and leave that real leaf ID in `PENDING_TIER_A_BATCHES`. Tests 1–3 and 5–7 still pass over the fully inventoried leaf, but test 4's final-empty assertion fails naming it. Separately, putting an already-registered or non-Tier-A leaf into pending fails the disjoint-union/type assertions. |
 | **P-MUT-18** | **SERIALIZABLE loser handling is exact (Opus D-3).** For the `slice55_finalize_decision` leaf, capture the real loser SQLSTATE (which must be `40001` or `40P01`), remove that observed value from `retryable_loser_sqlstates`, and show its Tier-A node fails; then restore the exact two-value allowlist and mutate step 5 to commit rather than roll back the aborted W2, showing the node fails on the aborted-transaction commit. Neither mutation may admit `23505` or a broad DBAPI exception. |
 
 Every refusal or absence claim needs a paired mutation or only-wrong-axis control. A probe without one
@@ -1445,16 +2217,32 @@ uv run pyright app/concurrency.py app/repositories/cost.py app/agents/registry.p
                 app/repositories/cost_forecast_persistence.py \
                 app/repositories/cost_forecast_coverage.py \
                 app/repositories/extraction.py app/repositories/extraction_promotion.py \
-                tests/slice83_support.py tests/writer_inventory.py tests/test_slice83_*.py
+                app/repositories/acceptance_verification.py \
+                app/repositories/emergency_controls.py \
+                app/repositories/go_live_decisions.py \
+                app/release/production_approval_service.py \
+                tests/slice83_support.py tests/writer_inventory.py \
+                tests/writer_inventory_c.py tests/test_slice83_*.py
 make test
 RLS_DB_PASSWORD=... make test-db
 uv run alembic heads                 # must still print: 0062 (head)
 wc -l app/concurrency.py app/repositories/cost.py app/agents/registry.py \
       app/repositories/catalog_adoptions.py app/repositories/cost_forecast*.py \
-      app/repositories/extraction*.py tests/slice83_support.py \
-      tests/writer_inventory.py tests/test_slice83_*.py
+      app/repositories/extraction*.py app/repositories/acceptance_verification.py \
+      app/repositories/emergency_controls.py app/repositories/go_live_decisions.py \
+      app/release/production_approval_service.py tests/slice83_support.py \
+      tests/writer_inventory.py tests/writer_inventory_c.py tests/test_slice83_*.py
 ```
 
+- **Pyright scope — honest statement (v8, Sol v7 defect 3).** The `pyright` invocation above is
+  **local and mandatory** and must cover **every file this slice touches**, including the four A1
+  production modules (`acceptance_verification.py`, `emergency_controls.py`, `go_live_decisions.py`,
+  `production_approval_service.py`) and the new `tests/writer_inventory_c.py`. It must report **0
+  errors** on those owned paths. What is **not** claimed: that CI enforces this. **CI's `pyright` scope
+  is still the Slice 55–63 owned paths only** — widening it to the full repository is **F-017**, which
+  Slice 83 does not close, and the full repository still reports thousands of pre-existing errors
+  (`CLAUDE.md`). A green local owned-path run therefore proves those files type-check, not that the
+  repository does.
 - Baseline on `72ee544` for comparison: `make test` → `1277 passed, 1104 deselected`; `make test-db`
   → `1104 passed, 1277 deselected` (`CLAUDE.md` Slice-84 entry). New counts will be higher —
   **quote the actual numbers; never invent or carry them forward.** Every new probe is a `db` test, so
@@ -1480,20 +2268,49 @@ wc -l app/concurrency.py app/repositories/cost.py app/agents/registry.py \
   per-candidate assertion failing *and* the per-table assertion still passing on the same mutation;
   all four P-MUT-15 mutations with the condition each violated, including the `tenant_id` case that
   v2's assertion set would have accepted; and the corrected §1a manifest as
-  `git diff --name-only -- app/` listing at most the ten paths in §1a.
+  `git diff --name-only -- app/` listing at most the ten paths in §1a — **amended by v6 to the fourteen
+  paths of §1a-v7**.
 - **Sol v3-defect confirmations, each quoted:** P-GREEN-1b's **three**
   transaction-local tenant binds and P-MUT-1c's txn-2 SQLSTATE `42501`; P-MUT-16's shared-leaf case
   where one cited edge cannot mask one uncited edge; OD-9 commit 4 as one fix commit and commit 5 as
   seven inventory tests; and the locked `PromotionRefConflict` home plus re-export.
 - **Opus v4-defect confirmations, each quoted:** commit 5's registered⊎pending invariant,
-  monotonic pending-set removals, commit 9's empty set, and P-MUT-17; the exact declaration
+  monotonic pending-set removals, commit 14's empty set (v4 originally put emptiness at commit 9;
+  v6 §0A.6 superseded it), and P-MUT-17; the exact declaration
   `class ConcurrentWriteUnresolved(Exception)` plus a domain-root non-catch; the
   `slice55_finalize_decision` SERIALIZABLE `40001`/`40P01` branch, aborted-W2 rollback, and P-MUT-18;
   and corrected source spans `cost.py:199`, `extraction.py:296-401`, and
   `cost_forecasts.py:153-228`.
-- **Commit-order confirmation (OD-9).** Quote `git log --oneline` for the branch and confirm it matches
-  the OD-9 table exactly: two `refactor(...)` commits, then the RED commit, then the fix commit, then
-  the inventory commit, then the four batch commits — nine in total, no reordering.
+- **Commit-order confirmation (OD-9, as amended by v6 §0A.6).** Quote `git log --oneline` for the branch
+  and confirm it matches: two `refactor(...)` commits, the RED commit, the fix commit, the inventory
+  commit (1–5, landed), then the subtier-publication commit, the A1 fix commit, the A1 ledger commit,
+  two A2 commits, three A3 commits, and the closing commit — **fourteen** in total, no reordering.
+- **v6/v7 subtier confirmations, each quoted.** (a) The A1 count **`21`** (v7: ~~20~~) and the A1 leaf-id
+  set printed from `tests/writer_inventory_c.py` and asserted equal to plan §0A.3 by inventory test 9. (b) The
+  **21 / 38** / 53 / 54 / 2 = 168 totals printed from `WRITE_LEAVES` and `SUBTIER` (v7: ~~20 / 39~~).
+  (c) The OD-8 query re-run
+  live with its `120` rows / `88` tables. (d) `git diff --stat -- app/` **empty** for each of commits
+  9–13, proving no A2 or A3 leaf received conflict handling. (e) For each of the four A1 modules, the
+  `FOR UPDATE` line added and `wc -l` before/after, with `emergency_controls.py` and
+  `go_live_decisions.py` explicitly reported as remaining over the house cap under the §0A.5 limitation.
+  (f) One A2 transcript showing the loser's `23505` asserted as the **correct** outcome, and one A3
+  transcript showing two committed distinct rows with differing minted parent ids. (g) Each barrier's
+  only-wrong-axis assertion naming the observed constraint.
+- **v7 defect confirmations, each quoted (Sol `27f3f958-ac5a-493f-ae91-ca04c6bdcf6e`).**
+  **(h)** `run_checkpoint_writes.uq_run_checkpoint_writes_id` printed with `SUBTIER == "A1"`, its A1 node
+  showing both callers committing with **one** surviving row whose `(channel, type, blob, task_path)` is
+  one caller's tuple **in full**, and its mutation — `on_conflict_do_update` replaced by a bare
+  `pg_insert` — failing with a raw `23505`; plus `run_checkpoints.uq_run_checkpoints_id` still printed as
+  `A2`. **(i)** The pre-lock privilege probe: `SELECT … FROM public.projects … FOR UPDATE` succeeding as
+  the runtime role, and the `information_schema.role_table_grants` row proving `UPDATE` on **every** table
+  this slice locks; **no `42501` anywhere in the run**. **(j)** `git grep -n "lock_project_row"` over the
+  four A1 modules showing four call groups and exactly three added imports, with `git diff -- app/`
+  containing **no** `FOR UPDATE` against `intake_artifacts`, `control_loop_runs`, or
+  `production_preapproval_attestations`. **(k)** `sed -n '443,444p;452p'
+  app/repositories/go_live_decisions.py` proving `:443` blank, `:444` the `async def`, `:452` the SQL
+  call — and the landed `CENSUS_SCANNER` wrapper constant `443-472` quoted **unchanged**, with the §0A.7
+  limitation naming the two coordinate systems. **(l)** `alembic heads` = **`0062`**, and
+  `git diff --name-only -- migrations/` **empty**.
 - Pyright: CI's scoped step covers Slices 55–63 only (`.github/workflows/ci.yml:61-62`) and **must
   not be edited**. Run pyright locally on the owned paths above and report `0 errors` for that set.
   The repository-wide `3050`-error baseline is F-017 / Slice 80 and is neither fixed nor hidden.
@@ -1562,23 +2379,32 @@ Do not edit `.planning/FINAL-AUDIT-REPORT.md` or the spec.
 ## 7. GitHub
 
 - Branch **`feat/slice-83-writer-concurrency`** off `72ee544`.
-- **Nine atomic conventional commits, in exactly the OD-9 order (Sol v2 defect 4). OD-9's table is the
+- **Fourteen atomic conventional commits** (commits 1–5 already landed on the branch + commits 6–14
+  remaining = 14 total), **in exactly the OD-9 order (Sol v2 defect 4). OD-9's table is the
   single authority; this list mirrors it and must not diverge:**
   1. `refactor(cost-forecasts): split the module under the house line cap, no behaviour change`
   2. `refactor(extraction): split promotion into its own module, no behaviour change`
   3. `test(slice-83): retain the six first-write RED signatures` (report only, no conflict-handling edit)
   4. `fix(concurrency): return the winner or a named result for the six first-write writers`
   5. `test(slice-83): publish and assert the deduplicated writer-leaf inventory`
-  6. `test(slice-83): tiered barriers for intake leaves`
-  7. `test(slice-83): tiered barriers for release leaves`
-  8. `test(slice-83): tiered barriers for agent leaves`
-  9. `test(slice-83): tiered barriers for platform leaves`
+  6. `test(slice-83): publish the A1/A2/A3 consequence subtiers`
+  7. `fix(concurrency): serialize the derived reads behind the A1 write leaves`
+  8. `test(slice-83): A1 barriers for the ledger and admin writers`
+  9. `test(slice-83): A2 barriers for tenant leaves`
+  10. `test(slice-83): A2 barriers for platform leaves`
+  11. `test(slice-83): A3 barriers for evidence leaves`
+  12. `test(slice-83): A3 barriers for ops leaves`
+  13. `test(slice-83): A3 barriers for release leaves`
+  14. `test(slice-83): close the inventory`
 - PR body must contain: the seven RED transcripts with their nine constraint determinations, every
   GREEN transcript (including P-GREEN-1b's two commit boundaries, 3c, 6c), every mutation transcript
   (including P-MUT-1b, P-MUT-1c, and P-MUT-10 through **P-MUT-18**), the pre-fix and post-fix census blocks, the OD-8 live counts
   and the Tier-B2 query's rows for every B2 leaf, the Tier A/B1/B2 split, the before/after `wc -l` table
   and the two split commits' identical pass counts, `git log --oneline` matching the OD-9 order,
-  `git diff --name-only -- app/` matching the §1a ten-path manifest, the real `make test` /
+  `git diff --name-only -- app/` matching the §1a-v7 **fourteen**-path manifest, the seven v6 subtier
+  confirmations of §5 (A1 count and leaf list, the **21/38**/53/54/2 totals, the live OD-8 counts, the empty
+  `app/` diff for commits 9–13, the four A1 modules' `FOR UPDATE` lines and `wc -l`, one A2 and one A3
+  transcript, and the only-wrong-axis assertions), the real `make test` /
   `make test-db` / `ruff` / `pyright` counts and the `make test-db` wall-time delta, every OD-6
   adaptation with a before/after diff, and §0.3 verbatim.
 - Do not commit `.env`. Do not edit this plan.
@@ -1587,17 +2413,26 @@ Do not edit `.planning/FINAL-AUDIT-REPORT.md` or the spec.
 
 ## 8. Builder constraints, restated
 
-1. **Follow the OD-9 commit order exactly — splits (1–2), RED (3), fixes (4), inventory (5), batches
-   (6–9).** RED is quoted at commit 3 — all seven drivers, with both P-RED-3 and P-RED-6 naming their
-   two candidate constraints and which fired (nine determinations). No conflict-handling line changes
-   before that; the two pure-move split commits are the only permitted earlier production change, and
-   they are **required** to come first. Do not reorder, merge, or split these nine commits.
-1a. **The §1a manifest is exhaustive: ten `app/` paths, five modified and five created (Sol v2 defect
-   4).** `git diff --name-only -- app/` must list nothing else.
-1b. **Commit-5 pending lock (Opus D-1):** all 122 candidates and all leaves land at commit 5.
+0. **v6: you resume at commit 6.** Commits 1–5 are landed at `ff87704`, `b8a5321`, `7a0347f`,
+   `9d0e543`, `43d5ceb`; do **not** rewrite, amend, rebase, or re-plan them. Read §0A before anything
+   else — it governs the whole plan. You do **not** edit `.planning/SLICE-83-PLAN.md` or
+   `.planning/SLICE-83-LEAF-EVIDENCE.md`; on any disagreement with either, **stop and report**.
+0a. **Never add conflict handling to an A2 or A3 leaf.** An escaped `23505` on an A2 leaf is the correct
+   observed behaviour and is asserted as such. `git diff --stat -- app/` must be **empty** for commits
+   9–13. Violating this is a review rejection (§0A.1).
+0b. **Never move a leaf between subtiers.** The subtier is planner-authored and evidence-bound (§0A.2).
+   If the evidence looks wrong, stop and report; do not re-tier a leaf to make a barrier easier.
+1. **Follow the OD-9 commit order exactly** — v5's landed 1–5 then **v6 §0A.6's commits 6–14**. RED was
+   quoted at commit 3 — all seven drivers, with both P-RED-3 and P-RED-6 naming their two candidate
+   constraints and which fired (nine determinations). Do not reorder, merge, or split the fourteen
+   commits.
+1a. **The manifest is exhaustive: fourteen `app/` paths — the ten landed at commits 1–4 plus the four A1
+   writer modules of §1a-v7.** `git diff --name-only -- app/` must list nothing else, and nothing at all
+   for commits 9–13.
+1b. **Commit-5 pending lock (Opus D-1):** all 122 candidates and all leaves landed at commit 5.
    `PENDING_TIER_A_BATCHES` contains exactly the then-unregistered Tier-A leaves; test 4 enforces the
-   disjoint union. Commits 6–9 may only remove IDs as their nodes land, and commit 9 must assert the
-   set empty. A pending leaf is inventoried, not parked or deferred.
+   disjoint union. Commits **7–13** may only remove IDs as their nodes land, and commit **14** must
+   assert the set empty. A pending leaf is inventoried, not parked or deferred.
 2. **No migration. Head stays `0062`**, asserted before and after.
 3. Implement exactly the OD-2 mechanism per writer. Do not substitute `DO UPDATE` where the grant
    forbids it (§0.1.4), and do not add an advisory lock or a retry loop.
@@ -1673,6 +2508,84 @@ Do not edit `.planning/FINAL-AUDIT-REPORT.md` or the spec.
 ---
 
 ## 9. Change log
+
+**v8.** **PLAN REJECT — Slice 83 v7.** Reviewer **GPT-5.6 Sol**, agent
+`64f1e982-6d60-4f1a-af81-79eba8c67d64`, 2026-08-25. **Consecutive REJECT #2 of the amendment line.** Not
+yet a seat swap — planner stays Claude Opus (substituting for Claude Fable 5), reviewer stays Sol, builder
+stays Cursor Grok 4.6 Extra High resuming at **commit 6** — but the owner has ruled that **a third
+consecutive REJECT swaps the seats (Sol implements, Opus reviews)**, which is why v8 was verified by
+grepping **both** planner-owned files end-to-end rather than only the lines Sol cited. All **four**
+probe-backed defects are **accepted in full; none argued down.** All four were **mechanical-completeness**
+failures of the same kind: v7 corrected each authoritative section but did not propagate the correction
+into every dependent sentence.
+
+| Change | What changed in the document |
+|---|---|
+| **Defect 1 — counts propagated** | The honesty crux, the allowed-claims list, and the three `tests/` table rows now all read **A1 = 21 / A2 = 38**; `A1_LEAF_IDS` holds **21** ids; commit 7 covers the **9** module-owned leaves; commit 8 covers the **12** barrier-alone leaves and **names `run_checkpoint_writes` explicitly**. The `§0A.3` summary row that read `**A1 = 20** *(v7: 21)*` is rewritten so the live number is the bold one and `20` is struck. |
+| **Defect 1 — single source of truth added** | A new **standing count statement** in the header states A1/A2/A3/B1/B2 and the 9 + 12 split **once, authoritatively**, and declares that any surviving `20`/`39`/`11`-`9`/"Nine" string is historical. This is the structural fix for the recurrence: a future amendment changes one paragraph, not eleven. |
+| **Defect 2 — every stale lock replaced, not only the three cited** | Sol named evidence lines `85`, `112`, `157`. A grep of `^- \*\*Production change\*\* — REQUIRED` found **nine** such rows; **all nine** were rewritten to carry the exact `lock_project_row(...)` insertion point from §0A.5 rows 1–4 (`acceptance_verification` before `:84`/`:128`/`:167`; `go_live_decisions` between `:298` and `:299`; `production_approval_service` before `:231` and `:326`; `emergency_controls` unchanged at `:79`). Each retains its struck v6 target inline. Six of the nine were stale beyond Sol's three: `94`, `103`, `121`, `166`, `175` carried the same forbidden targets by reference ("same parent-row lock", "same attestation-row lock"). |
+| **Defect 2 — the "no new import" claim corrected** | The crux and the allowed-claims list no longer say "an existing parent or project row" or "no import is added". Both now state the truth: the target is **`projects`** via the existing helper `lock_project_row` (`app/repositories/emergency_controls.py:79`), and **three of the four modules newly import it**; `emergency_controls.py` already owns it. **No GRANT, no migration**; head stays `0062`. |
+| **Defect 3 — pyright scope completed and bounded honestly** | The four A1 production modules and `tests/writer_inventory_c.py` are added to the mandatory local `pyright` run and to the `wc -l` cap report; existing owned paths kept. A new note states plainly that the run is **local and mandatory at 0 errors on owned paths**, and that **CI's scope remains the Slice 55–63 paths** — widening it is **F-017**, which Slice 83 does not close, with the repository's pre-existing error count acknowledged. |
+| **Defect 4 — commit count corrected** | "**Nine** atomic conventional commits" → "**Fourteen**", with the arithmetic shown (commits **1–5 landed** + **6–14 remaining** = **14**). OD-9's table, which already listed fourteen, remains the single authority. |
+| Verification performed before returning | Both files grepped for `20` A1 / `39` A2 / `11 leaves` / `holding the 20 ids` / `Nine atomic` and for the three forbidden lock targets. Every surviving occurrence is inside a `~~struck~~` or explicitly historical quotation; the OD-9 table's `9`/`12`/`32`/`53` were confirmed to already agree with the corrected `tests/` table. |
+
+**v7.** **PLAN REJECT — Slice 83 v6.** Reviewer **GPT-5.6 Sol**, agent
+`27f3f958-ac5a-493f-ae91-ca04c6bdcf6e`, 2026-08-25. **First consecutive REJECT of the v6 amendment line;
+not a seat swap** — planner stays Claude Opus (substituting for Claude Fable 5), reviewer stays Sol,
+builder stays Cursor Grok 4.6 Extra High resuming at **commit 6**. All **three** probe-backed defects are
+**accepted in full; none argued down.** Each was re-verified by the planner against live source and the
+live `app_test` database before acceptance; the transcripts are grounding facts **§0.1.29–§0.1.32**.
+
+| Change | What changed in the document |
+|---|---|
+| **Defect 1 — leaf reclassified A2 → A1** | `run_checkpoint_writes.uq_run_checkpoint_writes_id` is A1: `app/runtime/checkpointer.py:152-167` is `on_conflict_do_update`, an **upsert path**, and A2 requires create-once. **A1 = 21, A2 = 38** (was 20/39); A3 = 53; Tier A still **112**; total still **168**. **21 ≤ 40 — no halt.** `run_checkpoints.uq_run_checkpoints_id` **stays A2** (`aput` at `:109` is `on_conflict_do_nothing`). New §0A.4 subsection gives its five-clause A1 GREEN contract and its A1-form mutation; §0A.3 row 21 added; §0A.2 records why one A1 row cites an upsert instead of a read. |
+| **Defect 1 — production-change decision, made honestly** | **NONE, and no fifth §1a module.** The existing `DO UPDATE` is one atomic statement with **no pre-read**, so nothing derived can go stale and no `23505` reaches the caller — it already meets A1 GREEN. `app/runtime/checkpointer.py` is explicitly listed in §1a-v7's "not in the manifest, and why". Fourteen production paths, unchanged. |
+| **Defect 2 — three A1 lock targets struck as unexecutable** | Live as `uaid_app`: `intake_artifacts`, `control_loop_runs`, `production_preapproval_attestations` all return SQLSTATE **`42501`** on `SELECT … FOR UPDATE`; `projects` succeeds. **All four A1 fixes now lock `projects`** via the existing `lock_project_row` (`app/repositories/emergency_controls.py:79`), precedent `0054_control_loop_decisions.py:650` / `ops_stabilization.py:162`. §0A.5 and §1a-v7 tables re-locked with the v6 targets struck through and the exact insertion point and in-scope `project_id` expression named per site. **No GRANT, no migration — head stays `0062`.** New mandatory pre-lock privilege gate; a `42501` from any added lock is a stop-and-report. |
+| **Defect 2 — two v6 statements corrected in place** | "**No new import**" is superseded: three modules add exactly one import of an existing helper (§1a-v7, §0A.5, grounding fact §0.1.26 struck and amended); no import cycle exists (§0.1.32). Rows 3–5 of §0A.3 are shown to lock `projects` legally because `slice55_finalize_decision` is **SECURITY DEFINER** (`prosecdef = t`), so defect 2 applies only to locks this slice adds from Python as `uaid_app`. |
+| **Defect 3 — four stale writer citations corrected** | `:443` is **blank**; `finalize_decision` is `:444` (span `:444-473`) with its SQL call at `:452`. All four evidence rows now cite `:444`/`:452`. The landed `CENSUS_SCANNER` wrapper constant `app/repositories/go_live_decisions.py:443-472` is kept **byte-identical** (a census coordinate, not a writer citation) and the two coordinate systems may never be quoted interchangeably. |
+| Arithmetic transposition fixed | v6 said the four §1a modules own **11** A1 leaves and **9** are barrier-alone. Verified from the §0A.3 table: it is **9** owned (rows 7–11, 13, 15–17) and **12** barrier-alone (rows 1–6, 12, 14, 18–21). 9 + 12 = 21. Not one of Sol's three defects; recorded rather than absorbed. |
+| Complete upsert re-audit | §0.1.29 enumerates **every** upsert path: two `on_conflict_do_update` sites in `app/` (`cost.py:210`, `checkpointer.py:152`), one raw-SQL site (`policy_sql.py:91`, the `racy_first_write=True` **mutation-probe** variant only — the installed `autonomy_policies` path is `DO NOTHING` + locked `FOR UPDATE` + `UPDATE`), and **zero** in `migrations/`. All map to A1 leaves; none is left in A2 or A3. |
+| Commit order re-locked to the corrected counts | §0A.6: commit **7** = four modules + **9** leaves; commit **8** = the remaining **12** A1 leaves (now naming `emergency_stop_events` ×2 and `run_checkpoint_writes`); commits **9–10** = **32** unregistered A2 leaves (~16 each, was 33/~17); commit **6** now also requires an empty `git diff --stat -- app/`; commit **9** count in §1b updated. Still fourteen commits, still monotonic pending, still empty at the end. |
+| Three named limitations added | §0A.7: `run_checkpoint_write_upsert_is_last_writer_wins_not_a_proven_merge`, `a1_locks_serialize_the_project_row_not_the_contended_child`, `census_wrapper_span_443_472_is_an_audit_constant_not_a_writer_citation`. |
+| Four grounding facts added, one struck | **§0.1.29–32**: the complete upsert audit; the live `42501`/`OK` privilege matrix; the `projects FOR UPDATE` precedents plus the `prosecdef` check; and the `finalize_decision` coordinates plus the import-cycle check. §0.1.26's "no cross-module import" clause struck and amended. |
+| Validation extended | §5 gains **five** v7 confirmations (h)–(l): the A1 subtier and upsert-mutation transcripts, the pre-lock privilege probe with no `42501`, the `lock_project_row` diff shape with no struck target, the `sed -n '443,444p;452p'` proof beside the unchanged census constant, and `alembic heads` = `0062` with an empty `migrations/` diff. |
+| Evidence file revised | `.planning/SLICE-83-LEAF-EVIDENCE.md`: the A1 section gains the `run_checkpoint_writes` entry (21 entries), the A2 table drops it and renumbers to **38**, the four `go_live_decisions` citations are corrected, and the header records the v7 counts and the reason. Machine-checked: 21 + 38 + 53 = 112 and 112 + 54 + 2 = 168. |
+
+Consecutive plan REJECT count on the v6/v7 amendment line: **1** (v6, Sol). The v5 approval of
+everything neither v6 nor v7 amends still stands, and commits 1–5 are still not re-planned.
+
+---
+
+**v6.** **Owner ruling, 2026-08-25 (Salim) — not a reject.** The OD-9 halt after commit 5 was CORRECT and
+is discharged by ruling; the **consecutive plan REJECT count is unchanged**. PLANNER seat = **Claude
+Opus substituting for the owner-named Claude Fable 5**, recorded in the header; REVIEWER = **GPT-5.6
+Sol**; BUILDER resumes at **commit 6**. Commits 1–5 are landed and were not re-planned.
+
+Written after measuring on branch `feat/slice-83-writer-concurrency` @ `1aa7225` (head `0062`, database
+`app_test`): re-running the locked OD-8 query with an added column-name and partial-predicate projection
+(**120** rows / **88** tables, all 120 tuples captured); loading `tests/writer_inventory.py` and
+`tests/writer_inventory_b.py` to enumerate the **168** leaves and the **112** Tier-A leaf→writer edges;
+reading the writer source for **every** candidate mapping to a Tier-A leaf, including the three SQL
+function bodies (`audit_append` via `migrations/versions/0003_audit_log.py:140-152`,
+`slice55_finalize_decision` via `0054_control_loop_decisions.py:650-731`, `admin_write_autonomy_policy`
+via `app/admin/policy_sql.py:58-127`); and measuring `wc -l` on all ten candidate A1 modules.
+
+| Change | What changed in the document |
+|---|---|
+| Tier A subdivided by consequence, not reduced | New **§0A.1**: A1 derived-write / A2 independent-insert / A3 append-only, with B1 and B2 unchanged. 112 leaves before and after. |
+| Evidence rule | New **§0A.2**: per leaf, the catalog constraint with key columns and partial predicate, plus the exact `file:line` of the read and of the derived value (A1) or the write site with "no prior-state derivation" (A2/A3). Adds the latest/aggregate-vs-in-call-counter discriminator, the two-step fail-closed ladder, and the **sibling-axis rule**. |
+| A1 count reported prominently | New **§0A.3**: **A1 = 21** (~~v6: 20~~ — superseded by v7 defect 1), under the owner's 40-leaf halt threshold, with the exact leaf-id list and the per-leaf production-change column. |
+| GREEN redefined per subtier | New **§0A.4**: A1 unchanged in substance; **A2 redefined** so an escaped `23505` is the correct observed behaviour; A3 asserts two distinct committed rows. Adds per-subtier mutation controls and the mandatory **only-wrong-axis** control. |
+| §1a expanded to exactly the A1 modules | New **§0A.5** and **§1a-v6** *(renamed **§1a-v7**)*: **four** modules — `acceptance_verification.py`, `emergency_controls.py`, `go_live_decisions.py`, `production_approval_service.py` — plus the ten already landed. One mechanism for all four: serialize the derived read on an existing row with `FOR UPDATE` *(v7: that row is **`projects`**, via `lock_project_row`; the three child-row targets were struck as `42501`)*. No new module, exception, migration, or isolation change *(v7: three modules do add one import each)*. Three alternatives rejected. |
+| Commit order re-locked from 6 | New **§0A.6**, with v5's rows 6–9 struck through in OD-9: 6 publishes subtiers, 7 lands the A1 fixes and ~~11~~ **9** barriers, 8 the remaining ~~9~~ **12** A1 barriers, 9–10 the A2 barriers *(**32** leaves)*, 11–13 the A3 barriers, 14 closes the inventory. `PENDING_TIER_A_BATCHES` still shrinks monotonically and must be empty at the end. |
+| Per-leaf evidence externalised | New planner-owned `.planning/SLICE-83-LEAF-EVIDENCE.md` (396 lines) carrying all **168** leaves. Declared part of the plan contract; the builder mirrors its subtier column into `tests/writer_inventory_c.py` and may not edit it. |
+| The owner's "likely A1" expectation checked, not assumed | **§0A.8**: of the eight registered leaves only `budgets` and `autonomy_policies` are A1; the other six are A2. All eight keep their nodes. The consequence — commit 4 hardened five A2 writers the amended rule would not authorize — is reported, the commits are not reverted, and the rule binds prospectively from commit 6. |
+| Six new grounding facts | **§0.1.22-28**: the re-run OD-8 query with the eleven partial predicates; `audit_append`'s advisory lock `421`; `slice55_finalize_decision`'s project-row `FOR UPDATE`; the four genuinely unserialized derived reads; `lock_project_row` as the in-repo idiom; the ordinal/seq discriminator verified across all 17 axes; and measured file sizes. |
+| Six named limitations added | **§0A.7**, including `admin_policy_changes_double_spend_raises_raw_sqlstate` (migration-frozen) and `emergency_controls_and_go_live_decisions_remain_over_the_500_line_cap` (already over the cap before this slice; the v5 modified-file cap rule is superseded for exactly those two files). |
+| Claim lists and crux extended | Three claims added to §0.4, seven refusals to §0.5, a §0.3 addendum honesty crux, §5 gains the seven v6 confirmations, §8 gains constraints 0/0a/0b, and §7's commit-message list is replaced. |
+
+Consecutive plan REJECT count: **unchanged** (v6 is an owner-ruled amendment, not a revision of a
+rejected plan).
 
 **v1.** First version. Written against `origin/main` `72ee544`, live Alembic head `0062` confirmed by
 `uv run alembic heads`, after re-running the Appendix-B census scanner verbatim
@@ -1764,7 +2677,7 @@ All four defects were accepted in full:
 
 | Defect | What changed in the document |
 |---|---|
-| 1 — commit 5 could not satisfy Tier-A node registration | Locked option (b): `PENDING_TIER_A_BATCHES`; complete inventory at commit 5; registered⊎pending test; atomic removals with nodes in commits 6–9; final-empty assertion and P-MUT-17 at commit 9. |
+| 1 — commit 5 could not satisfy Tier-A node registration | **Historical v5 lock — superseded by v6 §0A.6.** Locked option (b): `PENDING_TIER_A_BATCHES`; complete inventory at commit 5; registered⊎pending test; v5 placed atomic removals with nodes in commits 6–9 and final-empty at commit 9. **Current schedule: pending removals in commits 7–13; final-empty at commit 14.** |
 | 2 — `ConcurrentWriteUnresolved` base unlocked | Locked exactly `ConcurrentWriteUnresolved(Exception)`, one shared class outside all domain roots, with intended caller-visible non-catch behavior and exact-type GREEN assertions. |
 | 3 — no SERIALIZABLE loser branch | Added per-leaf isolation/retryable SQLSTATEs, ruled `40001`/`40P01`, aborted-W2 rollback, explicit Slice-55 wrapper behavior, and P-MUT-18. `23505` remains forbidden. |
 | 4 — drifted source citations | Re-measured and corrected budget `:199`, promotion `:296-401`, and forecast policy `:153-228`. |
@@ -1772,3 +2685,18 @@ All four defects were accepted in full:
 Also locked the post-fix census distinction, the B1 `f"{table}.-"` leaf form, and commit 3
 RED→commit 4 GREEN/mutation assertion replacement under OD-6. No production code was written; only
 this plan file changed. Alembic remains `0062`; go-live remains literal `False`.
+
+**v9.** **PLAN REJECT — Slice 83 v8.** Reviewer **GPT-5.6 Sol**, agent
+`c7a97392-0a24-41a4-8d60-d8374f2b5e57`, 2026-08-25. This was the **third REJECT on the prior
+Opus-authored amendment line** and fired the owner-ruled seat swap. PLANNER = GPT-5.6 Sol; REVIEWER =
+Claude Opus, substituting for the owner-named Claude Fable 5. The swapped-pair reject counter resets
+to **0**; three consecutive Opus REJECTs of this Sol-authored line halt. After PLAN APPROVE, BUILDER =
+Cursor Grok 4.6 Extra High and REVIEWER = Sol for code. Both blockers were accepted in full, none
+argued down; commits 1–5 remain landed and were not re-planned.
+
+| Change | What changed in the document |
+|---|---|
+| **Blocker 1 — stale live counts removed** | §0A.1 and OD-8 now state **A1 = 21 / A2 = 38 / A3 = 53**; OD-9 commit 7 now owns **9 module-owned** leaves and commit 8 owns **12 barrier-alone** leaves including `run_checkpoint_writes`. Coverage remains **112**. |
+| **Blocker 2 — live OD-9 schedule replaced** | The frozen OD-7 comment, OD-9 Option A and sequencing lock, inventory test 4, P-MUT-17, and the Opus-v4 confirmation now all use **fourteen commits**, pending removals in **7–13**, and final-empty at **14**. Commit 6 publishes subtiers and removes nothing. |
+| **Historical schedule cells labelled** | The v5 correction row, v4 correction row, and v5 changelog row retain their then-current schedule only under an explicit **historical / superseded by v6 §0A.6** label. Struck quotations and defect-table descriptions of prior wrong text were not rewritten. |
+| **Scope preserved** | No production code, tests, migrations, spec, audit report, or evidence file changed. Alembic remains `0062`; `can_go_live_autonomously` remains literal `False`; A5 remains `slice54.v1`; readiness remains `slice20.v1`. A1 = **21 ≤ 40**; coverage is not reduced; A is subdivided rather than dropped; no 83a/83b split is introduced. |
