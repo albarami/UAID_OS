@@ -1,15 +1,15 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-24T20:00:00Z",
-  "source": "slice-84-f021-closeout",
+  "timestamp": "2026-08-25T01:19:00Z",
+  "source": "slice-83-od9-owner-ruling",
   "partial": true,
   "phase": "Final audit remediation",
   "phase_name": "F-001 through F-022 remediation",
   "phase_dir": ".planning",
   "plan": null,
-  "task": "Slice 83 / F-020 \u2014 ORIENT next",
+  "task": "Slice 83 / F-020 \u2014 persist ruling, then PLANNER writes v-next",
   "total_tasks": 22,
-  "status": "slice_84_merged_slice_83_next",
+  "status": "slice_83_od9_ruling_received_awaiting_plan_vnext",
   "remediation_run": {
     "authority": {
       "owner": "Salim",
@@ -413,8 +413,8 @@
     "Slice 60 closes no spec section. The declared bundle expiry is not enforced and bundles cannot be revoked; OSCAL mapping, scoped auditor links, and temporary auditor accounts remain unbuilt. Signing keys are app-custody env-only, not PKI/HSM. Not a Salim halt."
   ],
   "uncommitted_files": [],
-  "next_action": "ORIENT and write .planning/SLICE-83-PLAN.md for F-020 from main 65e85c4 and live Alembic head 0062; obtain plan review before the RED probe. can_go_live_autonomously remains literal False. Seats revert to Grok building and Sol reviewing after the Slice 84 seat-swap APPROVE.",
-  "context_notes": "Slice 84 merged via PR #120 at 65e85c4 (tests only; head 0062). Seat swap on code: three consecutive Sol REJECTs then Sol implemented and Opus APPROVE'd; reject counter reset. Next is Slice 83 / F-020. Do not write no remaining blockers. F-004 still succeeds on owner mutation. Owner ruling 2026-08-24 supersedes the historical stop only for the registered remediation scope.",
+  "next_action": "Durability first: commit approved SLICE-83-PLAN.md v5 plus this HANDOFF ruling, rebase onto origin/main (already 72ee544), push feat/slice-83-writer-concurrency as WIP with no PR. Then PLANNER (Claude Opus substituting for Fable 5) writes SLICE-83-PLAN v-next with A1/A2/A3 subdivision, evidence rule, derived section 1a, and recount. Sol reviews the amendment against OD-9: coverage not reduced, no tier dropped, no 83a/83b. Report A1 count to Salim before commit 6. If A1 exceeds 40, halt. Reject counter unchanged. can_go_live_autonomously remains literal False.",
+  "context_notes": "Slice 84 merged via PR #120 at 65e85c4; docs close-out PR #121 at 72ee544 is origin/main and the Slice 83 branch base. OD-9 halt after commit 5 was owner-confirmed correct. Owner ruling 2026-08-25 supersedes the prior halt wait: Tier A is subdivided by consequence (A1 derived-write, A2 independent-insert, A3 append-only), not shrunk by redefinition. Builder does not edit the plan. Do not write no remaining blockers. F-004 still succeeds on owner mutation.",
   "slice_61a": {
     "scope": "Vetted ecosystem catalog MECHANISM only. Global append-only content-hash-pinned catalog (catalog_assets, connector_catalog_specs, catalog_vetting_records, catalog_listings) + tenant_catalog_adoptions. Registers NOTHING.",
     "split_rationale": "Reviewer showed on v1 that an empty mechanism cannot claim the roadmap Slice 61 exit (\"vetted connector/blueprint/reference libraries\"). Split 61a (mechanism) / 61b (population), per the 8a/8b and 14a/14b precedent.",
@@ -658,5 +658,102 @@
       "F-017",
       "F-020"
     ]
+  },
+  "slice_83": {
+    "finding": "F-020",
+    "status": "od9_halt_after_commit_5",
+    "branch": "feat/slice-83-writer-concurrency",
+    "alembic_head": "0062",
+    "a5": "slice54.v1",
+    "readiness": "slice20.v1",
+    "can_go_live_autonomously": false,
+    "base_sha": "72ee544",
+    "head_sha": "43d5ceb",
+    "commits": [
+      "ff87704 refactor(cost-forecasts): split repository into four modules",
+      "b8a5321 refactor(extraction): split promotion mixin into its own module",
+      "7a0347f test(slice-83): retain the six first-write RED signatures",
+      "9d0e543 fix(concurrency): recover the six first-write unique races",
+      "43d5ceb test(slice-83): publish and assert the writer-leaf inventory"
+    ],
+    "inventory": {
+      "candidates": 122,
+      "leaves": 168,
+      "tier_a": 112,
+      "tier_a_registered": 8,
+      "tier_a_pending": 104,
+      "tier_b1": 54,
+      "tier_b2": 2,
+      "od8_rows": 120,
+      "od8_tables": 88,
+      "od9_tier_a_cap": 60,
+      "source": "tests/writer_inventory.py plus tests/writer_inventory_b.py after commit 43d5ceb"
+    },
+    "validation_after_commit_5": {
+      "make_test": "1277 passed, 1139 deselected, 1 warning in 1.87s",
+      "make_test_db": "1139 passed, 1277 deselected, 1 warning in 173.89s",
+      "alembic_heads": "0062 (head)",
+      "owned_inventory_pyright": "0 errors"
+    },
+    "od9_halt": {
+      "trigger": "projected Tier-A count exceeds 60 leaves",
+      "plan_lines": "SLICE-83-PLAN.md OD-9 stop-and-report: if projected Tier-A count exceeds 60 leaves, stop, report measured numbers, await owner ruling on stacking PRs; do not silently reduce coverage, drop a tier, or move candidates to a later slice.",
+      "also_blocking": "Section 1a forbids any app/ file outside the ten-row manifest. Tier A requires a two-session node with no escaped 23505. Writers outside the six named signatures still use session.add or unhandled unique races, so commits 6-9 cannot reach GREEN without expanding production scope.",
+      "not_done": "Did not start Batch 3 / commit 6. Did not drop leaves, lower tiers, or split into 83a/83b.",
+      "awaiting": "resolved_by_owner_ruling_2026_08_25",
+      "owner_confirmed_halt_correct": true
+    },
+    "owner_ruling_2026_08_25": {
+      "owner": "Salim",
+      "supersedes": "the prior OD-9 halt wait, and any earlier reclassification-by-redefinition instruction",
+      "halt_was_correct": true,
+      "reclassification_by_redefinition_was_wrong": true,
+      "owner_verification": "against the migrations, about 76 unique constraints across about 66 tables are genuine caller-collidable create-once keys; Tier A does not shrink by redefinition; it is subdivided by consequence",
+      "durability_before_other_work": [
+        "Push feat/slice-83-writer-concurrency to origin as WIP, no PR",
+        "Commit .planning/SLICE-83-PLAN.md (approved v5 contract) and this HANDOFF entry",
+        "Rebase onto current main (Wave 0 #119 and Slice 84 #120/#121)"
+      ],
+      "tiers": {
+        "A1": "derived-write; production change authorized; GREEN = atomic conflict handling; loser never persists a derived value read before the winner committed",
+        "A2": "independent-insert; tests only; escaped 23505 is correct observed behavior; GREEN = one row, loser fails cleanly, no partial state, correct tenant, no deadlock",
+        "A3": "append-only; both commit distinct rows; no production change",
+        "B": "unchanged; child writers covered by parent node"
+      },
+      "evidence_rule": "Per leaf: (a) unique constraint name over caller-supplied columns or proven catalog absence; (b) whether the writer reads-then-derives, citing exact file:line of the read and of the derived value. A1 requires both cited. A2/A3 without catalog query and read-then-derive check is a defect. Builder judgement alone never suffices.",
+      "od9_compliance": "coverage is not reduced (every leaf keeps a retained two-session node); no tier is dropped (A is subdivided by consequence); no 83a/83b split. Sol reviews the amendment against exactly those three.",
+      "process": "plan amendment is PLANNER seat; Fable writes v-next; Sol reviews; Grok builds from commit 6 after APPROVE. Reject counter unchanged; this ruling is not a reject.",
+      "a1_report_before_build": true,
+      "a1_halt_if_exceeds": 40,
+      "a1_proceed_if": "lands in the tens"
+    },
+    "plan": {
+      "planner_initial": "Claude Opus substituting for owner-named Fable 5",
+      "planner_agent": "5c6e9752-ee53-4c74-b69e-acbd6c86aa0a",
+      "reviewer": "GPT-5.6 Sol",
+      "reviewer_agent": "85ddfaa0-8b87-4b72-8608-6f8c22c7fb57",
+      "consecutive_plan_rejects": 3,
+      "reject_history": [
+        "v1 REJECT (Sol 8917813d) \u2014 6 defects: stale identity-mapped budget RETURNING; inventory not one-to-many for multi-key writers; pg_index INCLUDE columns; OD-3 vs OD-5 version conflict; catch-all IntegrityError on promote; 500-line cap not applied to modified production files",
+        "v2 REJECT (Sol 85ddfaa0) \u2014 4 defects: P-GREEN-1b underspecified (now() frozen in one txn); exactly-one-leaf contradiction; two-writer suite name overstated B1/B2 and B2 unverified via pg_constraint; commit-order vs RED-first vs inventory-during-splits plus incomplete app/ manifest",
+        "v3 REJECT (Sol 85ddfaa0) \u2014 4 remaining defects: P-GREEN-1b omits resetting app.current_tenant after commit; B2-5 stored per leaf not per candidate-to-leaf edge; \u00a73.1 Commit per writer vs OD-9 single fix commit and OD-9 six vs seven \u00a73.2 tests; PromotionRefConflict home unlocked and six-modified vs five-modified count"
+      ],
+      "seat_swap": {
+        "reason": "third consecutive plan REJECT of the same item",
+        "implementer": "GPT-5.6 Sol",
+        "implementer_agent": "85ddfaa0-8b87-4b72-8608-6f8c22c7fb57",
+        "reviewer": "Claude Opus",
+        "reviewer_agent": "c6b5cbc0-d59e-4938-8cd7-0a289274749e",
+        "verdict": "PLAN APPROVE \u2014 Slice 83 v5",
+        "approve_agent": "c6b5cbc0-d59e-4938-8cd7-0a289274749e",
+        "approve_verbatim_first_line": "PLAN APPROVE \u2014 Slice 83 v5",
+        "post_swap_consecutive_rejects": 1,
+        "reject_counter_reset_on_approve": true,
+        "post_swap_history": [
+          "v4 REJECT (Opus c6b5cbc0) \u2014 4 defects: OD-9 commit 5 vs inventory test 4 (Tier-A nodes land in commits 6-9); ConcurrentWriteUnresolved base class unlocked; SERIALIZABLE slice55_finalize_decision has no Tier-A loser branch; three drifted line citations",
+          "v5 APPROVE (Opus c6b5cbc0) after one REJECT on the swapped pair"
+        ]
+      }
+    }
   }
 }
