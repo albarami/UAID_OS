@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Coroutine
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Coroutine
+from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -55,6 +55,11 @@ def row_id(value: Any) -> Any:
     return None if value is None else value.id
 
 
+def minted_id(value: Any) -> Any:
+    """Parent identifier when the writer returns the minted UUID itself."""
+    return value
+
+
 def report_run_id(value: Any) -> Any:
     """Parent identifier from ``PublishReport.run_id``."""
     return None if value is None else value.run_id
@@ -74,6 +79,22 @@ def force_row_id(model: type, value: uuid.UUID):
         event.remove(model, "before_insert", _set)
 
 
+@asynccontextmanager
+async def force_sql_pk_default(
+    admin_engine: AsyncEngine, table: str, value: uuid.UUID
+) -> AsyncIterator[None]:
+    """Force raw ``INSERT`` parents that use a column default onto one UUID."""
+    async with admin_engine.begin() as conn:
+        await conn.execute(text(f"ALTER TABLE {table} ALTER COLUMN id SET DEFAULT '{value}'::uuid"))
+    try:
+        yield
+    finally:
+        async with admin_engine.begin() as conn:
+            await conn.execute(
+                text(f"ALTER TABLE {table} ALTER COLUMN id SET DEFAULT gen_random_uuid()")
+            )
+
+
 async def race_runtime(
     *,
     rls_engine: AsyncEngine,
@@ -82,16 +103,21 @@ async def race_runtime(
     writer: Writer,
     count_sql: str,
     count_params: dict[str, Any],
+    writer_w2: Writer | None = None,
+    isolation_level: str = READ_COMMITTED,
+    retryable_loser_sqlstates: tuple[str, ...] = (),
 ) -> TwoWriterResult:
-    """Two runtime sessions at READ COMMITTED."""
+    """Two runtime sessions; default isolation is READ COMMITTED."""
     return await run_two_writers(
         engine=rls_engine,
         admin_engine=admin_engine,
-        isolation_level=READ_COMMITTED,
+        isolation_level=isolation_level,
         tenant_id=tenant_id,
         writer=writer,
+        writer_w2=writer_w2,
         count_sql=count_sql,
         count_params=count_params,
+        retryable_loser_sqlstates=retryable_loser_sqlstates,
     )
 
 
@@ -101,12 +127,14 @@ async def race_admin(
     writer: Writer,
     count_sql: str,
     count_params: dict[str, Any],
+    writer_w2: Writer | None = None,
 ) -> TwoWriterResult:
     """Two admin sessions at READ COMMITTED (global catalog / publisher)."""
     return await two_admin_writers(
         admin_engine=admin_engine,
         isolation_level=READ_COMMITTED,
         writer=writer,
+        writer_w2=writer_w2,
         count_sql=count_sql,
         count_params=count_params,
     )
