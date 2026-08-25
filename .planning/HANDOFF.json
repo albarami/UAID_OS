@@ -1,15 +1,15 @@
 {
   "version": "1.0",
-  "timestamp": "2026-08-25T01:19:00Z",
-  "source": "slice-83-od9-owner-ruling",
-  "partial": true,
+  "timestamp": "2026-08-25T19:30:00Z",
+  "source": "slice-83-merged-pr-122",
+  "partial": false,
   "phase": "Final audit remediation",
   "phase_name": "F-001 through F-022 remediation",
   "phase_dir": ".planning",
   "plan": null,
-  "task": "Slice 83 / F-020 \u2014 persist ruling, then PLANNER writes v-next",
+  "task": "Slice 71 / F-008 \u2014 emergency-before-cost on owned resume",
   "total_tasks": 22,
-  "status": "slice_83_od9_ruling_received_awaiting_plan_vnext",
+  "status": "slice_83_merged_wave2_next",
   "remediation_run": {
     "authority": {
       "owner": "Salim",
@@ -184,8 +184,13 @@
       {
         "slice": 83,
         "finding": "F-020",
-        "status": "authorized",
-        "wave": 1
+        "status": "merged",
+        "wave": 1,
+        "pr": 122,
+        "merge_sha": "16626c5",
+        "alembic_head": "0062",
+        "a1_count": 21,
+        "a1_halt_tripwire": 40
       },
       {
         "slice": 84,
@@ -655,20 +660,19 @@
       "F-003",
       "F-004",
       "F-005",
-      "F-017",
-      "F-020"
+      "F-017"
     ]
   },
   "slice_83": {
     "finding": "F-020",
-    "status": "od9_halt_after_commit_5",
+    "status": "merged",
     "branch": "feat/slice-83-writer-concurrency",
     "alembic_head": "0062",
     "a5": "slice54.v1",
     "readiness": "slice20.v1",
     "can_go_live_autonomously": false,
     "base_sha": "72ee544",
-    "head_sha": "43d5ceb",
+    "head_sha": "16626c5",
     "commits": [
       "ff87704 refactor(cost-forecasts): split repository into four modules",
       "b8a5321 refactor(extraction): split promotion mixin into its own module",
@@ -754,6 +758,157 @@
           "v5 APPROVE (Opus c6b5cbc0) after one REJECT on the swapped pair"
         ]
       }
+    },
+    "pr": 122,
+    "merge_sha": "16626c5",
+    "a1_count": 21,
+    "a1_halt_tripwire": 40,
+    "a1_halt_fired": false,
+    "closeout": {
+      "merged_via": "PR #122 squash 16626c5",
+      "alembic_head": "0062",
+      "a5": "slice54.v1",
+      "readiness": "slice20.v1",
+      "can_go_live_autonomously": false,
+      "sol_code_approve_agent": "c19a342a-2d80-48dd-85ba-6cd9042e9533",
+      "sol_approve_verbatim": "Verified both acceptance GREEN nodes enforce exact PostgreSQL MESSAGE_PRIMARY equality plus SQLSTATE P0001; both passed, and a suffixed-message mutation was rejected.",
+      "suites": {
+        "make_test": "1277 passed, 1316 deselected",
+        "make_test_db": "1316 passed, 1277 deselected",
+        "ruff": "passed",
+        "pyright_owned": "0 errors",
+        "ci": "https://github.com/albarami/UAID_OS/actions/runs/32888478339"
+      },
+      "named_a1_ledger_command": "uv run pytest tests/test_slice83_a1_ledger.py tests/test_slice83_a1_ledger_b.py --override-ini addopts= -v --tb=line",
+      "named_a1_ledger_result": "18 passed in 14.75s",
+      "named_a1_ledger_nodes": [
+        "tests/test_slice83_a1_ledger.py::test_a1_audit_append_green PASSED",
+        "tests/test_slice83_a1_ledger.py::test_a1_audit_append_mutation PASSED",
+        "tests/test_slice83_a1_ledger.py::test_a1_checkpoint_writes_green PASSED",
+        "tests/test_slice83_a1_ledger.py::test_a1_checkpoint_writes_mutation PASSED",
+        "tests/test_slice83_a1_ledger.py::test_a1_admin_policy_change_green PASSED",
+        "tests/test_slice83_a1_ledger.py::test_a1_admin_policy_change_mutation PASSED",
+        "tests/test_slice83_a1_ledger.py::test_a1_admin_writer_body_is_migration_frozen PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_emergency_activate_previous_green PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_emergency_activate_previous_mutation PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_emergency_activate_idempotency_green PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_emergency_activate_idempotency_mutation PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_first_write_green PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_previous_green PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_evaluation_green PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_project_root_mutation PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_hash_mutation PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_evaluation_mutation PASSED",
+        "tests/test_slice83_a1_ledger_b.py::test_a1_gld_previous_mutation PASSED"
+      ],
+      "a1_ledger": [
+        {
+          "constraint": "audit_logs.uq_audit_logs_seq",
+          "read": "migrations/versions/0003_audit_log.py:141-143",
+          "derived": "migrations/versions/0003_audit_log.py:147-151"
+        },
+        {
+          "constraint": "audit_logs.uq_audit_logs_entry_hash",
+          "read": "migrations/versions/0003_audit_log.py:142-143",
+          "derived": "migrations/versions/0003_audit_log.py:144-146"
+        },
+        {
+          "constraint": "go_live_decisions.uq_gld_previous",
+          "read": "migrations/versions/0054_control_loop_decisions.py:706-708",
+          "derived": "migrations/versions/0054_control_loop_decisions.py:721-722,:731"
+        },
+        {
+          "constraint": "go_live_decisions.uq_gld_entry_hash",
+          "read": "migrations/versions/0054_control_loop_decisions.py:706-708",
+          "derived": "migrations/versions/0054_control_loop_decisions.py:709-713"
+        },
+        {
+          "constraint": "go_live_decisions.uq_gld_project_root",
+          "read": "migrations/versions/0054_control_loop_decisions.py:706-708",
+          "derived": "migrations/versions/0054_control_loop_decisions.py:721,:731"
+        },
+        {
+          "constraint": "go_live_decisions.uq_gld_evaluation",
+          "read": "migrations/versions/0054_control_loop_decisions.py:706-708",
+          "derived": "migrations/versions/0054_control_loop_decisions.py:714-731"
+        },
+        {
+          "constraint": "control_loop_events.uq_cle_run_ordinal",
+          "read": "app/repositories/go_live_decisions.py:299-310",
+          "derived": "app/repositories/go_live_decisions.py:320,:327"
+        },
+        {
+          "constraint": "control_loop_events.uq_cle_previous",
+          "read": "app/repositories/go_live_decisions.py:299-310",
+          "derived": "app/repositories/go_live_decisions.py:328"
+        },
+        {
+          "constraint": "control_loop_events.uq_cle_loop_root",
+          "read": "app/repositories/go_live_decisions.py:299-310",
+          "derived": "app/repositories/go_live_decisions.py:328"
+        },
+        {
+          "constraint": "acceptance_criterion_authorship_records.uq_acar_criterion_sequence",
+          "read": "app/repositories/acceptance_verification.py:42-59",
+          "derived": "app/repositories/acceptance_verification.py:90/:134/:175"
+        },
+        {
+          "constraint": "acceptance_criterion_authorship_records.uq_acar_supersedes_once",
+          "read": "app/repositories/acceptance_verification.py:42-59",
+          "derived": "app/repositories/acceptance_verification.py:89/:133/:174"
+        },
+        {
+          "constraint": "emergency_stop_events.uq_ese_previous",
+          "read": "app/repositories/emergency_controls.py:502,:572",
+          "derived": "app/repositories/emergency_controls.py:476"
+        },
+        {
+          "constraint": "emergency_stop_events.uq_ese_project_root",
+          "read": "app/repositories/emergency_controls.py:437",
+          "derived": "app/repositories/emergency_controls.py:439-443"
+        },
+        {
+          "constraint": "emergency_stop_events.uq_ese_idempotency",
+          "read": "app/repositories/emergency_controls.py:502/:572",
+          "derived": "app/repositories/emergency_controls.py:476,:487"
+        },
+        {
+          "constraint": "production_preapproval_lifecycle_events.uq_pple_previous",
+          "read": "app/release/production_approval_service.py:248,:336",
+          "derived": "app/release/production_approval_service.py:253/:343"
+        },
+        {
+          "constraint": "production_preapproval_lifecycle_events.uq_pple_attestation_event",
+          "read": "app/release/production_approval_service.py:336",
+          "derived": "app/repositories/production_preapprovals.py:451-465"
+        },
+        {
+          "constraint": "production_preapproval_lifecycle_events.uq_pple_idempotency",
+          "read": "app/release/production_approval_service.py:336",
+          "derived": "app/repositories/production_preapprovals.py:451-465"
+        },
+        {
+          "constraint": "budgets.uq_budgets_tenant_id_project_id",
+          "read": "app/repositories/cost.py:199",
+          "derived": "app/repositories/cost.py:210-215,:225"
+        },
+        {
+          "constraint": "autonomy_policies.uq_autonomy_policies_tenant_id_project_id",
+          "read": "app/admin/policy_sql.py:58-63,:111-114",
+          "derived": "app/admin/policy_sql.py:95/:108/:127"
+        },
+        {
+          "constraint": "admin_policy_changes.uq_admin_policy_changes_action",
+          "read": "app/admin/policy_sql.py:58-63",
+          "derived": "app/admin/policy_sql.py:71-77"
+        },
+        {
+          "constraint": "run_checkpoint_writes.uq_run_checkpoint_writes_id",
+          "read": "NONE (upsert discriminator; no preceding SELECT)",
+          "derived": "app/runtime/checkpointer.py:152-167 set_={channel,type,blob,task_path}"
+        }
+      ],
+      "next": "Slice 71 / F-008 Wave 2"
     }
   }
 }

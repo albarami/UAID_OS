@@ -691,7 +691,7 @@ Resolve reviewer realization, qualification, independence, and current QA from a
 #### Slice 70 — F-007 auxiliary hard-false surfaces — **MAJOR · AUTHORIZED (Wave 5) · NOT STARTED**
 Structurally preserve literal-false truth on readiness and decision-output surfaces and apply the exact ingress sanitizer.
 
-#### Slice 71 — F-008 emergency ordering and load-bearing paths — **MAJOR · AUTHORIZED (Wave 2) · NOT STARTED**
+#### Slice 71 — F-008 emergency ordering and load-bearing paths — **MAJOR · AUTHORIZED (Wave 2) · NEXT**
 Check committed emergency state before cost and cycle creation on real owned paths, use the guarded-stage order in production, and retain load-bearing boundary tests.
 
 #### Slice 72 — F-009 broker execution and actuators — **BLOCKER · PARKED (owner decision pending) · NOT STARTED**
@@ -727,8 +727,8 @@ Reconcile HANDOFF, roadmap, README, CLAUDE.md, and the stale dashboard comment t
 #### Slice 82 — F-019 audit-log tenant isolation — **MAJOR · AUTHORIZED (Wave 3) · NOT STARTED**
 Add ENABLE+FORCE RLS and `tenant_isolation` to `audit_logs` while preserving a controlled writer and enumerating the tenant-owned denominator.
 
-#### Slice 83 — F-020 writer concurrency — **MAJOR · AUTHORIZED (Wave 1) · NOT STARTED**
-Retain the six reported first-write races, return a winner or domain result under contention, publish a deduplicated writer inventory, and add retained two-writer barriers across the 122 audit candidates.
+#### Slice 83 — F-020 writer concurrency — **MAJOR · AUTHORIZED (Wave 1) · COMPLETE (A1=21; Alembic head 0062)**
+Retain the six reported first-write races, return a winner or domain result under contention, publish a deduplicated writer inventory, and add retained two-writer barriers across the 122 audit candidates. Merged via PR #122 (squash `16626c5`). A1 derived-write production change is `lock_project_row` on the four §0A.5 modules; A2/A3 tests only. Named A1 ledger 18/18 passed. Suites: `make test` 1277/1316; `make test-db` 1316/1277.
 
 #### Slice 84 — F-021 test integrity — **MAJOR · AUTHORIZED (Wave 1; first numbered remediation slice) · COMPLETE (tests only; no migration; head 0062)**
 Restore the five load-bearing test paths and assert exact target triggers, grants, RLS, repository branches, and acceptance guards without neighbouring-constraint masking. Merged via PR #120 (squash `65e85c4`). Tests only; no production guard added.
@@ -740,7 +740,7 @@ Preserve source tiers and binding hashes, separate unverified and broker-authori
 
 ## 6. Recommended immediate next slice
 
-> **Current state (2026-08-24): Slice 84 / F-021 COMPLETE (tests only; no migration; head 0062) on main `65e85c4` (PR #120).** Next numbered remediation is **Slice 83 / F-020**, then **Slice 71 / F-008**. The authorization is limited to the registered statuses. It does not authorize go-live, parked work, or changing the audit/spec. `can_go_live_autonomously` remains literal `False`; the Slice 61 exit and D-8/D-9/D-10 remain open.
+> **Current state (2026-08-25): Slice 83 / F-020 COMPLETE on main `16626c5` (PR #122); Slice 84 / F-021 COMPLETE (tests only; no migration; head 0062) on main `65e85c4` (PR #120).** Next numbered remediation is **Slice 71 / F-008**. The authorization is limited to the registered statuses. It does not authorize go-live, parked work, or changing the audit/spec. `can_go_live_autonomously` remains literal `False`; the Slice 61 exit and D-8/D-9/D-10 remain open.
 
 ---
 
