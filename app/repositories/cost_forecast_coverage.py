@@ -79,7 +79,8 @@ class _CostForecastCoverageMixin:
         candidate = await ReleaseCandidateRepository(self.session, self.context).latest_frozen(
             project_id
         )
-        policy = await self._latest_policy(project_id)
+        latest_policy = getattr(self, "_latest_policy")
+        policy = await latest_policy(project_id)
         budget = (
             await self.session.execute(
                 select(Budget).where(
@@ -110,11 +111,12 @@ class _CostForecastCoverageMixin:
             .scalars()
             .first()
         )
+        daily_cap = budget.max_daily_cost_usd if budget is not None else None
         budget_valid = bool(
-            budget
+            budget is not None
             and budget.max_total_cost_usd > 0
-            and budget.max_daily_cost_usd is not None
-            and budget.max_daily_cost_usd > 0
+            and daily_cap is not None
+            and daily_cap > 0
         )
         policy_valid = bool(
             policy
@@ -136,8 +138,8 @@ class _CostForecastCoverageMixin:
             total_spent=total,
             daily_spent=daily,
             budget=(
-                BudgetCeilings(budget.max_total_cost_usd, budget.max_daily_cost_usd)
-                if budget_valid
+                BudgetCeilings(budget.max_total_cost_usd, daily_cap)
+                if budget_valid and budget is not None and daily_cap is not None
                 else None
             ),
         )
@@ -149,9 +151,9 @@ class _CostForecastCoverageMixin:
             _storage_hash(
                 str(budget.id),
                 _money(budget.max_total_cost_usd),
-                _money(budget.max_daily_cost_usd),
+                _money(daily_cap),
             )
-            if budget_valid and budget is not None
+            if budget_valid and budget is not None and daily_cap is not None
             else None
         )
         current = bool(

@@ -34,7 +34,12 @@ from app.models.cost_forecast import (
 )
 from app.models.evidence_pack import EvidencePack
 from app.models.release_candidate import ReleaseCandidate
-from app.repositories.cost_forecast_types import _money, _percent, _storage_hash
+from app.repositories.cost_forecast_types import (
+    _money,
+    _percent,
+    _storage_hash,
+    CostForecastRepositoryError,
+)
 from app.tenancy import TenantContext
 
 
@@ -131,7 +136,8 @@ class _CostForecastPersistenceMixin:
         as_of: datetime,
         actor: str,
     ) -> CostForecastRun:
-        event_lines = [self._event_line(event) for event in events]
+        event_line = getattr(self, "_event_line")
+        event_lines = [event_line(event) for event in events]
         ledger_digest = _storage_hash(*(line.material_digest for line in event_lines))
         input_rows: list[dict] = []
         ordinal = 1
@@ -245,8 +251,11 @@ class _CostForecastPersistenceMixin:
                 )
             )
         result_digest = _storage_hash(*(row["dimension_digest"] for row in dimension_rows))
+        daily_cap = budget.max_daily_cost_usd
+        if daily_cap is None:
+            raise CostForecastRepositoryError("cost_forecast_budget_daily_absent")
         budget_digest = _storage_hash(
-            str(budget.id), _money(budget.max_total_cost_usd), _money(budget.max_daily_cost_usd)
+            str(budget.id), _money(budget.max_total_cost_usd), _money(daily_cap)
         )
         input_digest = _storage_hash(
             pack.core_content_hash,

@@ -297,7 +297,7 @@ class CostForecastRepository(_CostForecastPersistenceMixin, _CostForecastCoverag
                     assumptions=tuple(assumptions),
                     model_lines=tuple(model_lines),
                     forecast_ci_minutes_today=forecast_ci_minutes_today,
-                    stop_reason=stop.reason.value if stop.stop else "ok",
+                    stop_reason=stop.reason.value if stop.reason is not None else "ok",
                     as_of=as_of,
                 )
             )
@@ -324,7 +324,7 @@ class CostForecastRepository(_CostForecastPersistenceMixin, _CostForecastCoverag
             model_lines=model_lines,
             forecast_ci_minutes_today=forecast_ci_minutes_today,
             decision=decision,
-            stop_reason=stop.reason.value if stop.stop else "ok",
+            stop_reason=stop.reason.value if stop.reason is not None else "ok",
             as_of=as_of,
             actor=actor,
         )
