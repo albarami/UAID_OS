@@ -30,6 +30,7 @@ from app.models.production_preapproval import (
     ProductionPreapprovalAttestation,
     ProductionPreapprovalRequest,
 )
+from app.repositories.emergency_controls import lock_project_row
 from app.release.go_live_decision import (
     CONTROL_LOOP_CONTRACT_VERSION,
     GO_LIVE_EVALUATION_CONTRACT_VERSION,
@@ -296,6 +297,7 @@ class GoLiveDecisionRepository(TenantScopedRepository):
         evidence_reference_digest: str | None = None,
     ) -> ControlLoopEvent:
         cycle = await self._require_cycle(control_loop_run_id)
+        await lock_project_row(self.session, self.context, cycle.project_id)
         prior = (
             await self.session.execute(
                 select(ControlLoopEvent)
@@ -305,7 +307,6 @@ class GoLiveDecisionRepository(TenantScopedRepository):
                 )
                 .order_by(ControlLoopEvent.ordinal.desc())
                 .limit(1)
-                .with_for_update()
             )
         ).scalar_one_or_none()
         try:

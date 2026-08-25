@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -19,7 +19,7 @@ from tests.admin_lock_support import write_wait_snapshot
 from tests.admin_support import pg_constraint, pg_state
 from app.intake.extraction import promotion_ref
 
-Writer = Callable[[AsyncSession], Awaitable[Any]]
+Writer = Callable[[AsyncSession], Coroutine[Any, Any, Any]]
 Seeder = Callable[[AsyncSession], Awaitable[dict[str, Any]]]
 
 _POLL_S = 0.05
@@ -61,8 +61,9 @@ async def unique_row_count(admin_engine: AsyncEngine, sql: str, params: dict[str
         return int((await conn.execute(text(sql), params)).scalar_one())
 
 
-def assert_integrity_error_on(exc: BaseException, constraint: str | None = None) -> None:
+def assert_integrity_error_on(exc: BaseException | None, constraint: str | None = None) -> None:
     """Assert a unique-violation IntegrityError, optionally on a named constraint."""
+    assert exc is not None
     assert isinstance(exc, IntegrityError), type(exc).__name__
     assert pg_state(exc) == "23505", pg_state(exc)
     if constraint is not None:
@@ -83,8 +84,10 @@ def _constraint_from_message(exc: BaseException) -> str | None:
     return None
 
 
-def reported_constraint(exc: BaseException) -> str | None:
+def reported_constraint(exc: BaseException | None) -> str | None:
     """Named unique constraint from a 23505, or None if unparseable."""
+    if not isinstance(exc, Exception):
+        return None
     return pg_constraint(exc) or _constraint_from_message(exc)
 
 
@@ -121,7 +124,7 @@ async def seed_org_tenant_project(admin_engine: AsyncEngine) -> dict[str, Any]:
 def assert_no_integrity_error(result: TwoWriterResult) -> None:
     """Neither writer outcome may carry SQLSTATE 23505."""
     for label, exc in (("w1", result.w1_error), ("w2", result.w2_error)):
-        state = pg_state(exc) if exc is not None else None
+        state = pg_state(exc) if isinstance(exc, Exception) else None
         assert state != "23505", f"{label} still unique-violated: {exc!r}"
         if exc is not None:
             assert not isinstance(exc, IntegrityError) or state != "23505"
