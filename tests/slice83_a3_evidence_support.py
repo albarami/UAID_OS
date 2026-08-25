@@ -24,12 +24,13 @@ from app.release.evidence_pack import (
     digest_bytes,
     project_source_record,
 )
+from app.models.ecosystem_catalog import CatalogAsset, ConnectorCatalogSpec
 from app.repositories.catalog_admin import record_contract_test
 from app.repositories.cost import BudgetRepository, CostEventRepository
 from app.repositories.cost_forecasts import CostForecastRepository, ReportedModelPlan
 from app.repositories.evidence_packs import EvidencePackRepository
 from app.tenancy import TenantContext
-from tests.ecosystem_catalog_support import register_probe_connector, unique
+from tests.ecosystem_catalog_support import real_connector_specs, register_probe_connector, unique
 from tests.slice83_a2_d_support import export_writer as export_keyed_writer
 from tests.slice83_support import Writer, bind_tenant, seed_org_tenant_project
 from tests.test_cost_forecasts import _policy_payload
@@ -69,6 +70,42 @@ async def seed_connector_asset(admin_engine: AsyncEngine) -> Any:
         asset = await register_probe_connector(session)
         await session.commit()
         return asset
+
+
+async def seed_connector_asset_shell(admin_engine: AsyncEngine) -> CatalogAsset:
+    """Connector identity row with no spec, so ``uq_ccs_asset_id`` can fire."""
+    async with AsyncSession(admin_engine, expire_on_commit=False) as session:
+        asset = CatalogAsset(
+            asset_kind="connector",
+            asset_key=unique("pm"),
+            version_label="v1",
+            registered_by="s83-a3",
+        )
+        session.add(asset)
+        await session.flush()
+        await session.commit()
+        return asset
+
+
+def spec_writer(asset_id: uuid.UUID) -> Writer:
+    spec = real_connector_specs()["pm"]
+
+    async def writer(session: AsyncSession) -> ConnectorCatalogSpec:
+        row = ConnectorCatalogSpec(
+            asset_id=asset_id,
+            asset_kind="connector",
+            protocol_module=spec.protocol_module,
+            protocol_name=spec.protocol_name,
+            fake_name=spec.fake_name,
+            service_module=spec.service_module,
+            live_adapter_status=spec.live_adapter_status,
+            live_adapter_name=spec.live_adapter_name,
+        )
+        session.add(row)
+        await session.flush()
+        return row
+
+    return writer
 
 
 def connector_writer(*, asset_key: str | None = None) -> Writer:

@@ -6,6 +6,7 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,19 +138,24 @@ async def test_a1_checkpoint_writes_green(rls_engine, admin_engine):
     assert_no_integrity_error(result)
     assert result.unique_row_count == 1
     assert result.w1_error is None and result.w2_error is None
+    serde = BaseCheckpointSaver().serde
+    expected = {
+        ("ch", *serde.dumps_typed("alpha"), "path-a"),
+        ("ch", *serde.dumps_typed("beta"), "path-b"),
+    }
     async with admin_engine.connect() as conn:
         row = (
             await conn.execute(
                 text(
-                    "SELECT channel, task_path FROM run_checkpoint_writes "
+                    "SELECT channel, type, blob, task_path FROM run_checkpoint_writes "
                     "WHERE tenant_id=:t AND thread_id=:th AND checkpoint_id='cp-1' "
                     "AND task_id='task-1'"
                 ),
                 {"t": world["tenant"], "th": str(world["run"])},
             )
         ).one()
-    surviving = (row.channel, row.task_path)
-    assert surviving in {("ch", "path-a"), ("ch", "path-b")}
+    surviving = (row.channel, row.type, bytes(row.blob), row.task_path)
+    assert surviving in expected
     print("A1-CKPT-GREEN", surviving)
 
 

@@ -33,6 +33,8 @@ from tests.slice83_support import (
 
 pytestmark = pytest.mark.db
 
+_CHAIN = "acceptance authorship chain must linearly supersede the current record"
+
 
 async def test_a1_projects_for_update_privilege(rls_engine, admin_engine):
     """Runtime role can lock ``projects``; that is the only new lock target."""
@@ -104,7 +106,8 @@ async def test_a1_acceptance_first_write_green(rls_engine, admin_engine):
     assert result.w1_value.supersedes_record_id is None
     assert result.w2_error is not None
     assert isinstance(result.w2_error, Exception)
-    assert pg_state(result.w2_error) != "23505"
+    assert pg_state(result.w2_error) == "P0001"
+    assert _CHAIN in str(result.w2_error)
     print(
         "A1-AC-GREEN",
         result.w1_value.id,
@@ -195,6 +198,9 @@ async def test_a1_acceptance_supersedes_green(rls_engine, admin_engine):
     assert result.w1_error is None
     assert result.w1_value.supersedes_record_id == seed_id
     assert result.w2_error is not None
+    assert isinstance(result.w2_error, Exception)
+    assert pg_state(result.w2_error) == "P0001"
+    assert _CHAIN in str(result.w2_error)
     print("A1-AC-SUP-GREEN", result.w1_value.id, type(result.w2_error).__name__)
 
 

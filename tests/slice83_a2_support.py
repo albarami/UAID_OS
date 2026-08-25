@@ -40,7 +40,6 @@ from tests.slice83_support import (
     TwoWriterResult,
     Writer,
     assert_integrity_error_on,
-    assert_no_integrity_error,
     bind_tenant,
     component_hashes,
     run_two_writers,
@@ -57,7 +56,12 @@ def assert_a2_green(result: TwoWriterResult, constraint: str, *, reconciles: boo
     assert result.w1_error is None
     assert result.pending_before_commit is True
     if reconciles:
-        assert_no_integrity_error(result)
+        assert result.w2_error is None
+        assert result.w2_settled == "committed"
+        assert result.w1_value is not None and result.w2_value is not None
+        left = getattr(result.w1_value, "id", result.w1_value)
+        right = getattr(result.w2_value, "id", result.w2_value)
+        assert left == right
         return
     assert_integrity_error_on(result.w2_error, constraint)
 

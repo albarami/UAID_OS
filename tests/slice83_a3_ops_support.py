@@ -16,7 +16,8 @@ from app.release.emergency_control_service import EmergencyControlService
 from app.repositories.acceptance_verification import AcceptanceVerificationRepository
 from app.repositories.agent_realizations import AgentRealizationRepository
 from app.repositories.cost_optimizer import CostOptimizerRepository
-from app.repositories.go_live_decisions import GoLiveDecisionRepository
+from app.models.go_live_decision import GoLiveEvaluationGateResult
+from app.repositories.go_live_decisions import GoLiveDecisionRepository, _context_digest
 from app.repositories.skills import register_capability
 from app.tenancy import TenantContext
 from tests.admin_support import seed_gated_policy
@@ -113,6 +114,30 @@ def evaluation_for(world: dict[str, Any], cycle_id: uuid.UUID) -> Writer:
             emergency_latch_active=False,
             binding_ids={},
         )
+
+    return writer
+
+
+def gate_child_writer(world: dict[str, Any], evaluation_id: uuid.UUID) -> Writer:
+    """Insert one gate row for an existing evaluation (A3 leaf unique)."""
+    digest = _context_digest({})
+
+    async def writer(session: AsyncSession) -> Any:
+        session.add(
+            GoLiveEvaluationGateResult(
+                tenant_id=world["tenant"],
+                project_id=world["project"],
+                evaluation_id=evaluation_id,
+                gate_number=1,
+                gate_name_code="gate_1",
+                status="passed",
+                reason_code="test_passed",
+                safe_context_digest=digest,
+                ordinal=1,
+            )
+        )
+        await session.flush()
+        return evaluation_id
 
     return writer
 

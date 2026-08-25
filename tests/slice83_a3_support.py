@@ -15,39 +15,82 @@ from tests.slice83_support import (
     READ_COMMITTED,
     TwoWriterResult,
     Writer,
+    reported_constraint,
     run_two_writers,
     two_admin_writers,
+    unique_row_count,
 )
 
 ParentOf = Callable[[Any], Any]
 
+FORECAST_CHILD_CONSTRAINTS: dict[str, tuple[str, ...]] = {
+    "cost_forecast_dimension_results": (
+        "uq_cfdr_run_dimension",
+        "uq_cfdr_run_ordinal",
+    ),
+    "cost_forecast_input_lines": (
+        "uq_cfil_run_kind_component",
+        "uq_cfil_run_model_route",
+        "uq_cfil_run_ordinal",
+    ),
+    "cost_forecast_ledger_event_refs": (
+        "uq_cfler_run_event",
+        "uq_cfler_run_ordinal",
+    ),
+}
 
-def assert_a3_green(result: TwoWriterResult, *, parent_of: ParentOf) -> None:
-    """A3 GREEN: both commits succeed; minted parent identifiers differ; ≥2 child rows."""
+
+def assert_a3_green(
+    result: TwoWriterResult, *, parent_of: ParentOf, require_count: bool = True
+) -> tuple[Any, Any]:
+    """A3 GREEN: both commits succeed and minted parent identifiers differ."""
     assert result.w1_error is None
     assert result.w2_error is None
     first = parent_of(result.w1_value)
     second = parent_of(result.w2_value)
     assert first is not None and second is not None and first != second
-    assert result.unique_row_count >= 2
+    if require_count:
+        assert result.unique_row_count >= 2
+    return first, second
+
+
+async def assert_a3_scoped_parents(
+    admin_engine: AsyncEngine,
+    *,
+    table: str,
+    parent_column: str,
+    first: Any,
+    second: Any,
+) -> None:
+    """Exactly two distinct race-created parents have child rows."""
+    n = await unique_row_count(
+        admin_engine,
+        f"SELECT count(DISTINCT {parent_column}) FROM {table} WHERE {parent_column} IN (:a, :b)",
+        {"a": first, "b": second},
+    )
+    assert n == 2
 
 
 async def assert_a3_mutation(
     race: Callable[[], Coroutine[Any, Any, TwoWriterResult]],
     *,
     parent_of: ParentOf,
+    constraint: str | tuple[str, ...],
 ) -> None:
-    """Collapsing onto one minted parent must fail the A3 distinctness assertion."""
+    """Collapsing onto one parent must fire the leaf unique, not a neighbouring key."""
+    allowed = (constraint,) if isinstance(constraint, str) else constraint
     try:
         result = await race()
-    except IntegrityError:
+    except IntegrityError as exc:
+        assert reported_constraint(exc) in allowed, reported_constraint(exc)
         return
-    held = True
-    try:
-        assert_a3_green(result, parent_of=parent_of)
-    except AssertionError:
-        held = False
-    assert held is False, "collapsed-parent race still satisfied A3 GREEN"
+    observed = [
+        reported_constraint(exc)
+        for exc in (result.w1_error, result.w2_error)
+        if isinstance(exc, Exception)
+    ]
+    observed = [name for name in observed if name]
+    assert any(name in allowed for name in observed), observed
 
 
 def row_id(value: Any) -> Any:
