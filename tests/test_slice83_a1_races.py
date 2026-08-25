@@ -15,6 +15,7 @@ from app.repositories.go_live_decisions import (
 )
 from app.tenancy import TenantContext
 from tests.admin_support import pg_state
+from tests.slice84_support import expect_exact_primary
 from tests.slice83_a1_support import (
     DIGEST,
     SKIP_PROJECT_LOCK,
@@ -106,8 +107,7 @@ async def test_a1_acceptance_first_write_green(rls_engine, admin_engine):
     assert result.w1_value.supersedes_record_id is None
     assert result.w2_error is not None
     assert isinstance(result.w2_error, Exception)
-    assert pg_state(result.w2_error) == "P0001"
-    assert _CHAIN in str(result.w2_error)
+    expect_exact_primary(result.w2_error, _CHAIN, "P0001")
     print(
         "A1-AC-GREEN",
         result.w1_value.id,
@@ -199,8 +199,7 @@ async def test_a1_acceptance_supersedes_green(rls_engine, admin_engine):
     assert result.w1_value.supersedes_record_id == seed_id
     assert result.w2_error is not None
     assert isinstance(result.w2_error, Exception)
-    assert pg_state(result.w2_error) == "P0001"
-    assert _CHAIN in str(result.w2_error)
+    expect_exact_primary(result.w2_error, _CHAIN, "P0001")
     print("A1-AC-SUP-GREEN", result.w1_value.id, type(result.w2_error).__name__)
 
 
