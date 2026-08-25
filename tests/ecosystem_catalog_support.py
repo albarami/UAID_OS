@@ -24,7 +24,7 @@ FROZEN_HASHES: dict[str, str] = {
     "app/tools/broker.py": "20728181a65073d0ec5cacb63385fa2101760ec670e54621991eb24a97a33c57",
     "app/tools/registry.py": "c10023cfcbd074bb8c99e4dc0fa5a2b7de89d685820394b0902cde1ccfcc94e3",
     "app/policy/matrix.py": "c69a09ee8f910bffa839a8b75154dd3f3025fdb44c0c5aa0b9bfdd6e6f31a43f",
-    "app/agents/registry.py": "b942a9d6a210cbe9730c0b447d20158137e3c87e2c317515b35d91cb99195964",
+    "app/agents/registry.py": "d22471117d28958251a375cbc7cfebf6ac3c027ae21e28393f7e58c14cb5e1f5",
     "app/release/production_autonomy.py": (
         "55d8bb179321e57ffd4ee3b514cb1ff386e6e5b81cf00e2bfdcbab02fd093029"
     ),

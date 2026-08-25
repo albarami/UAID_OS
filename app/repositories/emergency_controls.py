@@ -342,6 +342,7 @@ class EmergencyControlRepository(TenantScopedRepository):
         actor_type: str,
         idempotency_key_hash: str,
     ) -> EmergencyControlBinding:
+        await lock_project_row(self.session, self.context, project_id)
         sources = await self.current_authority_sources(project_id)
         parsed = sources.parsed_policy
         autonomy = sources.autonomy_policy

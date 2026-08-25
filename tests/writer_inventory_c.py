@@ -1,0 +1,151 @@
+"""Slice 83 A1/A2/A3 consequence subt tiers (test-owned, not a product API)."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+A1_LEAF_IDS: frozenset[str] = frozenset(
+    (
+        "audit_logs.uq_audit_logs_seq",
+        "audit_logs.uq_audit_logs_entry_hash",
+        "go_live_decisions.uq_gld_previous",
+        "go_live_decisions.uq_gld_entry_hash",
+        "go_live_decisions.uq_gld_project_root",
+        "go_live_decisions.uq_gld_evaluation",
+        "control_loop_events.uq_cle_run_ordinal",
+        "control_loop_events.uq_cle_previous",
+        "control_loop_events.uq_cle_loop_root",
+        "acceptance_criterion_authorship_records.uq_acar_criterion_sequence",
+        "acceptance_criterion_authorship_records.uq_acar_supersedes_once",
+        "emergency_stop_events.uq_ese_previous",
+        "emergency_stop_events.uq_ese_project_root",
+        "emergency_stop_events.uq_ese_idempotency",
+        "production_preapproval_lifecycle_events.uq_pple_previous",
+        "production_preapproval_lifecycle_events.uq_pple_attestation_event",
+        "production_preapproval_lifecycle_events.uq_pple_idempotency",
+        "budgets.uq_budgets_tenant_id_project_id",
+        "autonomy_policies.uq_autonomy_policies_tenant_id_project_id",
+        "admin_policy_changes.uq_admin_policy_changes_action",
+        "run_checkpoint_writes.uq_run_checkpoint_writes_id",
+    )
+)
+
+_SUBTIER_TEXT = """\
+audit_logs.uq_audit_logs_seq|A1
+audit_logs.uq_audit_logs_entry_hash|A1
+go_live_decisions.uq_gld_previous|A1
+go_live_decisions.uq_gld_entry_hash|A1
+go_live_decisions.uq_gld_project_root|A1
+go_live_decisions.uq_gld_evaluation|A1
+control_loop_events.uq_cle_run_ordinal|A1
+control_loop_events.uq_cle_previous|A1
+control_loop_events.uq_cle_loop_root|A1
+acceptance_criterion_authorship_records.uq_acar_criterion_sequence|A1
+acceptance_criterion_authorship_records.uq_acar_supersedes_once|A1
+emergency_stop_events.uq_ese_previous|A1
+emergency_stop_events.uq_ese_project_root|A1
+emergency_stop_events.uq_ese_idempotency|A1
+production_preapproval_lifecycle_events.uq_pple_previous|A1
+production_preapproval_lifecycle_events.uq_pple_attestation_event|A1
+production_preapproval_lifecycle_events.uq_pple_idempotency|A1
+budgets.uq_budgets_tenant_id_project_id|A1
+autonomy_policies.uq_autonomy_policies_tenant_id_project_id|A1
+admin_policy_changes.uq_admin_policy_changes_action|A1
+run_checkpoint_writes.uq_run_checkpoint_writes_id|A1
+admin_role_grants.uq_admin_role_grants_tenant_id_principal_subject_admin_role|A2
+agent_blueprints.uq_agent_blueprints_key|A2
+agent_instances.uq_agent_instances_live_key|A2
+agent_versions.uq_agent_versions_blueprint_id_version_label|A2
+agent_versions.uq_agent_versions_content_hash|A2
+catalog_assets.uq_ca_kind_key_version|A2
+catalog_listings.uq_cl_live_asset|A2
+control_loop_runs.uq_clr_idempotency|A2
+cost_events.uq_cost_events_idempotency|A2
+cost_forecast_policy_versions.uq_cfpv_project_digest|A2
+documents.uq_documents_content|A2
+emergency_control_bindings.uq_ecb_idempotency|A2
+emergency_rollback_authorizations.uq_era_idempotency|A2
+evidence_pack_export_records.uq_epr_idempotency|A2
+extraction_promotions.uq_extraction_promotions_proposal|A2
+go_live_evaluations.uq_gle_loop|A2
+intake_artifacts.uq_intake_artifacts_ref|A2
+intake_categories.uq_intake_categories_cat|A2
+ops_incident_tickets.uq_ops_incident_tickets_incident|A2
+ops_incidents.uq_ops_incidents_idempotency|A2
+ops_observation_runs.uq_ops_observation_runs_idempotency|A2
+ops_self_healing_runs.uq_ops_self_healing_runs_idempotency|A2
+ops_stabilization_windows.uq_ops_stab_windows_idempotency|A2
+production_preapproval_attestations.uq_ppa_idempotency|A2
+production_preapproval_attestations.uq_ppa_request|A2
+production_preapproval_requests.uq_ppr_generic_approval|A2
+production_preapproval_requests.uq_ppr_idempotency|A2
+projects.uq_projects_tenant_id_slug|A2
+release_candidate_issue_bindings.uq_release_candidate_issue_binding|A2
+release_candidates.uq_release_candidates_ref|A2
+release_issues.uq_release_issues_source_finding|A2
+run_checkpoints.uq_run_checkpoints_id|A2
+skills.uq_skills_key|A2
+task_contract_artifact_links.uq_tc_artifact_links_triple|A2
+task_contract_reviewers.uq_tc_reviewers_registration|A2
+task_contract_reviewers.uq_tc_reviewers_triple|A2
+task_contracts.uq_task_contracts_ref|A2
+tenant_catalog_adoptions.uq_tca_tenant_project_listing|A2
+acceptance_verification_results.uq_avres_run_criterion|A3
+agent_provided_skills.uq_aps_capability_skill|A3
+agent_realizations.uq_agent_realizations_instance|A3
+catalog_vetting_check_results.uq_cvcr_record_name|A3
+connector_catalog_specs.uq_ccs_asset_id|A3
+cost_forecast_dimension_results.uq_cfdr_run_dimension|A3
+cost_forecast_dimension_results.uq_cfdr_run_ordinal|A3
+cost_forecast_input_lines.uq_cfil_run_kind_component|A3
+cost_forecast_input_lines.uq_cfil_run_model_route|A3
+cost_forecast_input_lines.uq_cfil_run_ordinal|A3
+cost_forecast_ledger_event_refs.uq_cfler_run_event|A3
+cost_forecast_ledger_event_refs.uq_cfler_run_ordinal|A3
+cost_optimizer_citations.uq_coc_run_bucket|A3
+cross_project_aggregate_buckets.uq_cpab_run_class_key|A3
+emergency_control_authority_members.uq_ecam_binding_ordinal|A3
+emergency_control_authority_members.uq_ecam_binding_subject|A3
+emergency_stop_run_effects.uq_esre_event_run|A3
+evidence_pack_export_files.uq_epef_file_name|A3
+evidence_pack_export_files.uq_epef_ordinal|A3
+evidence_pack_manifest_signatures.uq_epms_export_record|A3
+evidence_pack_section_results.uq_eps_pack_ordinal|A3
+evidence_pack_section_results.uq_eps_pack_section|A3
+evidence_pack_source_refs.uq_epsr_pack_ordinal|A3
+evidence_pack_source_refs.uq_epsr_pack_source|A3
+evidence_packs.uq_evidence_packs_generation_run|A3
+go_live_evaluation_gate_results.uq_glegr_gate|A3
+go_live_evaluation_gate_results.uq_glegr_ordinal|A3
+ops_hotfix_plans.uq_ops_hotfix_plans_run_kind|A3
+ops_improvement_results.uq_ops_improvement_results_window_seq|A3
+ops_incident_action_results.uq_ops_incident_action_results_eval_action|A3
+ops_incident_action_results.uq_ops_incident_action_results_eval_seq|A3
+ops_self_healing_results.uq_ops_self_healing_results_run_action|A3
+ops_self_healing_results.uq_ops_self_healing_results_run_seq|A3
+ops_signal_results.uq_ops_signal_results_run_class|A3
+ops_signal_results.uq_ops_signal_results_run_seq|A3
+ops_stabilization_criterion_results.uq_ops_stab_criteria_window_seq|A3
+production_approval_policy_approvers.uq_papa_policy_ordinal|A3
+production_approval_policy_approvers.uq_papa_policy_subject|A3
+release_findings.uq_release_findings_scan_fingerprint|A3
+release_findings.uq_release_findings_shortcut_fingerprint|A3
+release_verdict_issue_results.uq_rvir_verdict_binding|A3
+release_verdict_issue_results.uq_rvir_verdict_ordinal|A3
+release_verdicts.uq_release_verdicts_run|A3
+reviewer_quality_case_results.uq_rqcr_record_case|A3
+reviewer_quality_defect_results.uq_rqdr_case_defect|A3
+rollback_verification_phase_results.uq_rvpr_run_ordinal|A3
+rollback_verification_phase_results.uq_rvpr_run_phase|A3
+security_scan_category_results.uq_sscr_run_category|A3
+shortcut_detector_category_results.uq_sdcr_run_category|A3
+shortcut_detector_reviewer_results.uq_sdrr_category_reviewer|A3
+tenant_api_keys.uq_tenant_api_keys_key_hash|A3
+test_results.uq_test_results_deterministic_case|A3
+test_results.uq_test_results_judgment_vote|A3
+"""
+
+SUBTIER: Mapping[str, str] = {
+    leaf: subtier
+    for leaf, subtier in (line.split("|", 1) for line in _SUBTIER_TEXT.splitlines() if line)
+}

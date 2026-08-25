@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
+from app.concurrency import ConcurrentWriteUnresolved
 from app.cost import (
     BudgetCeilings,
     CostStopDecision,
@@ -105,6 +106,8 @@ class CostEventRepository(TenantScopedRepository):
         new_id = (await self.session.execute(stmt)).scalar_one_or_none()
         if new_id is not None:
             event = await self.get(new_id)
+            if not isinstance(event, CostEvent):
+                raise ConcurrentWriteUnresolved("cost_event_insert_row_absent")
             await self._audit(event)
             return event
 
@@ -174,7 +177,7 @@ class BudgetRepository(TenantScopedRepository):
     def __init__(self, session: AsyncSession, context: TenantContext):
         super().__init__(session, context, Budget)
 
-    async def get(self, project_id: uuid.UUID) -> Budget | None:
+    async def get(self, project_id: uuid.UUID) -> Budget | None:  # type: ignore[override]
         stmt = select(Budget).where(
             Budget.tenant_id == self.context.tenant_id,
             Budget.project_id == project_id,
@@ -199,16 +202,32 @@ class BudgetRepository(TenantScopedRepository):
         existing = await self.get(project_id)
         old_total = existing.max_total_cost_usd if existing else None
         old_daily = existing.max_daily_cost_usd if existing else None
-        if existing is not None:
-            existing.max_total_cost_usd = total
-            existing.max_daily_cost_usd = daily
-            budget = existing
-        else:
-            budget = Budget(
-                project_id=project_id, max_total_cost_usd=total, max_daily_cost_usd=daily
+        stmt = (
+            pg_insert(Budget)
+            .values(
+                tenant_id=self.context.tenant_id,
+                project_id=project_id,
+                max_total_cost_usd=total,
+                max_daily_cost_usd=daily,
             )
-            await self.add(budget)  # stamps tenant_id
-        await self.session.flush()
+            .on_conflict_do_update(
+                constraint="uq_budgets_tenant_id_project_id",
+                set_={
+                    "max_total_cost_usd": total,
+                    "max_daily_cost_usd": daily,
+                    "updated_at": func.now(),
+                },
+            )
+            .returning(Budget.id)
+        )
+        budget_id = (await self.session.execute(stmt)).scalar_one()
+        budget = (
+            await self.session.execute(
+                select(Budget)
+                .where(Budget.id == budget_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
         await audit_record(
             self.session,
             action="budget.set",

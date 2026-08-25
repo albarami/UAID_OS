@@ -25,9 +25,11 @@ import re
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import record as audit_record
+from app.concurrency import ConcurrentWriteUnresolved
 from app.models.agent_blueprint import AgentBlueprint
 from app.models.agent_instance import AgentInstance
 from app.models.agent_version import COMPONENT_HASH_FIELDS, AgentVersion
@@ -66,6 +68,10 @@ class InvalidHash(RegistryError):
     pass
 
 
+class VersionLabelConflict(RegistryError):
+    """Same ``(blueprint_id, version_label)`` already stores different content."""
+
+
 class InstanceNotFound(RegistryError):
     pass
 
@@ -99,6 +105,34 @@ def _require_sha256(field: str, value: str) -> None:
         raise InvalidHash(f"{field} must be a 'sha256:<64 hex>' fingerprint")
 
 
+async def _reselect_version_by_content_hash(
+    session: AsyncSession, content_hash: str
+) -> AgentVersion | None:
+    """Ladder rung 2: identical-content winner, if visible."""
+    return (
+        await session.execute(select(AgentVersion).where(AgentVersion.content_hash == content_hash))
+    ).scalar_one_or_none()
+
+
+async def _reselect_version_by_label(
+    session: AsyncSession, blueprint_id: uuid.UUID, version_label: str
+) -> AgentVersion | None:
+    """Ladder rung 3: same label, different content if rung 2 missed."""
+    return (
+        await session.execute(
+            select(AgentVersion).where(
+                AgentVersion.blueprint_id == blueprint_id,
+                AgentVersion.version_label == version_label,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _version_insert_id(session: AsyncSession, stmt) -> uuid.UUID | None:
+    """Execute a version insert-returning statement. Patch point for P-GREEN-3c."""
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
 async def register_blueprint(
     session: AsyncSession,
     *,
@@ -116,10 +150,23 @@ async def register_blueprint(
     ).scalar_one_or_none()
     if existing is not None:
         return existing
-    blueprint = AgentBlueprint(key=key, role=role, mission=mission, archetype=archetype)
-    session.add(blueprint)
-    await session.flush()
-    return blueprint
+    stmt = (
+        pg_insert(AgentBlueprint)
+        .values(key=key, role=role, mission=mission, archetype=archetype)
+        .on_conflict_do_nothing(constraint="uq_agent_blueprints_key")
+        .returning(AgentBlueprint.id)
+    )
+    new_id = (await session.execute(stmt)).scalar_one_or_none()
+    if new_id is not None:
+        return (
+            await session.execute(select(AgentBlueprint).where(AgentBlueprint.id == new_id))
+        ).scalar_one()
+    winner = (
+        await session.execute(select(AgentBlueprint).where(AgentBlueprint.key == key))
+    ).scalar_one_or_none()
+    if winner is None:
+        raise ConcurrentWriteUnresolved("uq_agent_blueprints_key")
+    return winner
 
 
 async def register_version(
@@ -165,16 +212,32 @@ async def register_version(
     if existing is not None:
         return existing
 
-    version = AgentVersion(
-        blueprint_id=blueprint_id,
-        version_label=version_label,
-        model_route=model_route,
-        content_hash=content_hash,
-        **component_hashes,
+    new_id = await _version_insert_id(
+        session,
+        pg_insert(AgentVersion)
+        .values(
+            blueprint_id=blueprint_id,
+            version_label=version_label,
+            model_route=model_route,
+            content_hash=content_hash,
+            **component_hashes,
+        )
+        .on_conflict_do_nothing()
+        .returning(AgentVersion.id),
     )
-    session.add(version)
-    await session.flush()
-    return version
+    if new_id is not None:
+        return (
+            await session.execute(select(AgentVersion).where(AgentVersion.id == new_id))
+        ).scalar_one()
+    by_hash = await _reselect_version_by_content_hash(session, content_hash)
+    if by_hash is not None:
+        return by_hash
+    by_label = await _reselect_version_by_label(session, blueprint_id, version_label)
+    if by_label is not None:
+        raise VersionLabelConflict("agent version label already registered with different content")
+    raise ConcurrentWriteUnresolved(
+        "uq_agent_versions_content_hash,uq_agent_versions_blueprint_id_version_label"
+    )
 
 
 class AgentInstanceRepository(TenantScopedRepository):

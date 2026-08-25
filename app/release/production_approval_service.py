@@ -26,6 +26,7 @@ from app.release.production_approval import (
     subject_digest,
 )
 from app.repositories.approvals import ApprovalRepository
+from app.repositories.emergency_controls import lock_project_row
 from app.repositories.production_preapprovals import (
     ProductionPreapprovalRepository,
     ProductionPreapprovalRepositoryError,
@@ -228,6 +229,7 @@ class ProductionApprovalService:
         actor_type: str,
         idempotency_key_hash: str,
     ) -> None:
+        await lock_project_row(self.session, self.context, project_id)
         prior = (
             await self.session.execute(
                 select(ProductionPreapprovalAttestation)
@@ -323,6 +325,7 @@ class ProductionApprovalService:
     async def revoke(
         self, *, project_id: uuid.UUID, attestation_id: uuid.UUID, idempotency_key: str
     ) -> ProductionPreapprovalResult:
+        await lock_project_row(self.session, self.context, project_id)
         attestation = await self.repo.get_attestation(project_id, attestation_id)
         if attestation is None:
             raise ProductionPreapprovalNotFound("production_preapproval_not_found")

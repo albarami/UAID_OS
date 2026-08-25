@@ -17,6 +17,7 @@ from app.models.acceptance_verification import (
     AcceptanceVerificationRun,
 )
 from app.models.intake_artifact import IntakeArtifact
+from app.repositories.emergency_controls import lock_project_row
 from app.repositories.reviewer_quality import ReviewerQualityRepository
 from app.tenancy import TenantContext, TenantScopedRepository
 from app.verify.acceptance import (
@@ -81,6 +82,7 @@ class AcceptanceVerificationRepository(TenantScopedRepository):
             project_id=project_id, reviewer_instance_id=reviewer_instance_id
         ):
             raise ValueError("current reviewer QA evidence is required")
+        await lock_project_row(self.session, self.context, project_id)
         current = await self._current_record(project_id, acceptance_criterion_id)
         row = AcceptanceCriterionAuthorshipRecord(
             tenant_id=self.context.tenant_id,
@@ -125,6 +127,7 @@ class AcceptanceVerificationRepository(TenantScopedRepository):
         actor: str,
     ) -> AcceptanceCriterionAuthorshipRecord:
         self._check_digest(evidence_reference)
+        await lock_project_row(self.session, self.context, project_id)
         current = await self._current_record(project_id, acceptance_criterion_id)
         row = AcceptanceCriterionAuthorshipRecord(
             tenant_id=self.context.tenant_id,
@@ -164,6 +167,7 @@ class AcceptanceVerificationRepository(TenantScopedRepository):
         actor: str,
     ) -> AcceptanceCriterionAuthorshipRecord:
         self._check_digest(evidence_reference)
+        await lock_project_row(self.session, self.context, project_id)
         current = await self._current_record(project_id, acceptance_criterion_id)
         if current is None:
             raise ValueError("a dispute must supersede an existing authorship record")
