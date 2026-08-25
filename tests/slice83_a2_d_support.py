@@ -23,13 +23,14 @@ from app.release.evidence_pack import (
 from app.release.production_approval import canonical_digest, idempotency_digest, subject_digest
 from app.release.production_approval_service import ProductionApprovalService
 from app.repositories.evidence_packs import EvidencePackRepository
-from app.repositories.export_bundles import ExportBundleRepository
+from app.repositories.export_bundles import ExportBundleRepository, snapshot_of
 from app.repositories.intake_categories import IntakeCategoryRepository
 from app.repositories.production_preapprovals import ProductionPreapprovalRepository
 from app.repositories.release_issues import ReleaseIssueRepository
 from app.repositories.release_verdicts import ReleaseVerdictRepository
 from app.repositories.security_scans import SecurityScanRepository
 from app.tenancy import TenantContext
+from tests.slice83_a2_support import reload_conflict_winner
 from tests.slice83_support import Writer, bind_tenant, seed_org_tenant_project
 from tests.test_issue_provenance import COMMIT_SHA as SCAN_SHA
 from tests.test_issue_provenance import _security_payload
@@ -302,8 +303,15 @@ def append_request_writer(
 
 def export_writer(ctx: TenantContext, pack_id: uuid.UUID, key: str) -> Writer:
     async def writer(session: AsyncSession) -> Any:
-        return await ExportBundleRepository(session, ctx).generate(
-            pack_id, actor="s83-a2", idempotency_key=key
+        repo = ExportBundleRepository(session, ctx)
+
+        async def fetch() -> Any:
+            existing = await repo.get_by_idempotency(pack_id, key)
+            return None if existing is None else snapshot_of(existing)
+
+        return await reload_conflict_winner(
+            await repo.generate(pack_id, actor="s83-a2", idempotency_key=key),
+            fetch,
         )
 
     return writer

@@ -25,6 +25,7 @@ from app.repositories.task_contracts import TaskContractRepository
 from tests.admin_support import pg_state, seed_gated_policy
 from tests.ops_stabilization_support import window_data
 from tests.slice83_a1_ledger_support import _passed_report
+from tests.slice83_a2_support import reload_conflict_winner
 from tests.slice83_support import (
     READ_COMMITTED,
     SERIALIZABLE,
@@ -170,20 +171,39 @@ def ticket_writer(ctx: TenantContext, project_id: uuid.UUID, incident_id: uuid.U
 
 
 def hotfix_writer(
-    ctx: TenantContext, project_id: uuid.UUID, incident_id: uuid.UUID, key: str
+    ctx: TenantContext,
+    project_id: uuid.UUID,
+    incident_id: uuid.UUID,
+    key: str,
+    *,
+    reload_winner: bool = True,
 ) -> Writer:
     async def writer(session: AsyncSession) -> Any:
-        return await OpsHotfixRepository(session, ctx).evaluate(
-            project_id, incident_id, actor="s83-a2", idempotency_key=key
-        )
+        repo = OpsHotfixRepository(session, ctx)
+        value = await repo.evaluate(project_id, incident_id, actor="s83-a2", idempotency_key=key)
+        if not reload_winner:
+            return value
+
+        async def fetch() -> Any:
+            existing = await repo.get_by_idempotency(project_id, incident_id, key)
+            return None if existing is None else await repo.snapshot_of(existing)
+
+        return await reload_conflict_winner(value, fetch)
 
     return writer
 
 
 def stab_writer(ctx: TenantContext, project_id: uuid.UUID, key: str) -> Writer:
     async def writer(session: AsyncSession) -> Any:
-        return await OpsStabilizationRepository(session, ctx).assess(
-            project_id, actor="s83-a2", idempotency_key=key
+        repo = OpsStabilizationRepository(session, ctx)
+
+        async def fetch() -> Any:
+            existing = await repo.get_by_idempotency(project_id, key)
+            return None if existing is None else await repo.snapshot_of(existing)
+
+        return await reload_conflict_winner(
+            await repo.assess(project_id, actor="s83-a2", idempotency_key=key),
+            fetch,
         )
 
     return writer

@@ -241,7 +241,13 @@ async def test_a2_self_healing_runs_mutation(rls_engine, admin_engine):
             rls_engine=rls_engine,
             admin_engine=admin_engine,
             tenant_id=world["tenant"],
-            writer=hotfix_writer(world["ctx"], world["project"], world["incident_id"], key),
+            writer=hotfix_writer(
+                world["ctx"],
+                world["project"],
+                world["incident_id"],
+                key,
+                reload_winner=False,
+            ),
             count_sql=(
                 "SELECT count(*) FROM ops_self_healing_runs "
                 "WHERE tenant_id=:t AND project_id=:p AND incident_id=:i AND idempotency_key=:k"

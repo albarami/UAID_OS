@@ -50,6 +50,17 @@ from tests.test_runtime import _ckpt
 HASH = "sha256:" + "ab" * 32
 
 
+async def reload_conflict_winner(value: Any, fetch: Callable[[], Coroutine[Any, Any, Any]]) -> Any:
+    """A2 writers that ``ON CONFLICT DO NOTHING`` return None; reload the committed winner.
+
+    Production does not add conflict handling. The test wrapper only proves the
+    loser's session can read the same identity after W1 commits.
+    """
+    if value is not None:
+        return value
+    return await fetch()
+
+
 def assert_a2_green(result: TwoWriterResult, constraint: str, *, reconciles: bool = False) -> None:
     """A2 GREEN: one row; loser is 23505 or an already-reconciling winner; no deadlock."""
     assert result.unique_row_count == 1
@@ -304,8 +315,15 @@ def incident_writer(ctx: TenantContext, project_id: uuid.UUID, key: str) -> Writ
     payload = IncidentPayload(category="availability", severity="low", summary="s83 a2 incident")
 
     async def writer(session: AsyncSession) -> Any:
-        return await OpsIncidentRepository(session, ctx).open(
-            project_id, actor="s83-a2", payload=payload, idempotency_key=key
+        repo = OpsIncidentRepository(session, ctx)
+
+        async def fetch() -> Any:
+            existing = await repo.get_by_idempotency(project_id, key)
+            return None if existing is None else await repo.snapshot_of(existing)
+
+        return await reload_conflict_winner(
+            await repo.open(project_id, actor="s83-a2", payload=payload, idempotency_key=key),
+            fetch,
         )
 
     return writer
@@ -325,18 +343,27 @@ def observation_writer(ctx: TenantContext, project_id: uuid.UUID, key: str) -> W
     counters = compute_counters(rows)
 
     async def writer(session: AsyncSession) -> Any:
-        return await OpsSignalRepository(session, ctx).record_run(
-            project_id=project_id,
-            idempotency_key=key,
-            request_digest=HASH,
-            input_digest=HASH,
-            as_of=as_of,
-            observed_count=counters.observed_count,
-            caller_supplied_count=counters.caller_supplied_count,
-            not_observed_count=counters.not_observed_count,
-            breached_count=counters.breached_count,
-            rows=rows,
-            actor="s83-a2",
+        repo = OpsSignalRepository(session, ctx)
+
+        async def fetch() -> Any:
+            existing = await repo.get_by_idempotency(project_id, key)
+            return None if existing is None else await repo.snapshot(existing)
+
+        return await reload_conflict_winner(
+            await repo.record_run(
+                project_id=project_id,
+                idempotency_key=key,
+                request_digest=HASH,
+                input_digest=HASH,
+                as_of=as_of,
+                observed_count=counters.observed_count,
+                caller_supplied_count=counters.caller_supplied_count,
+                not_observed_count=counters.not_observed_count,
+                breached_count=counters.breached_count,
+                rows=rows,
+                actor="s83-a2",
+            ),
+            fetch,
         )
 
     return writer
